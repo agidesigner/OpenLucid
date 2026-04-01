@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenLucid</title>
+  <script>
+    document.documentElement.style.display='none';
+    fetch('/api/v1/auth/me').then(r=>{
+      if(!r.ok) fetch('/api/v1/auth/setup-status').then(r=>r.json()).then(s=>{
+        location.href=s.needs_setup?'/install.html':'/signin.html';
+      });
+      else document.documentElement.style.display='';
+    });
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        sidebar: { DEFAULT: '#1C1C28', hover: '#2A2A3C' },
+        accent: { DEFAULT: '#155EEF', light: '#EFF4FF', hover: '#1849C6' },
+      }}}
+    }
+  </script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/pinned-apps.js"></script>
+  <script src="/js/avatar.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif}
+    .sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;color:#A0A0B0;font-size:14px;cursor:pointer;transition:all .15s}
+    .sidebar-item:hover{background:#2A2A3C;color:#E0E0EE}
+    .sidebar-item.active{background:#2D2D40;color:#fff}
+  </style>
+</head>
+<body class="bg-gray-50 h-screen flex overflow-hidden" x-data="brandkitList()" x-init="init()">
+
+  <!-- Sidebar -->
+  <aside class="w-56 bg-sidebar flex flex-col shrink-0">
+    <div class="px-4 py-5 flex items-center gap-2.5">
+      <img src="/images/logo.png" alt="OpenLucid" class="w-8 h-8 rounded-lg">
+      <span class="text-white font-semibold text-base">OpenLucid</span>
+    </div>
+    <nav class="flex-1 px-3 space-y-1 mt-2">
+      <a href="/" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        <span x-text="t('sidebar_offers')"></span>
+      </a>
+      <a href="/apps.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+        <span x-text="t('sidebar_apps')"></span>
+      </a>
+      <a href="/brandkit-list.html" class="sidebar-item active">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
+      </a>
+    </nav>
+    <div class="px-3 pb-3 mt-auto">
+      <div class="text-[10px] text-white/25 text-center">Powered by OpenLucid</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <header class="h-14 bg-white border-b flex items-center justify-between px-6 shrink-0">
+      <h1 class="text-base font-semibold text-gray-800" x-text="t('page_title')"></h1>
+      <div id="avatar-mount"></div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-6">
+      <div x-show="loading" class="text-center py-12 text-gray-400 text-sm" x-text="t('loading')"></div>
+
+      <div x-show="!loading">
+        <!-- Merchant-level BrandKit -->
+        <div class="mb-8">
+          <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3" x-text="t('merchant_section')"></h2>
+          <template x-if="merchantKit">
+            <a :href="'/brandkit.html?id=' + merchantKit.id" class="block bg-white rounded-xl border p-5 hover:shadow-md transition-shadow cursor-pointer">
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
+                    <svg class="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+                  </div>
+                  <div>
+                    <div class="font-semibold text-gray-800" x-text="merchantKit.name"></div>
+                    <div class="text-xs text-gray-400" x-text="merchantKit.description || t('no_description')"></div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                        :class="merchantKit.status === 'active' ? 'bg-green-50 text-green-600' : merchantKit.status === 'archived' ? 'bg-gray-100 text-gray-500' : 'bg-yellow-50 text-yellow-600'"
+                        x-text="{draft:t('status_draft'),active:t('status_active'),archived:t('status_archived')}[merchantKit.status] || merchantKit.status"></span>
+                  <span class="text-xs text-gray-400" x-text="new Date(merchantKit.updated_at).toLocaleDateString()"></span>
+                </div>
+              </div>
+            </a>
+          </template>
+          <template x-if="!merchantKit">
+            <div class="bg-white rounded-xl border border-dashed p-8 text-center">
+              <div class="text-gray-400 text-sm mb-3" x-text="t('no_merchant_kit')"></div>
+              <button @click="createMerchantKit()" :disabled="creating"
+                      class="bg-accent text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors">
+                <span x-text="creating ? t('creating') : t('create_merchant_kit')"></span>
+              </button>
+            </div>
+          </template>
+        </div>
+
+        <!-- Offer-level BrandKits -->
+        <div>
+          <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3" x-text="t('offer_section')"></h2>
+          <template x-if="offerKits.length === 0">
+            <div class="bg-white rounded-xl border border-dashed p-8 text-center">
+              <div class="text-gray-400 text-sm" x-text="t('no_offer_kits')"></div>
+            </div>
+          </template>
+          <div class="space-y-2">
+            <template x-for="kit in offerKits" :key="kit.id">
+              <a :href="'/brandkit.html?id=' + kit.id" class="block bg-white rounded-xl border p-4 hover:shadow-md transition-shadow cursor-pointer">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                      <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+                    </div>
+                    <div>
+                      <div class="font-medium text-gray-800" x-text="kit.name"></div>
+                      <div class="text-xs text-gray-400" x-text="offers[kit.scope_id] ? (t('linked_to') + offers[kit.scope_id]) : ''"></div>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                          :class="kit.status === 'active' ? 'bg-green-50 text-green-600' : kit.status === 'archived' ? 'bg-gray-100 text-gray-500' : 'bg-yellow-50 text-yellow-600'"
+                          x-text="{draft:t('status_draft'),active:t('status_active'),archived:t('status_archived')}[kit.status] || kit.status"></span>
+                    <span class="text-xs text-gray-400" x-text="new Date(kit.updated_at).toLocaleDateString()"></span>
+                  </div>
+                </div>
+              </a>
+            </template>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const API = '/api/v1';
+
+    function brandkitList() {
+      return {
+        loading: true,
+        creating: false,
+        merchantKit: null,
+        offerKits: [],
+        offers: {},
+        merchantId: null,
+
+        async init() {
+          document.title = t('page_title') + ' - OpenLucid';
+          const mRes = await fetch(`${API}/merchants?page_size=1`);
+          const mData = await mRes.json();
+          if (mData.items && mData.items.length > 0) {
+            this.merchantId = mData.items[0].id;
+            await this.fetchKits();
+          }
+          this.loading = false;
+        },
+
+        async fetchKits() {
+          const res = await fetch(`${API}/brandkits/for-merchant/${this.merchantId}`);
+          if (res.ok) {
+            const data = await res.json();
+            this.merchantKit = data.merchant_kit;
+            this.offerKits = data.offer_kits || [];
+            this.offers = data.offers || {};
+          }
+        },
+
+        async createMerchantKit() {
+          if (!this.merchantId) return;
+          this.creating = true;
+          try {
+            const res = await fetch(`${API}/brandkits`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                scope_type: 'merchant',
+                scope_id: this.merchantId,
+                name: t('company_brandkit_name'),
+              }),
+            });
+            if (res.ok) {
+              const kit = await res.json();
+              location.href = `/brandkit.html?id=${kit.id}`;
+            } else {
+              const err = await res.json();
+              alert(err.error?.message || t('save_failed'));
+            }
+          } catch { alert(t('save_failed')); }
+          this.creating = false;
+        },
+      };
+    }
+  </script>
+</body>
+</html>

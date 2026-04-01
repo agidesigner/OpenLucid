@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenLucid</title>
+  <script>
+    document.documentElement.style.display='none';
+    fetch('/api/v1/auth/me').then(r=>{
+      if(!r.ok) fetch('/api/v1/auth/setup-status').then(r=>r.json()).then(s=>{
+        location.href=s.needs_setup?'/install.html':'/signin.html';
+      });
+      else document.documentElement.style.display='';
+    });
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        sidebar: { DEFAULT: '#1C1C28', hover: '#2A2A3C', active: '#3B3B50' },
+        accent: { DEFAULT: '#155EEF', light: '#EFF4FF', hover: '#1849C6' },
+      }}}
+    }
+  </script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/pinned-apps.js"></script>
+  <script src="/js/avatar.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif}
+    .sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;color:#A0A0B0;font-size:14px;cursor:pointer;transition:all .15s}
+    .sidebar-item:hover{background:#2A2A3C;color:#E0E0EE}
+    .sidebar-item.active{background:#2D2D40;color:#fff}
+    .desc-tab{padding:6px 14px;font-size:13px;border-radius:6px;color:#6B7280;cursor:pointer;transition:all .15s;border:1px solid transparent}
+    .desc-tab:hover{color:#374151}
+    .desc-tab.active{color:#155EEF;background:#EFF4FF;border-color:#155EEF30}
+    .progress-bar{height:4px;border-radius:2px;background:#E5E7EB;overflow:hidden}
+    .progress-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,#7C3AED,#155EEF);transition:width .4s ease}
+  </style>
+</head>
+<body class="bg-gray-50 h-screen flex overflow-hidden" x-data="app()" x-init="init()">
+
+  <!-- Sidebar -->
+  <aside class="w-56 bg-sidebar flex flex-col shrink-0">
+    <div class="px-4 py-5 flex items-center gap-2.5">
+      <img src="/images/logo.png" alt="OpenLucid" class="w-8 h-8 rounded-lg">
+      <span class="text-white font-semibold text-base">OpenLucid</span>
+    </div>
+    <nav class="flex-1 px-3 space-y-1 mt-2">
+      <a href="/" class="sidebar-item active">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        <span x-text="t('sidebar_offers')"></span>
+      </a>
+      <a href="/apps.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+        <span x-text="t('sidebar_apps')"></span>
+      </a>
+      <a href="/brandkit-list.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
+      </a>
+    </nav>
+    <div class="px-3 pb-3 mt-auto">
+      <div class="text-[10px] text-white/25 text-center">Powered by OpenLucid</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <header class="h-14 bg-white border-b flex items-center justify-between px-6 shrink-0">
+      <h1 class="text-base font-semibold text-gray-800" x-text="t('header_title')"></h1>
+      <div class="flex items-center gap-3">
+        <button @click="openWizard()" class="bg-accent text-white px-4 py-[7px] rounded-lg text-[13px] font-medium hover:bg-accent-hover transition-colors flex items-center gap-1.5">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          <span x-text="t('btn_create')"></span>
+        </button>
+
+        <a href="/setting.html?section=mcp"
+           class="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 border border-gray-200 hover:border-gray-300 px-2.5 py-1.5 rounded-lg transition-colors">
+          <span class="w-1.5 h-1.5 bg-green-400 rounded-full"></span>
+          MCP
+        </a>
+        <div id="avatar-mount"></div>
+      </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-6">
+      <!-- DB Error -->
+      <div x-show="dbError" class="flex flex-col items-center justify-center h-64">
+        <div class="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mb-4">
+          <svg class="w-8 h-8 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <p class="text-gray-600 text-sm mb-1" x-text="t('db_error')"></p>
+        <p class="text-gray-400 text-xs mb-4" x-text="t('db_error_hint')"></p>
+        <button @click="dbError=false; init()" class="text-sm text-accent hover:underline" x-text="t('btn_retry')"></button>
+      </div>
+
+      <div x-show="loading && !dbError" class="flex items-center justify-center h-64">
+        <div class="text-sm text-gray-400" x-text="t('loading')"></div>
+      </div>
+
+      <!-- Empty -->
+      <div x-show="!loading && !dbError && offers.length === 0" class="flex flex-col items-center justify-center h-64">
+        <div class="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mb-4">
+          <svg class="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        </div>
+        <p class="text-gray-500 text-sm mb-4" x-text="t('empty_hint')"></p>
+        <button @click="openWizard()" class="bg-accent text-white px-4 py-2 rounded-lg text-sm hover:bg-accent-hover" x-text="t('create_offer')"></button>
+      </div>
+
+      <!-- Offer Grid -->
+      <div x-show="!loading && !dbError && offers.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <template x-for="o in offers" :key="o.id">
+          <div class="group bg-white rounded-xl border border-gray-200 p-5 hover:shadow-lg hover:border-accent/30 transition-all cursor-pointer relative"
+               x-data="{ menuOpen: false }">
+            <a :href="'/offer.html?id=' + o.id" class="block">
+              <div class="flex items-start gap-3 mb-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center text-base font-bold shrink-0"
+                     :class="{'bg-blue-50 text-blue-600': o.offer_type==='product', 'bg-green-50 text-green-600': o.offer_type==='service', 'bg-purple-50 text-purple-600': o.offer_type==='bundle', 'bg-orange-50 text-orange-600': o.offer_type==='solution'}"
+                     x-text="(o.name || '?')[0].toUpperCase()"></div>
+                <div class="min-w-0 flex-1">
+                  <h3 class="font-semibold text-gray-800 text-[15px] truncate group-hover:text-accent transition-colors" x-text="o.name"></h3>
+                  <span class="text-xs text-gray-400" x-text="({product:t('offer_type_product'), service:t('offer_type_service'), bundle:t('offer_type_bundle'), solution:t('offer_type_solution')}[o.offer_type] || o.offer_type)"></span>
+                </div>
+              </div>
+              <p class="text-sm text-gray-500 line-clamp-2 mb-3 min-h-[40px]" x-text="o.description || t('no_description')"></p>
+              <div class="flex flex-wrap gap-1.5">
+                <template x-for="sp in (o.core_selling_points_json?.points || []).slice(0, 3)">
+                  <span class="bg-gray-50 text-gray-500 text-[11px] px-2 py-0.5 rounded-full" x-text="sp"></span>
+                </template>
+              </div>
+            </a>
+            <!-- Dropdown -->
+            <div class="absolute top-3 right-3">
+              <button @click.prevent.stop="menuOpen = !menuOpen"
+                      class="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-all">
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="4" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="10" cy="16" r="1.5"/></svg>
+              </button>
+              <div x-show="menuOpen" x-cloak @click.outside="menuOpen = false"
+                   class="absolute right-0 mt-1 w-32 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
+                <button @click.prevent.stop="deleteOffer(o.id); menuOpen = false"
+                        class="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                  <span x-text="t('btn_delete')"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </main>
+  </div>
+
+  <!-- ====== No LLM Dialog ====== -->
+  <div x-show="showNoLLMDialog" x-cloak
+       class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+       @click.self="showNoLLMDialog = false">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
+      <div class="flex items-start gap-3 mb-4">
+        <div class="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
+          <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        </div>
+        <div>
+          <p class="font-semibold text-gray-800 text-[15px]" x-text="t('ai_not_configured')"></p>
+          <p class="text-gray-500 text-[13px] mt-1 leading-relaxed" x-text="t('ai_not_configured_desc')"></p>
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <button @click="showNoLLMDialog = false"
+                class="flex-1 px-4 py-2 rounded-lg text-[13px] font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition">
+          <span x-text="t('ai_configure_later')"></span>
+        </button>
+        <a href="/setting.html?section=llm"
+           class="flex-1 px-4 py-2 rounded-lg text-[13px] font-medium text-white bg-accent hover:bg-accent-hover transition text-center"
+           x-text="t('ai_go_settings')">
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== Create Wizard Modal ====== -->
+  <div x-show="wizard.open" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="wizard.open = false" x-transition.opacity>
+    <div class="bg-white rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col" x-transition.scale.95 @click.stop>
+
+      <!-- Header -->
+      <div class="px-6 py-5 border-b shrink-0">
+        <h3 class="text-lg font-semibold text-gray-800" x-text="t('wizard_title')"></h3>
+        <div class="flex items-center gap-6 mt-3">
+          <template x-for="(s, i) in t('wizard_steps')" :key="i">
+            <div class="flex items-center gap-2">
+              <div class="w-6 h-6 rounded-full text-xs flex items-center justify-center font-medium transition-colors"
+                   :class="wizard.step > i ? 'bg-green-500 text-white' : wizard.step === i ? 'bg-accent text-white' : 'bg-gray-100 text-gray-400'"
+                   x-text="wizard.step > i ? '✓' : (i+1)"></div>
+              <span class="text-sm" :class="wizard.step === i ? 'text-gray-800 font-medium' : 'text-gray-400'" x-text="s"></span>
+              <svg x-show="i < 2" class="w-4 h-4 text-gray-200 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Body -->
+      <div class="flex-1 overflow-y-auto px-6 py-5">
+
+        <!-- ── Step 0: Basic Info ── -->
+        <div x-show="wizard.step === 0">
+          <div class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('name_label')"></label>
+                <input x-model="wizard.name" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none" :placeholder="t('name_placeholder')">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-0.5" x-text="t('type_label')"></label>
+                <p class="text-xs text-gray-400 mb-1.5" x-text="t('type_hint')"></p>
+                <div class="grid grid-cols-4 gap-2">
+                  <template x-for="tp in [{v:'product',k:'offer_type_product',d:'offer_type_product_desc',e:'📦'},{v:'service',k:'offer_type_service',d:'offer_type_service_desc',e:'🛎️'},{v:'bundle',k:'offer_type_bundle',d:'offer_type_bundle_desc',e:'📋'},{v:'solution',k:'offer_type_solution',d:'offer_type_solution_desc',e:'💡'}]">
+                    <button type="button" @click="wizard.offer_type = tp.v"
+                            :class="wizard.offer_type === tp.v ? 'border-accent bg-accent-light text-accent' : 'border-gray-200 text-gray-600 hover:border-gray-300'"
+                            class="border rounded-lg py-2 px-1 text-center text-xs transition-colors">
+                      <span x-text="tp.e" class="block text-base"></span>
+                      <span x-text="t(tp.k)" class="block font-medium"></span>
+                      <span x-text="t(tp.d)" class="block text-[10px] text-gray-400 mt-0.5 leading-tight"></span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1.5"><span x-text="t('desc_label')"></span> <span class="text-xs text-gray-400 font-normal" x-text="t('desc_hint')"></span></label>
+              <div class="space-y-3">
+
+                <!-- Text input -->
+                <div>
+                  <div class="text-xs text-gray-500 mb-1" x-text="t('text_input')"></div>
+                  <textarea x-model="wizard.descText" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none resize-none"
+                            :placeholder="t('text_placeholder')"></textarea>
+                </div>
+
+                <!-- URL import -->
+                <div>
+                  <div class="text-xs text-gray-500 mb-1" x-text="t('url_import')"></div>
+                  <div x-show="!wizard.descUrlText" class="flex gap-2">
+                    <input x-model="wizard.url" type="url" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none" :placeholder="t('url_placeholder')">
+                    <button @click="extractFromUrl()" :disabled="!wizard.url || wizard.extracting"
+                            class="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm hover:bg-gray-200 disabled:opacity-50 transition shrink-0">
+                      <span x-text="wizard.extracting ? t('extracting') : t('extract_content')"></span>
+                    </button>
+                  </div>
+                  <div x-show="wizard.descUrlText" class="bg-green-50 border border-green-100 rounded-lg p-3 text-sm text-gray-600 max-h-28 overflow-y-auto relative">
+                    <div class="flex items-center justify-between mb-1">
+                      <span class="text-xs text-green-600 font-medium" x-text="t('extracted_from_url')"></span>
+                      <div class="flex items-center gap-2">
+                        <span class="text-xs text-gray-400" x-text="wizard.descUrlText.length + t('chars')"></span>
+                        <button @click="wizard.descUrlText = ''; wizard.url = ''" class="text-xs text-red-400 hover:text-red-600 transition" x-text="t('btn_delete')"></button>
+                      </div>
+                    </div>
+                    <span x-text="wizard.descUrlText.slice(0, 200) + (wizard.descUrlText.length > 200 ? '...' : '')"></span>
+                  </div>
+                </div>
+
+                <!-- File upload -->
+                <div>
+                  <div class="text-xs text-gray-500 mb-1" x-text="t('file_upload')"></div>
+                  <div x-show="!wizard.descFileText">
+                    <label class="flex items-center justify-center w-full h-20 border-2 border-dashed border-gray-200 rounded-lg cursor-pointer hover:border-accent/40 hover:bg-accent-light/30 bg-white transition-all"
+                           :class="wizard.extracting && 'pointer-events-none opacity-50'">
+                      <div class="text-center">
+                        <svg class="w-5 h-5 text-gray-300 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                        <span class="text-xs text-gray-400" x-text="wizard.extracting ? t('extracting') : t('upload_hint')"></span>
+                      </div>
+                      <input type="file" class="hidden" accept=".pdf,.docx,.doc,.txt" @change="extractFromFile($event)">
+                    </label>
+                  </div>
+                  <div x-show="wizard.descFileText" class="bg-blue-50 border border-blue-100 rounded-lg p-3 text-sm text-gray-600 max-h-28 overflow-y-auto relative">
+                    <div class="flex items-center justify-between mb-1">
+                      <span class="text-xs text-blue-600 font-medium" x-text="t('extracted_from_file') + (wizard.fileName || 'file')"></span>
+                      <div class="flex items-center gap-2">
+                        <span class="text-xs text-gray-400" x-text="wizard.descFileText.length + t('chars')"></span>
+                        <button @click="wizard.descFileText = ''; wizard.fileName = ''" class="text-xs text-red-400 hover:text-red-600 transition" x-text="t('btn_delete')"></button>
+                      </div>
+                    </div>
+                    <span x-text="wizard.descFileText.slice(0, 200) + (wizard.descFileText.length > 200 ? '...' : '')"></span>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Step 1: AI Inferring ── -->
+        <div x-show="wizard.step === 1">
+          <!-- Progress -->
+          <div x-show="wizard.inferring" class="py-12">
+            <div class="max-w-sm mx-auto text-center">
+              <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-purple-100 to-blue-100 flex items-center justify-center">
+                <svg class="w-8 h-8 text-accent animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              </div>
+              <p class="text-sm font-medium text-gray-700 mb-1" x-text="wizard.progressLabel"></p>
+              <p class="text-xs text-gray-400 mb-4" x-text="(aiProvider || 'AI') + t('ai_analyzing_hint')"></p>
+              <div class="progress-bar">
+                <div class="progress-fill" :style="'width:' + wizard.progress + '%'"></div>
+              </div>
+              <span class="text-xs text-gray-400 mt-1 inline-block" x-text="wizard.progress + '%'"></span>
+            </div>
+          </div>
+
+          <!-- Results -->
+          <div x-show="!wizard.inferring && wizard.suggestions" class="space-y-5">
+            <template x-for="[catKey, catLabel] of catEntries" :key="catKey">
+              <div x-show="wizard.suggestions?.[catKey]?.length">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-sm font-semibold text-gray-700" x-text="catLabel"></span>
+                  <span class="text-[11px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded" x-text="(wizard.suggestions?.[catKey]||[]).length + t('n_items')"></span>
+                </div>
+                <div class="space-y-2">
+                  <template x-for="(item, idx) in (wizard.suggestions?.[catKey] || [])" :key="catKey+idx">
+                    <div class="bg-white rounded-lg border p-3.5 flex items-start gap-3 hover:shadow-sm transition-shadow">
+                      <input type="checkbox" x-model="item._selected" class="mt-0.5 rounded border-gray-300 text-accent focus:ring-accent/30 w-4 h-4">
+                      <div class="flex-1 min-w-0">
+                        <template x-if="item._editing">
+                          <div class="space-y-2">
+                            <input x-model="item.title" class="w-full border border-gray-200 rounded-md px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+                            <textarea x-model="item.content_raw" rows="2" class="w-full border border-gray-200 rounded-md px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none resize-none"></textarea>
+                            <button @click="item._editing = false" class="text-xs text-accent hover:underline" x-text="t('done')"></button>
+                          </div>
+                        </template>
+                        <template x-if="!item._editing">
+                          <div @click="item._editing = true" class="cursor-pointer group/item">
+                            <div class="text-sm font-medium text-gray-800 group-hover/item:text-accent transition-colors" x-text="item.title"></div>
+                            <div class="text-[13px] text-gray-500 mt-0.5 leading-relaxed" x-text="item.content_raw"></div>
+                          </div>
+                        </template>
+                      </div>
+                      <span class="text-[11px] text-gray-400 tabular-nums shrink-0" x-text="Math.round((item.confidence||0)*100)+'%'"></span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+            <div class="flex items-center gap-3 pt-2">
+              <button @click="selectAllWizard()" class="text-[13px] text-accent hover:underline" x-text="t('select_all')"></button>
+              <button @click="deselectAllWizard()" class="text-[13px] text-gray-400 hover:underline" x-text="t('deselect_all')"></button>
+              <div class="flex-1"></div>
+              <span class="text-[13px] text-gray-500" x-text="wizardSelectedCount + t('n_selected')"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Step 2: Confirm ── -->
+        <div x-show="wizard.step === 2">
+          <div class="bg-gray-50 rounded-xl p-5 mb-4">
+            <h4 class="font-semibold text-gray-800 mb-3" x-text="t('about_to_create')"></h4>
+            <div class="grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <span class="text-gray-400" x-text="t('name')"></span>
+                <div class="font-medium text-gray-800 mt-0.5" x-text="wizard.name"></div>
+              </div>
+              <div>
+                <span class="text-gray-400" x-text="t('type')"></span>
+                <div class="font-medium text-gray-800 mt-0.5" x-text="({product:t('offer_type_product'), service:t('offer_type_service'), bundle:t('offer_type_bundle'), solution:t('offer_type_solution')}[wizard.offer_type] || wizard.offer_type)"></div>
+              </div>
+              <div>
+              </div>
+            </div>
+            <div class="mt-3" x-show="wizardDesc">
+              <span class="text-sm text-gray-400" x-text="t('description')"></span>
+              <div class="text-sm text-gray-600 mt-0.5 line-clamp-3" x-text="wizardDesc"></div>
+            </div>
+          </div>
+          <div class="bg-gray-50 rounded-xl p-5">
+            <h4 class="font-semibold text-gray-800 mb-3"><span x-text="t('will_write_kb')"></span> <span class="text-sm font-normal text-gray-400" x-text="'(' + wizardSelectedCount + t('n_items') + ')'"></span></h4>
+            <div class="space-y-1.5 max-h-48 overflow-y-auto">
+              <template x-for="[catKey, catLabel] of catEntries" :key="'c-'+catKey">
+                <template x-for="item in (wizard.suggestions?.[catKey]||[]).filter(i=>i._selected)" :key="item.title">
+                  <div class="flex items-center gap-2 text-sm">
+                    <span class="text-[11px] bg-accent-light text-accent px-1.5 py-0.5 rounded font-medium" x-text="catLabel"></span>
+                    <span class="text-gray-700" x-text="item.title"></span>
+                  </div>
+                </template>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="px-6 py-4 border-t flex items-center justify-between shrink-0">
+        <button x-show="wizard.step > 0 && !wizard.inferring" @click="wizard.step--" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg" x-text="t('prev_step')"></button>
+        <div x-show="wizard.step === 0 || wizard.inferring"></div>
+        <div class="flex gap-3">
+          <button @click="wizard.open = false" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg" x-text="t('btn_cancel')"></button>
+
+          <!-- Step 0 → AI fill -->
+          <template x-if="aiReady === false">
+            <button x-show="wizard.step === 0" @click="showNoLLMDialog = true"
+                    class="border border-amber-300 bg-amber-50 text-amber-700 px-5 py-2 rounded-lg text-sm font-medium hover:bg-amber-100 transition flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+              <span x-text="t('ai_not_configured_btn')"></span>
+            </button>
+          </template>
+          <template x-if="aiReady !== false">
+            <button x-show="wizard.step === 0" @click="startInfer()"
+                    :disabled="!wizard.name.trim() || aiReady === null"
+                    class="bg-gradient-to-r from-purple-600 to-accent text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              <span x-text="t('ai_fill')"></span>
+            </button>
+          </template>
+
+          <!-- Step 1 → Confirm -->
+          <button x-show="wizard.step === 1 && !wizard.inferring" @click="wizard.step = 2"
+                  class="bg-accent text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-accent-hover transition"
+                  x-text="t('btn_next')">
+          </button>
+
+          <!-- Step 2 → Create -->
+          <button x-show="wizard.step === 2" @click="confirmCreate()"
+                  :disabled="wizard.creating"
+                  class="bg-accent text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition">
+            <span x-text="wizard.creating ? t('creating') : t('confirm_create')"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API = '/api/v1';
+
+    const WORKSPACE_KEY = 'od_workspace_id';
+
+    async function ensureWorkspace() {
+      try {
+        // 1. If we have a saved ID, verify it still exists
+        const savedId = localStorage.getItem(WORKSPACE_KEY);
+        if (savedId) {
+          const res = await fetch(`${API}/merchants/${savedId}`);
+          if (res.ok) return await res.json();
+          // Saved merchant gone (e.g. DB reset) — fall through to find/create
+          localStorage.removeItem(WORKSPACE_KEY);
+        }
+
+        // 2. Look for a workspace merchant (check both language variants)
+        const res = await fetch(`${API}/merchants?page=1&page_size=100`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        const wsNames = ['My Workspace', '我的工作区'];
+        const mine = data.items.find(m => wsNames.includes(m.name));
+        if (mine) { localStorage.setItem(WORKSPACE_KEY, mine.id); return mine; }
+
+        // 3. No workspace yet — create one
+        const create = await fetch(`${API}/merchants`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: t('my_workspace'), merchant_type: 'goods' }),
+        });
+        if (!create.ok) return null;
+        const created = await create.json();
+        localStorage.setItem(WORKSPACE_KEY, created.id);
+        return created;
+      } catch { return null; }
+    }
+
+    function app() {
+      return {
+        workspace: null, offers: [], loading: false, dbError: false,
+        aiReady: null, // null=checking, true=ready, false=not configured
+        aiProvider: null, // provider name from /ai/status
+        showNoLLMDialog: false,
+        wizard: {
+          open: false, step: 0,
+          name: '', offer_type: 'product',
+          descText: '', descUrlText: '', descFileText: '', url: '', fileName: '',
+          extracting: false,
+          inferring: false, progress: 0, progressLabel: '',
+          suggestions: null,
+          creating: false,
+        },
+
+        catEntries: [
+          ['selling_point', t('kt_selling_point')], ['audience', t('kt_audience')], ['scenario', t('kt_scenario')],
+          ['faq', t('kt_faq')], ['objection', t('kt_objection')],
+        ],
+
+        get wizardDesc() {
+          return [this.wizard.descText, this.wizard.descUrlText, this.wizard.descFileText].filter(Boolean).join('\n\n---\n\n');
+        },
+
+        get wizardSelectedCount() {
+          if (!this.wizard.suggestions) return 0;
+          let c = 0;
+          for (const items of Object.values(this.wizard.suggestions)) for (const i of items) if (i._selected) c++;
+          return c;
+        },
+
+        async init() {
+          document.title = t('page_title') + ' - OpenLucid';
+          this.workspace = await ensureWorkspace();
+          if (!this.workspace) { this.dbError = true; return; }
+          await Promise.all([this.fetchOffers(), this.checkAI()]);
+        },
+
+        async checkAI() {
+          try {
+            const res = await fetch(`${API}/ai/status`);
+            if (res.ok) {
+              const d = await res.json();
+              this.aiReady = d.ready;
+              this.aiProvider = d.provider || null;
+            }
+          } catch { this.aiReady = false; }
+        },
+
+        async deleteOffer(id) {
+          if (!confirm(t('confirm_delete_offer'))) return;
+          try {
+            const res = await fetch(`${API}/offers/${id}`, { method: 'DELETE' });
+            if (res.ok || res.status === 204) {
+              this.offers = this.offers.filter(o => o.id !== id);
+            } else { alert(t('delete_failed')); }
+          } catch { alert(t('delete_failed')); }
+        },
+
+        async fetchOffers() {
+          this.loading = true;
+          try {
+            const res = await fetch(`${API}/offers?merchant_id=${this.workspace.id}&page_size=50`);
+            this.offers = (await res.json()).items || [];
+          } catch { this.offers = []; }
+          this.loading = false;
+        },
+
+        openWizard() {
+          this.wizard = {
+            open: true, step: 0,
+            name: '', offer_type: 'product',
+            descText: '', descUrlText: '', descFileText: '', url: '', fileName: '',
+            extracting: false,
+            inferring: false, progress: 0, progressLabel: '',
+            suggestions: null,
+            creating: false,
+          };
+        },
+
+        // ── Text extraction ──
+        async extractFromUrl() {
+          this.wizard.extracting = true;
+          try {
+            const fd = new FormData();
+            fd.append('url', this.wizard.url);
+            const res = await fetch(`${API}/ai/extract-text`, { method: 'POST', body: fd });
+            if (!res.ok) { const e = await res.json(); alert(e.detail || t('extract_failed')); this.wizard.extracting = false; return; }
+            const data = await res.json();
+            this.wizard.descUrlText = data.text;
+          } catch { alert(t('extract_url_failed')); }
+          this.wizard.extracting = false;
+        },
+
+        async extractFromFile(event) {
+          const file = event.target.files[0];
+          if (!file) return;
+          this.wizard.extracting = true;
+          this.wizard.fileName = file.name;
+          try {
+            const fd = new FormData();
+            fd.append('file', file);
+            const res = await fetch(`${API}/ai/extract-text`, { method: 'POST', body: fd });
+            if (!res.ok) { const e = await res.json(); alert(e.detail || t('extract_failed')); this.wizard.extracting = false; return; }
+            const data = await res.json();
+            this.wizard.descFileText = data.text;
+          } catch { alert(t('file_parse_failed')); }
+          this.wizard.extracting = false;
+          event.target.value = '';
+        },
+
+        // ── AI inference with progress ──
+        async startInfer() {
+          if (!this.wizard.name.trim()) { alert(t('fill_name')); return; }
+          if (!this.wizard.offer_type) { alert(t('select_type')); return; }
+          this.wizard.step = 1;
+          this.wizard.inferring = true;
+          this.wizard.progress = 0;
+          this.wizard.suggestions = null;
+
+          const steps = [
+            { pct: 15, label: t('progress_analyzing') },
+            { pct: 35, label: t('progress_selling') },
+            { pct: 55, label: t('progress_audience') },
+            { pct: 75, label: t('progress_scenario') },
+            { pct: 90, label: t('progress_faq') },
+          ];
+
+          // Start progress animation
+          let stepIdx = 0;
+          const timer = setInterval(() => {
+            if (stepIdx < steps.length) {
+              this.wizard.progress = steps[stepIdx].pct;
+              this.wizard.progressLabel = steps[stepIdx].label;
+              stepIdx++;
+            }
+          }, 1500);
+
+          this.wizard.progressLabel = steps[0].label;
+          this.wizard.progress = steps[0].pct;
+
+          try {
+            const res = await fetch(`${API}/ai/infer-offer-knowledge`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: this.wizard.name,
+                offer_type: this.wizard.offer_type,
+                description: this.wizardDesc,
+              }),
+            });
+            clearInterval(timer);
+
+            if (!res.ok) {
+              clearInterval(timer);
+              this.wizard.step = 0;
+              this.wizard.inferring = false;
+              if (res.status === 503) {
+                this.aiReady = false;
+                this.showNoLLMDialog = true;
+              } else if (res.status === 502) {
+                const err = await res.json().catch(() => ({}));
+                alert(t('ai_llm_error') + (err.detail || ''));
+              } else {
+                alert(t('ai_infer_failed'));
+              }
+              return;
+            }
+
+            this.wizard.progress = 100;
+            this.wizard.progressLabel = t('done');
+
+            const data = await res.json();
+            for (const items of Object.values(data.suggestions))
+              for (const item of items) { item._selected = true; item._editing = false; }
+
+            await new Promise(r => setTimeout(r, 400));
+            this.wizard.suggestions = data.suggestions;
+          } catch {
+            clearInterval(timer);
+            alert(t('ai_infer_failed'));
+            this.wizard.step = 0;
+          }
+          this.wizard.inferring = false;
+        },
+
+        selectAllWizard() {
+          for (const items of Object.values(this.wizard.suggestions)) for (const i of items) i._selected = true;
+        },
+        deselectAllWizard() {
+          for (const items of Object.values(this.wizard.suggestions)) for (const i of items) i._selected = false;
+        },
+
+        // ── Create offer + save knowledge ──
+        async confirmCreate() {
+          if (!this.workspace) { alert(t('workspace_not_ready')); return; }
+          this.wizard.creating = true;
+
+          // 1. Create offer
+          const spItems = (this.wizard.suggestions?.selling_point || []).filter(i => i._selected);
+          const audItems = (this.wizard.suggestions?.audience || []).filter(i => i._selected);
+          const scnItems = (this.wizard.suggestions?.scenario || []).filter(i => i._selected);
+
+          const offerBody = {
+            merchant_id: this.workspace.id,
+            name: this.wizard.name,
+            offer_type: this.wizard.offer_type,
+            description: this.wizardDesc || null,
+            core_selling_points_json: spItems.length ? { points: spItems.map(i => i.title) } : null,
+            target_audience_json: audItems.length ? { items: audItems.map(i => i.title) } : null,
+            target_scenarios_json: scnItems.length ? { items: scnItems.map(i => i.title) } : null,
+          };
+
+          const offerRes = await fetch(`${API}/offers`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(offerBody),
+          });
+
+          if (!offerRes.ok) { alert(t('create_offer_failed')); this.wizard.creating = false; return; }
+          const offer = await offerRes.json();
+
+          // 2. Batch save knowledge
+          const batch = [];
+          for (const [cat, items] of Object.entries(this.wizard.suggestions || {})) {
+            for (const item of items) {
+              if (!item._selected) continue;
+              batch.push({
+                scope_type: 'offer', scope_id: offer.id,
+                knowledge_type: item.knowledge_type || cat,
+                title: item.title, content_raw: item.content_raw,
+              });
+            }
+          }
+
+          if (batch.length > 0) {
+            await fetch(`${API}/knowledge/batch`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ scope_type: 'offer', scope_id: offer.id, items: batch }),
+            });
+          }
+
+          // Navigate to offer detail
+          location.href = `/offer.html?id=${offer.id}`;
+        },
+      };
+    }
+  </script>
+</body>
+</html>

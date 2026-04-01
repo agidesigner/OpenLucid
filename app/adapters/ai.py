@@ -1,0 +1,842 @@
+from __future__ import annotations
+
+import json
+import logging
+from abc import ABC, abstractmethod
+from typing import Any
+
+from app.adapters.prompt_builder import (
+    KNOWLEDGE_TYPE_LABELS_ZH,
+    OBJECTIVE_LABELS_ZH,
+    format_existing_knowledge,
+    format_knowledge_flat,
+    format_knowledge_grouped,
+    format_offer_for_tagging,
+    format_offer_summary,
+    format_strategy_focus,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _extract_thinking(text: str) -> tuple[str, str]:
+    """Extract <think>...</think> content from LLM output.
+    Returns (thinking_text, remaining_text). thinking_text is empty if no think block found.
+    """
+    import re
+    match = re.search(r"<think>(.*?)</think>", text, flags=re.DOTALL)
+    if not match:
+        return "", text
+    thinking = match.group(1).strip()
+    remaining = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    return thinking, remaining
+
+
+class AIAdapter(ABC):
+    last_thinking: str | None = None  # populated after calls that produce <think> blocks
+
+    @abstractmethod
+    async def summarize_offer_context(self, offer_data: dict[str, Any]) -> dict[str, Any]:
+        """Summarize offer context for topic generation."""
+
+    @abstractmethod
+    async def generate_topic_plans(
+        self,
+        offer_context: dict[str, Any],
+        count: int = 5,
+        channel: str | None = None,
+        language: str = "zh-CN",
+        strategy_unit_context: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Generate topic plan candidates. Each dict should contain:
+        title, angle, hook, key_points, target_audience, target_scenario,
+        channel, source_mode, score_relevance, score_conversion, score_asset_readiness,
+        recommended_asset_ids.
+        """
+
+    @abstractmethod
+    async def extract_asset_tags(
+        self,
+        asset_metadata: dict[str, Any],
+        image_path: str | None = None,
+        offer_context: dict[str, Any] | None = None,
+        language: str = "zh-CN",
+    ) -> dict[str, Any]:
+        """Extract structured tags from asset metadata, optionally with a visual thumbnail and offer context."""
+
+    @abstractmethod
+    async def extract_knowledge_from_text(self, text: str, language: str = "zh-CN") -> dict[str, Any]:
+        """Extract structured knowledge from raw text."""
+
+    @abstractmethod
+    async def infer_knowledge(
+        self, offer_data: dict[str, Any], language: str = "zh-CN", user_hint: str | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Infer knowledge suggestions grouped by category.
+        Returns dict with keys: selling_point, audience, scenario, faq, objection.
+        Each value is a list of {title, content_raw, confidence}."""
+
+    @abstractmethod
+    async def answer_from_knowledge(
+        self,
+        question: str,
+        knowledge_items: list[dict[str, Any]],
+        style_prompt: str,
+        language: str = "zh-CN",
+    ) -> dict[str, Any]:
+        """Answer a question strictly based on provided knowledge items.
+        Returns {answer, referenced_titles: [str], has_relevant_knowledge: bool}."""
+
+    @abstractmethod
+    async def extract_brandkit_profiles(self, text: str, language: str = "zh-CN") -> dict[str, Any]:
+        """Extract brand specification profiles from text (website/document content).
+        Returns dict with 7 profile fields, each value is a JSON-serializable object or null."""
+
+    @abstractmethod
+    async def infer_offer_model(self, name: str, description: str, offer_type: str) -> str:
+        """Infer the offer_model (delivery sub-type) from offer name, description and type.
+        Returns one of: physical_product, digital_product, local_service, professional_service, package, solution."""
+
+
+class StubAIAdapter(AIAdapter):
+    """Context-aware stub that generates topic plans from offer context data."""
+
+    async def summarize_offer_context(self, offer_data: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "summary": f"Context for offer: {offer_data.get('offer', {}).get('name', 'unknown')}",
+            "selling_points_count": len(offer_data.get("selling_points", [])),
+            "knowledge_count": len(offer_data.get("knowledge_items", [])),
+            "asset_count": len(offer_data.get("assets", [])),
+        }
+
+    async def generate_topic_plans(
+        self,
+        offer_context: dict[str, Any],
+        count: int = 5,
+        channel: str | None = None,
+        language: str = "zh-CN",
+        strategy_unit_context: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        offer = offer_context.get("offer", {})
+        offer_name = offer.get("name", "Product")
+        selling_points = offer_context.get("selling_points", [])
+        # Use strategy unit's focused audience/scenario if available
+        su = strategy_unit_context or {}
+        audiences = ([su["audience_segment"]] if su.get("audience_segment") else None) or offer_context.get("target_audiences", [])
+        scenarios = ([su["scenario"]] if su.get("scenario") else None) or offer_context.get("target_scenarios", [])
+        assets = offer_context.get("assets", [])
+        asset_ids = [a.get("id") or str(a.get("id", "")) for a in assets[:5]]
+
+        # Generate diverse topic angles based on available context
+        templates = [
+            {
+                "angle": "selling_point",
+                "title_prefix": "Why",
+                "hook_template": "Did you know {offer} can {point}?",
+            },
+            {
+                "angle": "scenario",
+                "title_prefix": "How to use",
+                "hook_template": "Transform your {scenario} with {offer}",
+            },
+            {
+                "angle": "audience",
+                "title_prefix": "For",
+                "hook_template": "Attention {audience}: {offer} is here",
+            },
+            {
+                "angle": "comparison",
+                "title_prefix": "Why choose",
+                "hook_template": "3 reasons {offer} beats the competition",
+            },
+            {
+                "angle": "testimonial",
+                "title_prefix": "Real results with",
+                "hook_template": "See what happened when they tried {offer}",
+            },
+        ]
+
+        plans = []
+        for i in range(count):
+            tmpl = templates[i % len(templates)]
+            point = selling_points[i % len(selling_points)] if selling_points else "save time"
+            audience = audiences[i % len(audiences)] if audiences else "everyone"
+            scenario = scenarios[i % len(scenarios)] if scenarios else "daily life"
+
+            title = f"{tmpl['title_prefix']} {offer_name}: {point}" if tmpl["angle"] == "selling_point" else \
+                    f"{tmpl['title_prefix']} {offer_name} in {scenario}" if tmpl["angle"] == "scenario" else \
+                    f"{tmpl['title_prefix']} {audience}: {offer_name}" if tmpl["angle"] == "audience" else \
+                    f"{tmpl['title_prefix']} {offer_name} over alternatives"
+
+            hook = tmpl["hook_template"].format(
+                offer=offer_name, point=point, audience=audience, scenario=scenario
+            )
+
+            plans.append({
+                "title": title,
+                "angle": tmpl["angle"],
+                "hook": hook,
+                "key_points": [point] + selling_points[:2] if selling_points else [point],
+                "target_audience": [audience],
+                "target_scenario": [scenario],
+                "channel": channel or "general",
+                "source_mode": "kb",
+                "recommended_asset_ids": asset_ids[:3],
+                "score_relevance": round(0.7 + (i % 3) * 0.1, 2),
+                "score_conversion": round(0.6 + (i % 4) * 0.1, 2),
+                "score_asset_readiness": round(min(len(assets) / max(count, 1), 1.0), 2),
+            })
+
+        return plans
+
+    async def extract_asset_tags(
+        self,
+        asset_metadata: dict[str, Any],
+        image_path: str | None = None,
+        offer_context: dict[str, Any] | None = None,
+        language: str = "zh-CN",
+    ) -> dict[str, Any]:
+        return {"subject": [], "usage": [], "confidence": 0.0}
+
+    async def extract_knowledge_from_text(self, text: str, language: str = "zh-CN") -> dict[str, Any]:
+        return {"title": "Extracted knowledge", "content_structured": {}, "confidence": 0.0}
+
+    async def answer_from_knowledge(
+        self,
+        question: str,
+        knowledge_items: list[dict[str, Any]],
+        style_prompt: str,
+        language: str = "zh-CN",
+    ) -> dict[str, Any]:
+        is_en = language.startswith("en")
+        if not knowledge_items:
+            return {
+                "answer": "No relevant content found in the knowledge base. Please add more entries and try again." if is_en else "知识库中暂无相关内容，建议补充知识后重试。",
+                "referenced_titles": [],
+                "has_relevant_knowledge": False,
+            }
+        titles = [k.get("title", "") for k in knowledge_items[:2]]
+        content = knowledge_items[0].get('content_raw', '')
+        return {
+            "answer": f"Based on the knowledge base, regarding \"{question}\": {content}" if is_en else f"根据知识库内容，关于「{question}」的回答：{content}",
+            "referenced_titles": titles,
+            "has_relevant_knowledge": True,
+        }
+
+    async def extract_brandkit_profiles(self, text: str, language: str = "zh-CN") -> dict[str, Any]:
+        raise RuntimeError("NO_LLM_CONFIGURED")
+
+    async def infer_offer_model(self, name: str, description: str, offer_type: str) -> str:
+        mapping = {
+            "product": "physical_product",
+            "service": "professional_service",
+            "bundle": "package",
+            "solution": "solution",
+        }
+        return mapping.get(offer_type, "physical_product")
+
+    async def infer_knowledge(
+        self, offer_data: dict[str, Any], language: str = "zh-CN", user_hint: str | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        name = offer_data.get("offer", {}).get("name", "商品")
+        return {
+            "selling_point": [
+                {"title": f"{name}核心卖点", "content_raw": "高品质、高性价比", "confidence": 0.8},
+            ],
+            "audience": [
+                {"title": "目标用户", "content_raw": "追求品质的年轻消费者", "confidence": 0.75},
+            ],
+            "scenario": [
+                {"title": "使用场景", "content_raw": "日常生活场景", "confidence": 0.7},
+            ],
+            "faq": [
+                {"title": "常见问题", "content_raw": "产品保修多久？", "confidence": 0.7},
+            ],
+            "objection": [
+                {"title": "价格疑虑", "content_raw": "对比同类产品性价比更高", "confidence": 0.65},
+            ],
+        }
+
+
+class OpenAICompatibleAdapter(AIAdapter):
+    """Real AI adapter using any OpenAI-compatible API (MiniMax, DeepSeek, OpenAI, etc.)."""
+
+    def __init__(self, api_key: str, base_url: str, model: str, extra_headers: dict | None = None, provider: str | None = None):
+        from openai import AsyncOpenAI
+
+        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url, default_headers=extra_headers or {})
+        self.model = model
+        self.provider = provider or "unknown"
+
+    async def _chat(self, system_prompt: str, user_prompt: str, temperature: float = 0.8, max_tokens: int = 16384) -> str:
+        import asyncio
+        last_err = None
+        for attempt in range(3):
+            try:
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                return response.choices[0].message.content or ""
+            except Exception as e:
+                last_err = e
+                status = getattr(e, "status_code", None) or getattr(e, "status", 0)
+                # Only retry on transient errors (network, 429, 5xx)
+                if status and 400 <= status < 500 and status != 429:
+                    raise
+                if attempt < 2:
+                    wait = (attempt + 1) * 2  # 2s, 4s
+                    logger.warning("LLM call failed (attempt %d/3), retrying in %ds: %s", attempt + 1, wait, e)
+                    await asyncio.sleep(wait)
+        raise last_err  # type: ignore[misc]
+
+    async def _chat_stream(self, system_prompt: str, user_prompt: str, temperature: float = 0.8):
+        """Async generator that yields token strings as they arrive."""
+        import asyncio
+        last_err = None
+        for attempt in range(3):
+            try:
+                stream = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=temperature,
+                    stream=True,
+                )
+                async for chunk in stream:
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if delta and delta.content:
+                        yield delta.content
+                return  # stream completed successfully
+            except Exception as e:
+                last_err = e
+                status = getattr(e, "status_code", None) or getattr(e, "status", 0)
+                if status and 400 <= status < 500 and status != 429:
+                    raise
+                if attempt < 2:
+                    wait = (attempt + 1) * 2
+                    logger.warning("LLM stream failed (attempt %d/3), retrying in %ds: %s", attempt + 1, wait, e)
+                    await asyncio.sleep(wait)
+        raise last_err  # type: ignore[misc]
+
+    def _parse_json_response(self, text: str) -> Any:
+        """Extract JSON from model response, handling think tags and code blocks."""
+        import re
+
+        text = text.strip()
+
+        # Remove <think>...</think> blocks (including unclosed tags from truncated responses)
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+        # Handle unclosed <think> tag (model response truncated or </think> missing)
+        if "<think>" in text:
+            text = re.sub(r"<think>.*", "", text, flags=re.DOTALL).strip()
+
+        # Remove ```json or ``` wrapper
+        if text.startswith("```"):
+            lines = text.split("\n")
+            lines = lines[1:]  # remove opening ```
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            text = "\n".join(lines)
+
+        # Try direct parse
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # Try to find JSON array or object in the text
+        match = re.search(r"(\[[\s\S]*\]|\{[\s\S]*\})", text)
+        if match:
+            return json.loads(match.group(1))
+
+        raise ValueError(f"No valid JSON found in response")
+
+    async def summarize_offer_context(self, offer_data: dict[str, Any]) -> dict[str, Any]:
+        system = "You are an expert content marketing analyst. Analyze the given product/service information and extract key selling points and marketing opportunities. Respond in the same language as the input data."
+        user = f"Analyze and summarize the following product information:\n{json.dumps(offer_data, ensure_ascii=False, indent=2)}"
+        result = await self._chat(system, user)
+        try:
+            return self._parse_json_response(result)
+        except (json.JSONDecodeError, ValueError):
+            return {"summary": result}
+
+    async def generate_topic_plans(
+        self,
+        offer_context: dict[str, Any],
+        count: int = 5,
+        channel: str | None = None,
+        language: str = "zh-CN",
+        strategy_unit_context: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        offer = offer_context.get("offer", {})
+        offer_name = offer.get("name", "商品")
+        selling_points = offer_context.get("selling_points", [])
+        knowledge_items = offer_context.get("knowledge_items", [])
+
+        su = strategy_unit_context or {}
+        focused_audience = su.get("audience_segment")
+        focused_scenario = su.get("scenario")
+        effective_channel = su.get("channel") or channel
+
+        audiences = [focused_audience] if focused_audience else offer_context.get("target_audiences", [])
+        scenarios = [focused_scenario] if focused_scenario else offer_context.get("target_scenarios", [])
+
+        is_en = language.startswith("en")
+        channel_desc = (f"Target platform: {effective_channel}" if is_en else f"目标平台：{effective_channel}") if effective_channel and effective_channel != "general" else ("General platform" if is_en else "通用平台")
+        strategy_focus = format_strategy_focus(su, language=language)
+
+        lang_instruction = "All output text (title, hook, key_points, etc.) MUST be in English." if is_en else "所有输出文本（title、hook、key_points 等）必须使用中文。"
+
+        system = f"""You are a senior short-video content director skilled at planning viral content topics for products/services.
+Generate highly relevant content topic plans based on the product info and strategy focus provided.
+
+Requirements:
+1. Each topic must have a unique angle — no duplicates
+2. The hook must be attention-grabbing
+3. key_points are production/shooting notes
+4. Stay strictly aligned with the provided target audience and marketing objectives
+5. Provide score_relevance (relevance to the product, 0-1) and score_conversion (estimated conversion potential, 0-1)
+
+Return a strict JSON array. Each element:
+{{
+  "title": "topic title",
+  "angle": "approach (e.g. selling point showcase / scenario seeding / pain point / comparison / real experience)",
+  "hook": "opening hook",
+  "key_points": ["point 1", "point 2", "point 3"],
+  "target_audience": ["audience"],
+  "target_scenario": ["scenario"],
+  "channel": "channel",
+  "source_mode": "kb",
+  "score_relevance": 0.85,
+  "score_conversion": 0.75,
+  "score_asset_readiness": 0.5
+}}
+
+{lang_instruction}
+Return JSON array only, no other text."""
+
+        # Use strategy unit's linked knowledge items if provided, else all offer knowledge
+        ki_list = su.get("knowledge_items") or knowledge_items
+        knowledge_text = format_knowledge_flat(ki_list, language=language)
+
+        na = "N/A" if is_en else "暂无"
+        user = f"""{"Product: " if is_en else "商品名称："}{offer_name}
+{"Core selling points: " if is_en else "核心卖点："}{', '.join(selling_points) if selling_points else na}
+{"Target audience: " if is_en else "目标人群："}{', '.join(audiences) if audiences else na}
+{"Scenarios: " if is_en else "适用场景："}{', '.join(scenarios) if scenarios else na}
+{channel_desc}{strategy_focus}
+{knowledge_text}
+
+{"Generate" if is_en else "请生成"} {count} {"content topic plans that closely match the strategy focus above." if is_en else "个高度契合以上策略聚焦的内容选题方案。"}"""
+
+        logger.info(
+            "Generating %d topic plans for offer '%s'%s via %s",
+            count, offer_name,
+            f" (strategy_unit={su.get('name', su.get('id', ''))})" if su else "",
+            self.provider,
+        )
+
+        result = await self._chat(system, user)
+        thinking, clean_result = _extract_thinking(result)
+        self.last_thinking = thinking or None
+        try:
+            plans = self._parse_json_response(clean_result)
+        except (json.JSONDecodeError, ValueError):
+            logger.error("Failed to parse LLM response as JSON: %s", clean_result[:500])
+            stub = StubAIAdapter()
+            return await stub.generate_topic_plans(offer_context, count, channel, language, strategy_unit_context)
+
+        for plan in plans:
+            if not plan.get("channel"):
+                plan["channel"] = effective_channel or "general"
+
+        return plans[:count]
+
+    def _build_kb_qa_prompt(
+        self,
+        knowledge_items: list[dict[str, Any]],
+        style_prompt: str,
+        language: str = "zh-CN",
+    ) -> str:
+        """Build the system prompt for KB QA (shared by streaming and non-streaming)."""
+        is_en = language.startswith("en")
+        knowledge_text = format_knowledge_grouped(knowledge_items, language=language, max_items=len(knowledge_items))
+
+        if is_en:
+            return f"""{style_prompt}
+
+## Strict Rules
+1. Answer ONLY based on the Knowledge Base below — do NOT fabricate information
+2. If the knowledge base has no relevant content, reply honestly: "No relevant content found in the knowledge base"
+3. Put the titles of referenced entries in referenced_titles
+4. Do NOT invent product features, prices, specs, or any factual claims
+5. Be specific and informative — synthesize multiple relevant entries for a complete answer
+
+## Knowledge Base
+{knowledge_text if knowledge_text else '(empty)'}
+
+## Output format (strict JSON, no other text)
+{{"answer": "your answer", "referenced_titles": ["title1", "title2"], "has_relevant_knowledge": true/false}}"""
+        else:
+            return f"""{style_prompt}
+
+## 严格约束规则
+1. 只能基于下方【知识库】回答，不得编造知识库中不存在的信息
+2. 知识库中无相关内容时，如实回答"知识库中暂无相关内容"
+3. 回答中引用了哪些知识条目，把其标题放入 referenced_titles
+4. 不得虚构产品功能、价格、参数等事实性信息
+5. 回答要具体、有信息量，综合多条相关知识给出完整回答
+
+## 知识库
+{knowledge_text if knowledge_text else '（知识库为空）'}
+
+## 输出格式（严格 JSON，不要输出其他文字）
+{{"answer": "你的回答", "referenced_titles": ["引用的知识条目标题1", "标题2"], "has_relevant_knowledge": true/false}}"""
+
+    async def answer_from_knowledge(
+        self,
+        question: str,
+        knowledge_items: list[dict[str, Any]],
+        style_prompt: str,
+        language: str = "zh-CN",
+    ) -> dict[str, Any]:
+        import time as _time
+        t0 = _time.monotonic()
+
+        system = self._build_kb_qa_prompt(knowledge_items, style_prompt, language=language)
+
+        logger.info("KB QA: system_prompt='%s…', knowledge=%d items",
+                     system[:200], len(knowledge_items))
+
+        result = await self._chat(system, question, temperature=0.3)
+        elapsed = _time.monotonic() - t0
+        thinking, clean_result = _extract_thinking(result)
+        logger.info("KB QA: LLM responded in %.1fs, thinking=%d chars, raw output='%s…'",
+                     elapsed, len(thinking), clean_result[:300])
+        try:
+            parsed = self._parse_json_response(clean_result)
+        except (json.JSONDecodeError, ValueError):
+            logger.error("Failed to parse KB QA response: %s", clean_result[:500])
+            return {
+                "answer": clean_result,
+                "referenced_titles": [],
+                "has_relevant_knowledge": bool(knowledge_items),
+                "thinking": thinking or None,
+            }
+
+        return {
+            "answer": parsed.get("answer", clean_result),
+            "referenced_titles": parsed.get("referenced_titles", []),
+            "has_relevant_knowledge": parsed.get("has_relevant_knowledge", bool(knowledge_items)),
+            "thinking": thinking or None,
+        }
+
+    async def extract_asset_tags(
+        self,
+        asset_metadata: dict[str, Any],
+        image_path: str | None = None,
+        offer_context: dict[str, Any] | None = None,
+        language: str = "zh-CN",
+    ) -> dict[str, Any]:
+        is_en = language.startswith("en")
+        existing_sample = asset_metadata.pop("existing_tags_sample", [])
+
+        offer_section = format_offer_for_tagging(offer_context, language=language)
+
+        existing_hint = ""
+        if existing_sample:
+            existing_hint = json.dumps(existing_sample[:30], ensure_ascii=False)
+
+        if is_en:
+            system = f"""You are an asset tag analyst. Extract structured marketing tags from asset information and product context.
+{offer_section}
+## Tag requirements
+1. subject (content subject): specific objects/people/elements in the visual, 2-5 tags
+2. usage (usage tags): marketing purpose of this asset, 1-3 tags
+3. selling_point (selling point association): selling points this asset supports, **prefer exact phrases from core selling points above**, 1-3 tags
+4. scenario (scenario association): scenarios this asset fits, **prefer exact phrases from target scenarios above**, 1-3 tags
+5. channel_fit (channel fit): suitable platforms, 1-2 tags
+6. style (style tags): visual/tonal style, 1-2 tags
+7. emotion (emotion tags): emotional atmosphere, 1 tag
+
+## Consistency requirements
+- selling_point and scenario MUST reuse original text from the product context when applicable
+- Reuse existing tags when possible: {existing_hint or 'N/A'}
+- Tag language: English
+
+Return JSON only:
+{{"subject": [...], "usage": [...], "selling_point": [...], "scenario": [...], "channel_fit": [...], "style": [...], "emotion": [...], "hook_score": 0.8, "reuse_score": 0.7, "confidence": 0.9}}"""
+        else:
+            system = f"""你是素材标签分析师。根据素材信息和商品知识库，提取结构化营销标签。
+{offer_section}
+## 标签要求
+1. subject（内容主体）：画面中的具体物体/人物/场景元素，2-5 个
+2. usage（用途标签）：素材的营销用途，1-3 个
+3. selling_point（卖点关联）：此素材能支持的卖点，**优先从上方核心卖点中选择**，1-3 个
+4. scenario（场景关联）：此素材适配的场景，**优先从上方目标场景中选择**，1-3 个
+5. channel_fit（渠道适配）：适合发布的平台，1-2 个
+6. style（风格标签）：视觉/调性风格，1-2 个
+7. emotion（情绪标签）：情绪氛围，1 个
+
+## 一致性要求
+- selling_point 和 scenario 必须优先复用商品知识库中的原文
+- 其他标签尽量复用已有标签：{existing_hint or '无'}
+- 标签语言：中文
+
+仅返回 JSON：
+{{"subject": [...], "usage": [...], "selling_point": [...], "scenario": [...], "channel_fit": [...], "style": [...], "emotion": [...], "hook_score": 0.8, "reuse_score": 0.7, "confidence": 0.9}}"""
+
+        user_text = f"{'Asset metadata' if is_en else '素材元数据'}：\n{json.dumps(asset_metadata, ensure_ascii=False, indent=2)}"
+
+        if image_path:
+            try:
+                result = await self._chat_vision(system, user_text, image_path, temperature=0.3)
+            except Exception:
+                logger.warning("Vision call failed, falling back to text-only tagging")
+                result = await self._chat(system, user_text, temperature=0.3)
+        else:
+            result = await self._chat(system, user_text, temperature=0.3)
+
+        try:
+            return self._parse_json_response(result)
+        except (json.JSONDecodeError, ValueError):
+            return {"subject": [], "usage": [], "confidence": 0.0}
+
+    async def _chat_vision(self, system_prompt: str, user_text: str, image_path: str, temperature: float = 0.8) -> str:
+        """Send a chat request with an image (OpenAI vision API format)."""
+        import base64
+        import mimetypes
+
+        mime, _ = mimetypes.guess_type(image_path)
+        mime = mime or "image/jpeg"
+        with open(image_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": [
+                    {"type": "text", "text": user_text + "\n\nAnalyze tags based on the image content:"},
+                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                ]},
+            ],
+            temperature=temperature,
+        )
+        return response.choices[0].message.content or ""
+
+    async def extract_knowledge_from_text(self, text: str, language: str = "zh-CN") -> dict[str, Any]:
+        is_en = language.startswith("en")
+        system = """You are a knowledge extraction expert. Extract structured knowledge from text.
+Return JSON: {"title": "...", "content_structured": {"key": "value"}, "confidence": 0.9}
+""" + ("Write title and values in English." if is_en else "标题和内容使用中文。")
+        user = f"{'Extract knowledge from the following text' if is_en else '请从以下文本中提取知识'}:\n{text}"
+        result = await self._chat(system, user, temperature=0.3)
+        try:
+            return self._parse_json_response(result)
+        except (json.JSONDecodeError, ValueError):
+            return {"title": "Extracted knowledge", "content_structured": {}, "confidence": 0.0}
+
+
+    async def infer_knowledge(
+        self, offer_data: dict[str, Any], language: str = "zh-CN", user_hint: str | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        offer = offer_data.get("offer", {})
+        offer_name = offer.get("name", "Product")
+        knowledge_items = offer_data.get("knowledge_items", [])
+
+        existing_text = format_existing_knowledge(knowledge_items)
+        # Use English labels to match the English system prompt;
+        # actual data values stay in whatever language the user typed.
+
+
+        system = """You are an expert marketing analyst. Based on the product/service information provided, generate a comprehensive knowledge base.
+
+Generate 2-4 entries for each of the following 5 categories:
+1. selling_point: differentiators, technical highlights, user value
+2. audience: user personas, traits, purchase motivations
+3. scenario: use cases, pain-point scenarios, discovery moments
+4. faq: most likely customer questions and answers
+5. objection: common hesitations and how to address them
+
+Return strictly valid JSON:
+{
+  "selling_point": [{"title": "...", "content_raw": "...", "confidence": 0.9}, ...],
+  "audience": [...],
+  "scenario": [...],
+  "faq": [...],
+  "objection": [...]
+}
+
+Rules:
+- Each entry must be specific and actionable, not generic
+- confidence: your certainty about the inference (0-1)
+- If existing knowledge entries are provided, fill in missing dimensions without repeating them
+- IMPORTANT: Write all title and content_raw values in the SAME language as the input material. Do NOT translate.
+- Return JSON only, no other text"""
+
+        user = format_offer_summary(offer_data, language="en") + existing_text
+
+        if user_hint:
+            user += f"\nAdditional notes from user: {user_hint}"
+
+        logger.info("Inferring knowledge for offer '%s' via %s", offer_name, self.provider)
+
+        result = await self._chat(system, user, temperature=0.7)
+        try:
+            parsed = self._parse_json_response(result)
+        except (json.JSONDecodeError, ValueError):
+            logger.error("Failed to parse infer-knowledge response: %s", result[:500])
+            stub = StubAIAdapter()
+            return await stub.infer_knowledge(offer_data, language, user_hint)
+
+        # Ensure all expected keys exist
+        for key in ("selling_point", "audience", "scenario", "faq", "objection"):
+            if key not in parsed:
+                parsed[key] = []
+
+        return parsed
+
+    async def extract_brandkit_profiles(self, text: str, language: str = "zh-CN") -> dict[str, Any]:
+        # Truncate to ~8000 chars to fit context window
+        text = text[:8000]
+        is_en = language.startswith("en")
+
+        lang_instruction = "Write all profile descriptions in English." if is_en else "所有描述内容使用中文。"
+
+        system = f"""You are a brand visual specification expert. Based on the provided text (company website content or brand document), extract brand visual guidelines and populate the following 7 fields.
+
+Each field should be a natural-language description (not nested JSON) — be specific and actionable:
+
+1. style_profile_json — Brand identity & visual style
+   Overall brand tone, primary/secondary colors, mood keywords, typography preferences, etc.
+
+2. product_visual_profile_json — Product visual guidelines
+   Product photography angles, backgrounds, lighting, composition, props, etc.
+
+3. service_scene_profile_json — Service scene guidelines
+   Environment, atmosphere, human interaction style for service scenarios.
+
+4. persona_profile_json — Character/persona guidelines
+   On-screen talent appearance, attire, expression, gestures, demographic traits.
+
+5. visual_do_json — Recommended visual expressions
+   Recommended visual techniques, compositions, color combinations.
+
+6. visual_dont_json — Prohibited visual expressions
+   Visual elements, styles, or expressions to avoid.
+
+7. reference_prompt_json — Reference prompt templates
+   Ready-to-use prompts for AI image/video generation.
+
+Rules:
+- Return a strict JSON object with the 7 keys above
+- Each value is a plain text string (not a nested JSON object)
+- Set fields to null if they cannot be inferred from the text
+- {lang_instruction}
+- Return JSON only, no other text"""
+
+        user = f"{'Extract brand visual guidelines from the following text' if is_en else '请从以下文本中提取品牌视觉规范信息'}:\n\n{text}"
+
+        logger.info("Extracting brandkit profiles via %s, text length=%d", self.provider, len(text))
+
+        result = await self._chat(system, user, temperature=0.4)
+        thinking, clean_result = _extract_thinking(result)
+        try:
+            parsed = self._parse_json_response(clean_result)
+        except (json.JSONDecodeError, ValueError):
+            logger.error("Failed to parse brandkit extract response: %s", clean_result[:500])
+            raise RuntimeError("Failed to parse AI response, please retry" if is_en else "AI 返回的内容无法解析，请重试")
+
+        # Ensure all 7 keys exist
+        profile_keys = [
+            "style_profile_json", "product_visual_profile_json", "service_scene_profile_json",
+            "persona_profile_json", "visual_do_json", "visual_dont_json", "reference_prompt_json",
+        ]
+        for key in profile_keys:
+            if key not in parsed:
+                parsed[key] = None
+
+        return parsed
+
+    async def infer_offer_model(self, name: str, description: str, offer_type: str) -> str:
+        from app.domain.enums import OfferModel
+        valid_values = [m.value for m in OfferModel]
+
+        system = f"""You are a business analyst. Given an offer's name, description, and type, infer the most specific delivery model.
+Return ONLY one of these values (no other text): {', '.join(valid_values)}
+
+Guidelines:
+- physical_product: tangible goods shipped or picked up
+- digital_product: software, digital content, e-books, online courses
+- local_service: on-site services tied to a location (restaurant, salon, gym)
+- professional_service: expertise-driven services (consulting, legal, marketing, training)
+- package: a bundle combining multiple products or services
+- solution: an integrated solution addressing a specific business problem"""
+
+        user = f"Name: {name}\nDescription: {description or 'N/A'}\nOffer type: {offer_type}"
+
+        result = await self._chat(system, user, temperature=0.2, max_tokens=64)
+        result = result.strip().lower().replace('"', '').replace("'", '')
+        if result in valid_values:
+            return result
+
+        logger.warning("AI returned invalid offer_model '%s', falling back to stub", result)
+        stub = StubAIAdapter()
+        return await stub.infer_offer_model(name, description, offer_type)
+
+
+def _fix_docker_url(url: str) -> str:
+    """Replace localhost with host.docker.internal when running inside Docker."""
+    import os
+    if os.path.exists("/.dockerenv") and "localhost" in url:
+        return url.replace("localhost", "host.docker.internal")
+    return url
+
+
+async def get_ai_adapter(db=None, scene_key: str | None = None, model_type: str = "text_llm", config_id: str | None = None) -> AIAdapter:
+    """Factory: explicit config_id → scene config → active config → StubAIAdapter (no AI configured)."""
+    if db is not None:
+        try:
+            config = None
+            # If caller specified a config_id, load it directly (skip scene/default)
+            if config_id:
+                import uuid as _uuid
+                from app.models.llm_config import LLMConfig
+                config = await db.get(LLMConfig, _uuid.UUID(config_id))
+                if config:
+                    logger.info("AI adapter: using explicit config_id=%s → %s/%s", config_id, config.provider, config.model_name)
+            if not config and scene_key:
+                from app.application.setting_service import get_llm_config_for_scene
+                config = await get_llm_config_for_scene(db, scene_key, model_type)
+                if config:
+                    logger.info("AI adapter: scene=%s → %s/%s", scene_key, config.provider, config.model_name)
+            if not config:
+                from app.application.setting_service import get_active_llm_config
+                config = await get_active_llm_config(db)
+                if config:
+                    logger.info("AI adapter: no scene config, using active default → %s/%s", config.provider, config.model_name)
+            if config:
+                extra_headers = {}
+                if getattr(config, "provider", None) == "anthropic":
+                    extra_headers["anthropic-version"] = "2023-06-01"
+                return OpenAICompatibleAdapter(
+                    api_key=config.api_key,
+                    base_url=_fix_docker_url(config.base_url),
+                    model=config.model_name,
+                    extra_headers=extra_headers or None,
+                    provider=getattr(config, "provider", None) or getattr(config, "label", "LLM"),
+                )
+        except Exception:
+            pass
+
+    logger.info("AI adapter: no LLM configured, using StubAIAdapter")
+    return StubAIAdapter()

@@ -1,0 +1,25 @@
+# Open Source License
+
+OpenLucid is licensed under a modified version of the Apache License 2.0, with the following additional conditions:
+
+1. OpenLucid may be utilized commercially, including as a backend service for other applications or as a content planning platform for enterprises. Should the conditions below be met, a commercial license must be obtained from the producer:
+
+   a. **Multi-tenant service**: Unless explicitly authorized by OpenLucid in writing, you may not use the OpenLucid source code to operate a multi-tenant environment.
+      - Tenant Definition: Within the context of OpenLucid, one tenant corresponds to one merchant workspace. Each merchant workspace provides a separated area for that tenant's data, knowledge base, assets, and configurations.
+
+   b. **LOGO and copyright information**: In the process of using OpenLucid's frontend, you may not remove or modify the LOGO, the "Powered by OpenLucid" notice, or any other copyright information in the OpenLucid console or applications. This restriction is inapplicable to uses of OpenLucid that do not involve its frontend.
+      - Frontend Definition: For the purposes of this license, the "frontend" of OpenLucid includes all components located in the `frontend/` directory when running OpenLucid from the raw source code, or served via the application container when running OpenLucid with Docker.
+      - "Powered by OpenLucid" Notice: The "Powered by OpenLucid" notice must remain visible and unmodified in the user interface at all times. Removing, hiding, or altering this notice is a violation of this license.
+
+   c. **Competing derivative works**: Without explicit written authorization from OpenLucid, you may not use the OpenLucid source code to create and distribute a product that substantially replicates the core functionality of OpenLucid as a competing offering. This does not restrict use of OpenLucid as a component within a larger, differentiated product or service.
+
+2. As a contributor, you should agree that:
+
+   a. The producer can adjust the open-source agreement to be more strict or relaxed as deemed necessary.
+   b. Your contributed code may be used for commercial purposes, including but not limited to its cloud business operations.
+
+Apart from the specific conditions mentioned above, all other rights and restrictions follow the Apache License 2.0. Detailed information about the Apache License 2.0 can be found at http://www.apache.org/licenses/LICENSE-2.0.
+
+Copyright © 2025 JOGG PTE. LTD. All rights reserved.
+
+"OpenLucid" as used in this license refers to JOGG PTE. LTD., the copyright holder and licensor of this software.

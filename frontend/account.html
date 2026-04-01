@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenLucid</title>
+  <script>
+    document.documentElement.style.display='none';
+    fetch('/api/v1/auth/me').then(r=>{
+      if(!r.ok) fetch('/api/v1/auth/setup-status').then(r=>r.json()).then(s=>{
+        location.href=s.needs_setup?'/install.html':'/signin.html';
+      });
+      else document.documentElement.style.display='';
+    });
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        sidebar: { DEFAULT: '#1C1C28', hover: '#2A2A3C', active: '#3B3B50' },
+        accent: { DEFAULT: '#155EEF', light: '#EFF4FF', hover: '#1849C6' },
+      }}}
+    }
+  </script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/pinned-apps.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif}
+    .sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;color:#A0A0B0;font-size:14px;cursor:pointer;transition:all .15s}
+    .sidebar-item:hover{background:#2A2A3C;color:#E0E0EE}
+    .sidebar-item.active{background:#2D2D40;color:#fff}
+  </style>
+</head>
+<body class="bg-gray-50 h-screen flex overflow-hidden" x-data="accountApp()" x-init="init()">
+
+  <!-- Sidebar -->
+  <aside class="w-56 bg-sidebar flex flex-col shrink-0">
+    <div class="px-4 py-5 flex items-center gap-2.5">
+      <img src="/images/logo.png" alt="OpenLucid" class="w-8 h-8 rounded-lg">
+      <span class="text-white font-semibold text-base">OpenLucid</span>
+    </div>
+    <nav class="flex-1 px-3 space-y-1 mt-2">
+      <a href="/" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        <span x-text="t('sidebar_offers')"></span>
+      </a>
+            <a href="/apps.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+        <span x-text="t('sidebar_apps')"></span>
+      </a>
+      <a href="/brandkit-list.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
+      </a>
+    </nav>
+    <div class="px-3 pb-3 mt-auto">
+      <div class="text-[10px] text-white/25 text-center">Powered by OpenLucid</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <header class="h-14 bg-white border-b flex items-center justify-between px-6 shrink-0">
+      <div class="flex items-center gap-2 text-sm text-gray-500">
+        <a href="/" class="hover:text-gray-700 transition-colors" x-text="t('breadcrumb_home')"></a>
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        <span class="text-gray-800 font-medium" x-text="t('breadcrumb')"></span>
+      </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-8">
+      <div class="max-w-xl mx-auto space-y-6">
+
+        <!-- Profile card -->
+        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4" x-text="t('profile_title')"></h2>
+          <div class="flex items-center gap-4">
+            <div class="w-14 h-14 rounded-full bg-accent flex items-center justify-center text-white text-xl font-bold select-none"
+                 x-text="user?.email?.charAt(0).toUpperCase() || '?'"></div>
+            <div>
+              <p class="text-base font-semibold text-gray-900" x-text="user?.email || ''"></p>
+              <span class="inline-flex items-center gap-1 mt-1 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
+                <span x-text="t('active_status')"></span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Change password card -->
+        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4" x-text="t('change_password')"></h2>
+          <form @submit.prevent="submitPwd()" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('current_password')"></label>
+              <input x-model="pwd.current" type="password" autocomplete="current-password" required :placeholder="t('current_password_placeholder')"
+                     class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('new_password')"></label>
+              <input x-model="pwd.next" type="password" autocomplete="new-password" required :placeholder="t('new_password_placeholder')"
+                     class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('confirm_password')"></label>
+              <input x-model="pwd.confirm" type="password" autocomplete="new-password" required :placeholder="t('confirm_placeholder')"
+                     class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition"
+                     :class="pwd.confirm && pwd.next !== pwd.confirm ? 'border-red-400' : ''">
+              <p x-show="pwd.confirm && pwd.next !== pwd.confirm" class="text-xs text-red-500 mt-1" x-text="t('password_mismatch')"></p>
+            </div>
+
+            <p x-show="pwdError" x-text="pwdError" class="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2"></p>
+            <p x-show="pwdOk" class="text-sm text-green-600 bg-green-50 rounded-lg px-3 py-2" x-text="t('password_updated')"></p>
+
+            <button type="submit" :disabled="pwdLoading || !canSubmitPwd"
+                    class="bg-accent text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition-colors">
+              <span x-text="pwdLoading ? t('saving') : t('save_changes')"></span>
+            </button>
+          </form>
+        </div>
+
+        <!-- Danger zone -->
+        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4" x-text="t('other_actions')"></h2>
+          <button @click="signOut()"
+                  class="flex items-center gap-2 text-sm text-red-500 hover:text-red-600 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+            <span x-text="t('sign_out')"></span>
+          </button>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <script>
+    function accountApp() {
+      return {
+        user: null,
+        pwd: { current: '', next: '', confirm: '' },
+        pwdLoading: false, pwdError: '', pwdOk: false,
+
+        async init() {
+          document.title = t('page_title') + ' - OpenLucid';
+          const res = await fetch('/api/v1/auth/me');
+          if (res.ok) this.user = await res.json();
+        },
+
+        get canSubmitPwd() {
+          return this.pwd.current && this.pwd.next && this.pwd.next === this.pwd.confirm;
+        },
+
+        async submitPwd() {
+          this.pwdError = ''; this.pwdOk = false; this.pwdLoading = true;
+          try {
+            const res = await fetch('/api/v1/auth/change-password', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ current_password: this.pwd.current, new_password: this.pwd.next }),
+            });
+            const data = await res.json();
+            if (res.ok) { this.pwdOk = true; this.pwd = { current: '', next: '', confirm: '' }; }
+            else { this.pwdError = data.detail || t('change_failed'); }
+          } catch { this.pwdError = t('network_error'); }
+          this.pwdLoading = false;
+        },
+
+        async signOut() {
+          await fetch('/api/v1/auth/signout', { method: 'POST' });
+          location.href = '/signin.html';
+        },
+      };
+    }
+  </script>
+</body>
+</html>

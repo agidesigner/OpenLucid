@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenLucid</title>
+  <script>
+    document.documentElement.style.display='none';
+    fetch('/api/v1/auth/me').then(r=>{
+      if(!r.ok) fetch('/api/v1/auth/setup-status').then(r=>r.json()).then(s=>{
+        location.href=s.needs_setup?'/install.html':'/signin.html';
+      });
+      else document.documentElement.style.display='';
+    });
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        sidebar: { DEFAULT: '#1C1C28', hover: '#2A2A3C' },
+        accent: { DEFAULT: '#155EEF', light: '#EFF4FF', hover: '#1849C6' },
+      }}}
+    }
+  </script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/pinned-apps.js"></script>
+  <script src="/js/avatar.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif}
+    .sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;color:#A0A0B0;font-size:14px;cursor:pointer;transition:all .15s}
+    .sidebar-item:hover{background:#2A2A3C;color:#E0E0EE}
+    .sidebar-item.active{background:#2D2D40;color:#fff}
+    .answer-content p{margin-bottom:.5em}
+    .answer-content ul,.answer-content ol{margin-left:1.2em;margin-bottom:.5em}
+  </style>
+</head>
+<body class="bg-gray-50 h-screen flex overflow-hidden" x-data="kbQA()" x-init="init()">
+
+  <!-- Sidebar -->
+  <aside class="w-56 bg-sidebar flex flex-col shrink-0">
+    <div class="px-4 py-5 flex items-center gap-2.5">
+      <img src="/images/logo.png" alt="OpenLucid" class="w-8 h-8 rounded-lg">
+      <span class="text-white font-semibold text-base">OpenLucid</span>
+    </div>
+    <nav class="flex-1 px-3 space-y-1 mt-2">
+      <a href="/" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        <span x-text="t('sidebar_offers')"></span>
+      </a>
+      <a href="/apps.html" class="sidebar-item active">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+        <span x-text="t('sidebar_apps')"></span>
+      </a>
+      <a href="/brandkit-list.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
+      </a>
+    </nav>
+    <div class="px-3 pb-3 mt-auto">
+      <div class="text-[10px] text-white/25 text-center">Powered by OpenLucid</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <!-- Header -->
+    <header class="bg-white border-b px-6 shrink-0">
+      <div class="h-14 flex items-center gap-2">
+        <a href="/apps.html" class="text-sm text-gray-400 hover:text-accent" x-text="t('breadcrumb_apps')"></a>
+        <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        <span class="text-sm font-medium text-gray-800" x-text="'💬 ' + t('page_title')"></span>
+        <div class="flex-1"></div>
+        <div id="avatar-mount"></div>
+      </div>
+      <!-- Offer selector row -->
+      <div class="pb-4 flex items-center gap-4 flex-wrap">
+        <div class="flex items-center gap-2">
+          <label class="text-sm text-gray-500 shrink-0" x-text="t('offer_label')"></label>
+          <select x-model="offerId" @change="onOfferChange()"
+                  class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent min-w-[14rem]">
+            <option value="" x-text="t('offer_placeholder')"></option>
+            <template x-for="o in offers" :key="o.id">
+              <option :value="o.id" x-text="o.name"></option>
+            </template>
+          </select>
+        </div>
+        <div class="flex items-center gap-2" x-show="llmConfigs.length > 0" x-cloak>
+          <label class="text-sm text-gray-500 shrink-0" x-text="t('model_label')"></label>
+          <select x-model="configId"
+                  class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent min-w-[10rem]">
+            <option value="" x-text="t('model_default')"></option>
+            <template x-for="c in llmConfigs" :key="c.id">
+              <option :value="c.id" x-text="c.label + ' (' + c.model_name + ')'"></option>
+            </template>
+          </select>
+        </div>
+      </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto">
+      <!-- No offer selected -->
+      <div x-show="!offerId" class="flex flex-col items-center justify-center h-full">
+        <div class="w-16 h-16 bg-accent/10 rounded-2xl flex items-center justify-center mb-4 text-3xl">💬</div>
+        <p class="text-gray-600 text-sm mb-1 font-medium" x-text="t('empty_title')"></p>
+        <p class="text-gray-400 text-sm" x-text="t('empty_hint')"></p>
+      </div>
+
+      <!-- Has offer -->
+      <div x-show="offerId" class="p-6">
+        <div class="flex gap-5">
+
+          <!-- Left: Context Panel -->
+          <div class="w-72 shrink-0 flex flex-col gap-4">
+            <div class="bg-white rounded-xl border p-5 sticky top-0">
+              <h3 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <span x-text="t('context_title')"></span>
+                <span x-show="loadingCtx" class="text-xs text-gray-400 font-normal" x-text="t('loading')"></span>
+              </h3>
+
+              <div x-show="!contextData && !loadingCtx" class="text-sm text-gray-400 text-center py-4" x-text="t('select_offer_ctx')"></div>
+
+              <div x-show="contextData" class="space-y-3">
+                <div>
+                  <div class="text-xs text-gray-400 mb-0.5" x-text="t('offer_name_label')"></div>
+                  <div class="text-sm font-medium text-gray-800" x-text="contextData?.offer_name || '-'"></div>
+                </div>
+
+                <!-- Knowledge by type -->
+                <div class="pt-2 border-t border-gray-50 space-y-2">
+                  <div class="text-xs text-gray-400 mb-1" x-text="t('kb_distribution')"></div>
+                  <template x-for="[type, count] in Object.entries(knowledgeByType)" :key="type">
+                    <div class="flex items-center justify-between text-xs">
+                      <span class="text-gray-500" x-text="({selling_point:t('ktype_selling_point'),audience:t('ktype_audience'),scenario:t('ktype_scenario'),faq:t('ktype_faq'),objection:t('ktype_objection')}[type] || type)"></span>
+                      <span class="text-gray-700 font-medium" x-text="count"></span>
+                    </div>
+                  </template>
+                  <div class="flex items-center justify-between text-xs pt-1 border-t border-gray-50">
+                    <span class="text-gray-500 font-medium" x-text="t('total')"></span>
+                    <span class="text-gray-800 font-semibold" x-text="contextData?.knowledge_count ?? 0"></span>
+                  </div>
+                </div>
+
+                <div class="pt-2 border-t border-gray-50 flex items-center gap-2">
+                  <div :class="(contextData?.knowledge_count ?? 0) > 0 ? 'bg-green-500' : 'bg-orange-400'" class="w-2 h-2 rounded-full shrink-0"></div>
+                  <span class="text-xs" :class="(contextData?.knowledge_count ?? 0) > 0 ? 'text-green-600' : 'text-orange-500'"
+                        x-text="(contextData?.knowledge_count ?? 0) > 0 ? t('kb_ready') : t('kb_empty_hint')"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Style + Question + Answer -->
+          <div class="flex-1 min-w-0 flex flex-col gap-5">
+
+            <!-- Style Selector -->
+            <div class="bg-white rounded-xl border p-5">
+              <h3 class="text-sm font-semibold text-gray-700 mb-3" x-text="t('style_title')"></h3>
+              <div class="flex gap-3">
+                <template x-for="s in styles" :key="s.style_id">
+                  <button @click="styleId = s.style_id"
+                          class="flex-1 flex items-center gap-3 p-3 rounded-xl border-2 transition-all text-left"
+                          :class="styleId === s.style_id
+                            ? 'border-accent bg-accent/5'
+                            : 'border-gray-100 hover:border-gray-200 bg-white'">
+                    <span class="text-2xl leading-none" x-text="s.icon"></span>
+                    <div class="min-w-0">
+                      <div class="text-sm font-medium text-gray-800" x-text="s.name"></div>
+                      <div class="text-xs text-gray-400 mt-0.5" x-text="s.description"></div>
+                    </div>
+                  </button>
+                </template>
+              </div>
+            </div>
+
+            <!-- Question Input -->
+            <div class="bg-white rounded-xl border p-5">
+              <h3 class="text-sm font-semibold text-gray-700 mb-3" x-text="t('question_title')"></h3>
+              <textarea x-model="question"
+                        :placeholder="t('question_placeholder')"
+                        rows="3"
+                        class="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent resize-none"></textarea>
+              <div class="flex items-center justify-between mt-3">
+                <span class="text-xs text-gray-400" x-text="question.length + ' / 2000'"></span>
+                <button @click="doAsk()"
+                        :disabled="loading || !question.trim() || !offerId"
+                        class="bg-gradient-to-r from-purple-600 to-accent text-white px-6 py-2 rounded-lg text-[13px] font-medium hover:opacity-90 disabled:opacity-50 transition flex items-center gap-2">
+                  <svg x-show="loading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                  <svg x-show="!loading" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                  <span x-text="loading ? t('thinking') : t('ask_btn')"></span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Streaming Card: Thinking phase -->
+            <div x-show="thinkingActive || thinking" x-cloak class="bg-white rounded-xl border p-6 mb-4">
+              <details :open="thinkingActive" x-ref="thinkingDetails"
+                       class="bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
+                <summary class="px-4 py-2.5 text-xs font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-100 transition-colors flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5" :class="thinkingActive ? 'text-purple-500 animate-pulse' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                  <span x-text="thinkingActive ? t('ai_thinking_active') : t('ai_thinking')"></span>
+                </summary>
+                <div x-ref="thinkingContent"
+                     class="px-4 py-3 text-xs text-gray-500 leading-relaxed whitespace-pre-wrap border-t border-gray-200 max-h-64 overflow-y-auto"
+                     x-text="thinking || ''"></div>
+              </details>
+            </div>
+
+            <!-- Answer Card -->
+            <div x-show="answer !== null" x-cloak class="bg-white rounded-xl border p-6">
+              <div class="flex items-center gap-2 mb-4">
+                <span class="text-lg" x-text="(styles.find(s => s.style_id === answerStyleId) || {}).icon || '💬'"></span>
+                <h3 class="text-sm font-semibold text-gray-700" x-text="t('answer_title')"></h3>
+                <span class="text-xs text-gray-400 ml-auto" x-text="(styles.find(s => s.style_id === answerStyleId) || {}).name || ''"></span>
+              </div>
+
+              <!-- No relevant knowledge warning -->
+              <div x-show="!hasRelevantKnowledge" class="mb-4 bg-orange-50 border border-orange-200 rounded-lg p-3 flex items-start gap-2">
+                <svg class="w-4 h-4 text-orange-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+                <span class="text-sm text-orange-700" x-text="t('no_relevant_knowledge')"></span>
+              </div>
+
+              <!-- Answer text -->
+              <div class="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap answer-content" x-text="answer"></div>
+
+              <!-- Referenced knowledge -->
+              <div x-show="referencedKnowledge.length > 0" class="mt-4 pt-4 border-t border-gray-100">
+                <div class="text-xs text-gray-400 mb-2" x-text="t('referenced_knowledge')"></div>
+                <div class="flex flex-wrap gap-2">
+                  <template x-for="ref in referencedKnowledge" :key="ref.title">
+                    <span class="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full"
+                          :class="{
+                            'bg-blue-50 text-blue-600': ref.knowledge_type === 'selling_point',
+                            'bg-green-50 text-green-600': ref.knowledge_type === 'audience',
+                            'bg-purple-50 text-purple-600': ref.knowledge_type === 'scenario',
+                            'bg-amber-50 text-amber-600': ref.knowledge_type === 'faq',
+                            'bg-red-50 text-red-600': ref.knowledge_type === 'objection',
+                            'bg-gray-100 text-gray-600': !['selling_point','audience','scenario','faq','objection'].includes(ref.knowledge_type),
+                          }">
+                      <span x-text="({selling_point:t('ref_selling_point'),audience:t('ref_audience'),scenario:t('ref_scenario'),faq:t('ref_faq'),objection:t('ref_objection')}[ref.knowledge_type] || ref.knowledge_type)"></span>
+                      <span class="font-medium" x-text="ref.title"></span>
+                    </span>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Stats -->
+              <div class="mt-3 pt-3 border-t border-gray-50 flex items-center gap-4 text-xs text-gray-400">
+                <span x-text="t('kb_entries')"></span><span class="text-gray-600" x-text="knowledgeCount"></span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const API = '/api/v1';
+
+    function kbQA() {
+      const params = new URLSearchParams(location.search);
+      return {
+        offers: [],
+        offerId: params.get('offer_id') || '',
+
+        // Context panel
+        contextData: null,
+        knowledgeByType: {},
+        loadingCtx: false,
+
+        // LLM model selector
+        llmConfigs: [],
+        configId: '',
+
+        // Styles
+        styles: [],
+        styleId: 'professional',
+
+        // Question
+        question: '',
+        loading: false,
+
+        // Answer
+        answer: null,
+        thinking: null,
+        thinkingActive: false,
+        answerStyleId: '',
+        referencedKnowledge: [],
+        knowledgeCount: 0,
+        hasRelevantKnowledge: true,
+
+        async init() {
+          document.title = t('page_title') + ' - OpenLucid';
+
+          // Load offers and styles in parallel
+          const [offersRes, stylesRes, llmRes] = await Promise.all([
+            fetch(`${API}/offers?page_size=100`).catch(() => null),
+            fetch(`${API}/apps/kb-qa/styles`).catch(() => null),
+            fetch(`${API}/settings/llm`).catch(() => null),
+          ]);
+
+          if (offersRes?.ok) this.offers = (await offersRes.json()).items || [];
+          if (stylesRes?.ok) this.styles = await stylesRes.json();
+          if (llmRes?.ok) this.llmConfigs = await llmRes.json();
+
+          // Restore last offer
+          if (!this.offerId) {
+            this.offerId = localStorage.getItem('od_last_kbqa_offer') || '';
+          }
+          if (this.offerId && !this.offers.find(o => o.id === this.offerId)) {
+            this.offerId = '';
+          }
+
+          if (this.offerId) {
+            localStorage.setItem('od_last_kbqa_offer', this.offerId);
+            await this.fetchContext();
+          }
+        },
+
+        async onOfferChange() {
+          localStorage.setItem('od_last_kbqa_offer', this.offerId);
+          this.answer = null;
+          this.thinking = null;
+          this.thinkingActive = false;
+          this.contextData = null;
+          this.knowledgeByType = {};
+
+          if (this.offerId) {
+            history.replaceState(null, '', `?offer_id=${this.offerId}`);
+            const name = this.offers.find(o => o.id === this.offerId)?.name || '';
+            document.title = `${t('title_with_offer')} · ${name} - OpenLucid`;
+            await this.fetchContext();
+          } else {
+            history.replaceState(null, '', location.pathname);
+            document.title = t('page_title') + ' - OpenLucid';
+          }
+        },
+
+        async fetchContext() {
+          if (!this.offerId) return;
+          this.loadingCtx = true;
+          try {
+            const res = await fetch(`${API}/apps/topic-studio/context-preview?offer_id=${this.offerId}`);
+            if (res.ok) {
+              this.contextData = await res.json();
+            }
+            // Fetch knowledge items to get type breakdown
+            const kRes = await fetch(`${API}/knowledge?scope_type=offer&scope_id=${this.offerId}&page_size=500`);
+            if (kRes.ok) {
+              const data = await kRes.json();
+              const byType = {};
+              for (const k of (data.items || [])) {
+                byType[k.knowledge_type] = (byType[k.knowledge_type] || 0) + 1;
+              }
+              this.knowledgeByType = byType;
+            }
+          } catch(e) { console.error(e); }
+          finally { this.loadingCtx = false; }
+        },
+
+        async doAsk() {
+          if (!this.question.trim() || !this.offerId) return;
+          this.loading = true;
+          this.answer = null;
+          this.thinking = null;
+          this.thinkingActive = false;
+          this.referencedKnowledge = [];
+          this.answerStyleId = this.styleId;
+
+          try {
+            const res = await fetch(`${API}/apps/kb-qa/ask/stream`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                offer_id: this.offerId,
+                question: this.question.trim(),
+                style_id: this.styleId,
+                config_id: this.configId || undefined,
+                language: getApiLang(),
+              }),
+            });
+
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              alert(t('ask_failed') + (err.detail || t('unknown_error')));
+              this.loading = false;
+              return;
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+
+              // Parse SSE events from buffer
+              const parts = buffer.split('\n\n');
+              buffer = parts.pop(); // keep incomplete tail
+
+              for (const part of parts) {
+                if (!part.trim()) continue;
+                const lines = part.trim().split('\n');
+                let eventType = 'message', data = '';
+                for (const line of lines) {
+                  if (line.startsWith('event: ')) eventType = line.slice(7);
+                  else if (line.startsWith('data: ')) data = line.slice(6);
+                }
+
+                if (eventType === 'thinking') {
+                  if (!this.thinkingActive) {
+                    this.thinkingActive = true;
+                    this.thinking = '';
+                  }
+                  this.thinking += JSON.parse(data);
+                  // Auto-scroll thinking content
+                  this.$nextTick(() => {
+                    const el = this.$refs.thinkingContent;
+                    if (el) el.scrollTop = el.scrollHeight;
+                  });
+                } else if (eventType === 'thinking_done') {
+                  this.thinkingActive = false;
+                  // Collapse the thinking details
+                  this.$nextTick(() => {
+                    const el = this.$refs.thinkingDetails;
+                    if (el) el.open = false;
+                  });
+                } else if (eventType === 'result') {
+                  const result = JSON.parse(data);
+                  this.answer = result.answer;
+                  this.answerStyleId = result.style_id || this.styleId;
+                  this.referencedKnowledge = result.referenced_knowledge || [];
+                  this.knowledgeCount = result.knowledge_count || 0;
+                  this.hasRelevantKnowledge = result.has_relevant_knowledge;
+                }
+              }
+            }
+          } catch(e) {
+            console.error(e);
+            alert(t('ask_failed_retry'));
+          }
+
+          this.thinkingActive = false;
+          this.loading = false;
+        },
+      };
+    }
+  </script>
+</body>
+</html>

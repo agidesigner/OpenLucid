@@ -1,0 +1,154 @@
+[English](README.md) | [中文](README_zh.md)
+
+# OpenLucid
+
+**Marketing World Model** — structure your data so AI can find it, understand it, and put it to work.
+
+---
+
+### What it is
+
+A structured data layer for everything that drives your marketing — products, services, brand rules, audiences, selling points, and assets — so AI can actually reason about your business.
+
+### What it solves
+
+Your marketing data becomes AI-ready:
+
+- **Discoverable** — knowledge, assets, and brand rules live in one place, not across 10 tools
+- **Machine-readable** — structured, tagged, and scored, not raw files and free text
+- **Actionable** — ready for agents, content generation, and downstream workflows
+
+### How to plug in
+
+Three interfaces, pick what fits:
+
+| Interface | For | How |
+|-----------|-----|-----|
+| **MCP Server** | Claude Code, Cursor, AI IDEs | Connect via MCP protocol, AI reads your marketing data directly |
+| **RESTful API** | Custom agents, automation | Full API with interactive docs at `/docs` |
+| **Web App** | Marketing teams | Visual UI for managing knowledge, assets, brand kits, and topics |
+
+---
+
+## Core Modules
+
+- **Knowledge Base** — Structured merchant knowledge: selling points, audience insights, usage scenarios, FAQs, objection handling. Input manually or let AI infer from product data
+- **Asset Library** — Upload images, videos, documents. AI auto-extracts metadata, tags, and scores each asset
+- **Strategy Units** — Define "audience × scenario × marketing goal × channel" combinations for focused content direction
+- **Brand Kit** — Brand tone, visual guidelines, persona definitions. Guardrails that keep all output on-brand
+- **Topic Studio** — Generate multi-platform topic plans grounded in your knowledge base and asset library
+- **KB Q&A** — AI-powered Q&A that cites your knowledge base without fabricating
+
+## Quick Start
+
+**Linux / macOS:**
+
+```bash
+git clone https://github.com/agidesigner/OpenLucid.git
+cd OpenLucid/docker
+./install.sh
+```
+
+**Windows (CMD or PowerShell):**
+
+```cmd
+git clone https://github.com/agidesigner/OpenLucid.git
+cd OpenLucid\docker
+install.bat
+```
+
+The install script automatically checks and installs Docker & Docker Compose if missing, creates the config file, builds and starts the services, then waits until the app is ready.
+
+Once started, open **http://localhost**:
+
+1. First visit lands on the setup page — create your admin account
+2. Go to **Settings** to configure your LLM (any OpenAI-compatible API)
+3. Create your first product and start planning
+
+> Only 2 containers (PostgreSQL + App). No Redis, no message queue, no extra dependencies.
+
+## Upgrade
+
+```bash
+cd OpenLucid/docker
+./upgrade.sh
+```
+
+The script automatically: backs up config → pulls latest code → syncs new config variables → rebuilds → restarts.
+
+Database migrations run automatically on app startup — no manual steps needed.
+
+## Configuration
+
+All settings are managed in `docker/.env` (template: `docker/.env.example`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DB_USER` | openlucid | Database username |
+| `DB_PASSWORD` | openlucid | Database password (**change in production!**) |
+| `DB_NAME` | openlucid | Database name |
+| `APP_PORT` | 80 | Port exposed on host |
+| `SECRET_KEY` | change-me-in-production | JWT secret (**change in production!**) |
+| `LOG_LEVEL` | INFO | Log level |
+
+**LLM configuration is managed in the web UI (Settings page)**, not in .env — supports multiple models, scene-based routing, and visual configuration.
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Backend | Python 3.11 · FastAPI · SQLAlchemy 2.0 (async) · Alembic |
+| Database | PostgreSQL 16 |
+| Frontend | HTML · Tailwind CSS · Alpine.js (no build step) |
+| AI | OpenAI SDK (compatible with any OpenAI-format LLM API) |
+| Deployment | Docker Compose |
+
+## Project Structure
+
+```
+app/                    # Backend
+├── api/                #   API routes
+├── application/        #   Business logic
+├── adapters/           #   External service adapters (AI, storage)
+├── models/             #   Data models
+├── schemas/            #   Pydantic schemas
+├── apps/definitions/   #   App definitions (Topic Studio, KB Q&A, etc.)
+└── config.py           #   Configuration
+
+frontend/               # Frontend (static HTML, served by FastAPI StaticFiles)
+
+docker/                 # Production deployment
+├── docker-compose.yml  #   Production compose
+├── .env.example        #   Config template
+├── install.sh / .bat   #   One-click install (Linux/macOS/Windows)
+└── upgrade.sh / .bat   #   One-click upgrade
+
+docker-compose.yml      # Development (source mount + hot reload)
+Dockerfile              # Image build
+```
+
+## Local Development
+
+```bash
+# Start dev environment (source mounted, changes take effect immediately)
+docker compose up -d
+```
+
+Or without Docker:
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # Edit DATABASE_URL to point to your PostgreSQL
+uvicorn app.main:app --reload
+```
+
+API docs: http://localhost:8000/docs
+
+## License
+
+OpenLucid is available under a modified [Apache License 2.0](LICENSE) with additional conditions for multi-tenant use and branding. See [LICENSE](LICENSE) for details.
+
+## Contact
+
+For questions, suggestions, or partnership inquiries, reach out to us at **ajin@jogg.ai**.

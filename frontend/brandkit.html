@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenLucid</title>
+  <script>
+    document.documentElement.style.display='none';
+    fetch('/api/v1/auth/me').then(r=>{
+      if(!r.ok) fetch('/api/v1/auth/setup-status').then(r=>r.json()).then(s=>{
+        location.href=s.needs_setup?'/install.html':'/signin.html';
+      });
+      else document.documentElement.style.display='';
+    });
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        sidebar: { DEFAULT: '#1C1C28', hover: '#2A2A3C' },
+        accent: { DEFAULT: '#155EEF', light: '#EFF4FF', hover: '#1849C6' },
+      }}}
+    }
+  </script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/pinned-apps.js"></script>
+  <script src="/js/avatar.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif}
+    .sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;color:#A0A0B0;font-size:14px;cursor:pointer;transition:all .15s}
+    .sidebar-item:hover{background:#2A2A3C;color:#E0E0EE}
+    .sidebar-item.active{background:#2D2D40;color:#fff}
+    .tab-btn{padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;color:#6B7280;transition:all .15s}
+    .tab-btn:hover{color:#374151;background:#F3F4F6}
+    .tab-btn.active{color:#155EEF;background:#EFF4FF}
+    .field-tag{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px;border-radius:9999px;font-weight:500}
+    .field-tag.inherited{background:#F3F4F6;color:#9CA3AF}
+    .field-tag.overridden{background:#EFF4FF;color:#155EEF}
+    textarea.profile-editor{font-size:13px;line-height:1.6;resize:vertical}
+  </style>
+</head>
+<body class="bg-gray-50 h-screen flex overflow-hidden" x-data="brandkitApp()" x-init="init()">
+
+  <!-- Sidebar -->
+  <aside class="w-56 bg-sidebar flex flex-col shrink-0">
+    <div class="px-4 py-5 flex items-center gap-2.5">
+      <img src="/images/logo.png" alt="OpenLucid" class="w-8 h-8 rounded-lg">
+      <span class="text-white font-semibold text-base">OpenLucid</span>
+    </div>
+    <nav class="flex-1 px-3 space-y-1 mt-2">
+      <a href="/" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        <span x-text="t('sidebar_offers')"></span>
+      </a>
+      <a href="/apps.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+        <span x-text="t('sidebar_apps')"></span>
+      </a>
+      <a href="/brandkit-list.html" class="sidebar-item active">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
+      </a>
+    </nav>
+    <div class="px-3 pb-3 mt-auto">
+      <div class="text-[10px] text-white/25 text-center">Powered by OpenLucid</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <!-- Header -->
+    <header class="h-14 bg-white border-b flex items-center px-6 shrink-0 gap-3">
+      <a href="/brandkit-list.html" class="text-sm text-gray-400 hover:text-accent" x-text="t('breadcrumb')"></a>
+      <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      <span class="text-sm font-medium text-gray-800" x-text="kit.name || '...'"></span>
+      <div class="flex-1"></div>
+
+      <!-- Status selector -->
+      <select x-model="kit.status" @change="saveField('status', kit.status)" class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white">
+        <option value="draft" x-text="t('bk_draft')"></option>
+        <option value="active" x-text="t('bk_active')"></option>
+        <option value="archived" x-text="t('bk_archived')"></option>
+      </select>
+
+      <!-- Delete -->
+      <div class="relative" x-data="{ open: false }" @click.outside="open = false">
+        <button @click="open = !open" class="h-[33px] w-[33px] flex items-center justify-center border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-50 transition-colors">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+        </button>
+        <div x-show="open" x-cloak class="absolute right-0 top-9 w-36 bg-white border border-gray-100 rounded-xl shadow-lg z-50 py-1">
+          <button @click="open = false; deleteKit()"
+                  class="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            <span x-text="t('btn_delete')"></span>
+          </button>
+        </div>
+      </div>
+
+      <div id="avatar-mount"></div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto">
+      <div x-show="loading" class="text-center py-12 text-gray-400 text-sm" x-text="t('loading')"></div>
+
+      <div x-show="!loading && kit.id">
+        <!-- Kit Info -->
+        <div class="px-6 py-5 bg-white border-b">
+          <div class="flex items-center gap-3 mb-2">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center"
+                 :class="kit.scope_type === 'merchant' ? 'bg-purple-50' : 'bg-blue-50'">
+              <svg class="w-5 h-5" :class="kit.scope_type === 'merchant' ? 'text-purple-500' : 'text-blue-500'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+            </div>
+            <div class="flex-1">
+              <input type="text" x-model="kit.name" @change="saveField('name', kit.name)"
+                     class="text-lg font-semibold text-gray-800 bg-transparent border-none outline-none w-full hover:bg-gray-50 rounded px-1 -ml-1 transition">
+              <div class="flex items-center gap-2 mt-0.5">
+                <span class="text-xs text-gray-400" x-text="kit.scope_type === 'merchant' ? t('scope_merchant') : t('scope_offer')"></span>
+              </div>
+            </div>
+          </div>
+          <input type="text" x-model="kit.description" @change="saveField('description', kit.description)"
+                 :placeholder="t('add_description')"
+                 class="text-sm text-gray-500 bg-transparent border-none outline-none w-full hover:bg-gray-50 rounded px-1 -ml-1 transition mt-1">
+        </div>
+
+        <!-- AI Extract Panel -->
+        <div class="px-6 py-4 bg-white border-b">
+          <button @click="aiExtract.open = !aiExtract.open"
+                  class="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-accent transition-colors">
+            <svg class="w-4 h-4 transition-transform" :class="aiExtract.open && 'rotate-90'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            <span class="text-base" x-text="t('ai_extract')"></span>
+            <span class="text-xs text-gray-400" x-text="t('ai_extract_hint')"></span>
+          </button>
+
+          <div x-show="aiExtract.open" x-cloak class="mt-3 space-y-3">
+            <div class="flex gap-3">
+              <input type="url" x-model="aiExtract.url" :placeholder="t('url_placeholder')"
+                     class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none">
+              <label class="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-500 cursor-pointer hover:bg-gray-50 transition-colors shrink-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                <span x-text="aiExtract.file ? aiExtract.file.name : t('upload_doc')"></span>
+                <input type="file" class="hidden" accept=".pdf,.docx,.doc,.txt" @change="aiExtract.file = $event.target.files[0]">
+              </label>
+            </div>
+            <div class="flex items-center gap-3">
+              <button @click="runAiExtract()" :disabled="aiExtract.loading || (!aiExtract.url && !aiExtract.file)"
+                      class="px-4 py-2 bg-accent text-white text-sm font-medium rounded-lg hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2">
+                <template x-if="aiExtract.loading">
+                  <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                </template>
+                <span x-text="aiExtract.loading ? t('ai_analyzing') : t('start_extract')"></span>
+              </button>
+              <template x-if="aiExtract.error === 'NO_LLM_CONFIGURED'">
+                <span class="text-xs text-red-500" x-text="t('no_llm_hint')"></span>
+              </template>
+              <span x-show="aiExtract.error && aiExtract.error !== 'NO_LLM_CONFIGURED'" class="text-xs text-red-500" x-text="aiExtract.error"></span>
+            </div>
+
+            <!-- Results -->
+            <div x-show="aiExtract.results" x-cloak class="border border-gray-200 rounded-xl overflow-hidden">
+              <div class="bg-gray-50 px-4 py-2.5 border-b flex items-center justify-between">
+                <span class="text-sm font-medium text-gray-700" x-text="t('extract_results')"></span>
+                <button @click="applyAllExtracted()" class="text-xs bg-accent text-white px-3 py-1.5 rounded-lg hover:bg-accent-hover transition-colors" x-text="t('apply_all')">
+
+                </button>
+              </div>
+              <div class="divide-y">
+                <template x-for="f in profileFieldList" :key="f.key">
+                  <div class="px-4 py-3 flex items-start gap-3" :class="!aiExtract.results?.[f.key] && 'opacity-40'">
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-medium text-gray-700" x-text="f.label"></div>
+                      <template x-if="aiExtract.results?.[f.key]">
+                        <pre class="text-xs text-gray-500 mt-1 whitespace-pre-wrap break-all max-h-24 overflow-auto" x-text="JSON.stringify(aiExtract.results[f.key], null, 2)"></pre>
+                      </template>
+                      <template x-if="!aiExtract.results?.[f.key]">
+                        <span class="text-xs text-gray-400 mt-1" x-text="t('not_extracted')"></span>
+                      </template>
+                    </div>
+                    <button @click="applyExtractedField(f.key)" :disabled="!aiExtract.results?.[f.key]"
+                            class="shrink-0 text-xs text-accent hover:text-accent-hover disabled:text-gray-300 disabled:cursor-not-allowed font-medium mt-0.5"
+                            x-text="t('apply')">
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="px-6 py-3 bg-white border-b flex items-center gap-2">
+          <button @click="tab='style'" :class="tab==='style' && 'active'" class="tab-btn" x-text="t('tab_style')"></button>
+          <button @click="tab='visual'" :class="tab==='visual' && 'active'" class="tab-btn" x-text="t('tab_visual')"></button>
+          <button @click="tab='rules'" :class="tab==='rules' && 'active'" class="tab-btn" x-text="t('tab_rules')"></button>
+          <button @click="tab='prompts'" :class="tab==='prompts' && 'active'" class="tab-btn" x-text="t('tab_prompts')"></button>
+          <button @click="tab='assets'; fetchAssetLinks()" :class="tab==='assets' && 'active'" class="tab-btn" x-text="t('tab_assets')"></button>
+        </div>
+
+        <div class="p-6">
+          <!-- Style Tab -->
+          <div x-show="tab==='style'">
+            <div class="bg-white rounded-xl border p-5">
+              <div class="flex items-center gap-2 mb-3">
+                <h3 class="font-semibold text-gray-800" x-text="t('style_profile')"></h3>
+                <template x-if="isInherited('style_profile_json')">
+                  <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
+                </template>
+                <template x-if="isOverridden('style_profile_json')">
+                  <span class="field-tag overridden" x-text="t('overridden')"></span>
+                </template>
+              </div>
+              <p class="text-xs text-gray-400 mb-3" x-text="t('style_profile_hint')"></p>
+              <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[200px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
+                        x-model="jsonFields.style_profile_json"
+                        @blur="saveTextField('style_profile_json')"
+                        :placeholder="t('style_profile_placeholder')"></textarea>
+            </div>
+          </div>
+
+          <!-- Visual Tab -->
+          <div x-show="tab==='visual'" class="space-y-5">
+            <div class="bg-white rounded-xl border p-5">
+              <div class="flex items-center gap-2 mb-3">
+                <h3 class="font-semibold text-gray-800" x-text="t('product_visual')"></h3>
+                <template x-if="isInherited('product_visual_profile_json')">
+                  <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
+                </template>
+                <template x-if="isOverridden('product_visual_profile_json')">
+                  <span class="field-tag overridden" x-text="t('overridden')"></span>
+                </template>
+              </div>
+              <p class="text-xs text-gray-400 mb-3" x-text="t('product_visual_hint')"></p>
+              <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
+                        x-model="jsonFields.product_visual_profile_json"
+                        @blur="saveTextField('product_visual_profile_json')"
+                        :placeholder="t('product_visual_placeholder')"></textarea>
+            </div>
+            <div class="bg-white rounded-xl border p-5">
+              <div class="flex items-center gap-2 mb-3">
+                <h3 class="font-semibold text-gray-800" x-text="t('service_scene')"></h3>
+                <template x-if="isInherited('service_scene_profile_json')">
+                  <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
+                </template>
+                <template x-if="isOverridden('service_scene_profile_json')">
+                  <span class="field-tag overridden" x-text="t('overridden')"></span>
+                </template>
+              </div>
+              <p class="text-xs text-gray-400 mb-3" x-text="t('service_scene_hint')"></p>
+              <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
+                        x-model="jsonFields.service_scene_profile_json"
+                        @blur="saveTextField('service_scene_profile_json')"
+                        :placeholder="t('service_scene_placeholder')"></textarea>
+            </div>
+            <div class="bg-white rounded-xl border p-5">
+              <div class="flex items-center gap-2 mb-3">
+                <h3 class="font-semibold text-gray-800" x-text="t('persona')"></h3>
+                <template x-if="isInherited('persona_profile_json')">
+                  <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
+                </template>
+                <template x-if="isOverridden('persona_profile_json')">
+                  <span class="field-tag overridden" x-text="t('overridden')"></span>
+                </template>
+              </div>
+              <p class="text-xs text-gray-400 mb-3" x-text="t('persona_hint')"></p>
+              <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
+                        x-model="jsonFields.persona_profile_json"
+                        @blur="saveTextField('persona_profile_json')"
+                        :placeholder="t('persona_placeholder')"></textarea>
+            </div>
+          </div>
+
+          <!-- Rules Tab -->
+          <div x-show="tab==='rules'" class="space-y-5">
+            <div class="bg-white rounded-xl border p-5">
+              <div class="flex items-center gap-2 mb-3">
+                <h3 class="font-semibold text-gray-800 text-green-600" x-text="t('visual_do')"></h3>
+                <template x-if="isInherited('visual_do_json')">
+                  <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
+                </template>
+                <template x-if="isOverridden('visual_do_json')">
+                  <span class="field-tag overridden" x-text="t('overridden')"></span>
+                </template>
+              </div>
+              <p class="text-xs text-gray-400 mb-3" x-text="t('visual_do_hint')"></p>
+              <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
+                        x-model="jsonFields.visual_do_json"
+                        @blur="saveTextField('visual_do_json')"
+                        :placeholder="t('visual_do_placeholder')"></textarea>
+            </div>
+            <div class="bg-white rounded-xl border p-5">
+              <div class="flex items-center gap-2 mb-3">
+                <h3 class="font-semibold text-gray-800 text-red-500" x-text="t('visual_dont')"></h3>
+                <template x-if="isInherited('visual_dont_json')">
+                  <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
+                </template>
+                <template x-if="isOverridden('visual_dont_json')">
+                  <span class="field-tag overridden" x-text="t('overridden')"></span>
+                </template>
+              </div>
+              <p class="text-xs text-gray-400 mb-3" x-text="t('visual_dont_hint')"></p>
+              <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
+                        x-model="jsonFields.visual_dont_json"
+                        @blur="saveTextField('visual_dont_json')"
+                        :placeholder="t('visual_dont_placeholder')"></textarea>
+            </div>
+          </div>
+
+          <!-- Prompts Tab -->
+          <div x-show="tab==='prompts'">
+            <div class="bg-white rounded-xl border p-5">
+              <div class="flex items-center gap-2 mb-3">
+                <h3 class="font-semibold text-gray-800" x-text="t('reference_prompt')"></h3>
+                <template x-if="isInherited('reference_prompt_json')">
+                  <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
+                </template>
+                <template x-if="isOverridden('reference_prompt_json')">
+                  <span class="field-tag overridden" x-text="t('overridden')"></span>
+                </template>
+              </div>
+              <p class="text-xs text-gray-400 mb-3" x-text="t('reference_prompt_hint')"></p>
+              <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[200px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
+                        x-model="jsonFields.reference_prompt_json"
+                        @blur="saveTextField('reference_prompt_json')"
+                        :placeholder="t('reference_prompt_placeholder')"></textarea>
+            </div>
+          </div>
+
+          <!-- Assets Tab -->
+          <div x-show="tab==='assets'">
+            <!-- 分类卡片网格 -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <template x-for="cat in assetCategories" :key="cat.role">
+                <div class="bg-white rounded-xl border p-5">
+                  <div class="flex items-center gap-2 mb-3">
+                    <span class="text-lg" x-text="cat.icon"></span>
+                    <h3 class="font-semibold text-gray-800" x-text="cat.label"></h3>
+                  </div>
+                  <p class="text-xs text-gray-400 mb-3" x-text="cat.hint"></p>
+
+                  <!-- 已上传缩略图网格 -->
+                  <div class="flex flex-wrap gap-2 mb-3" x-show="linksForRole(cat.role).length > 0">
+                    <template x-for="link in linksForRole(cat.role)" :key="link.id">
+                      <div class="relative group w-20 h-20 rounded-lg overflow-hidden border border-gray-100">
+                        <template x-if="linkThumb(link)">
+                          <img :src="linkThumb(link)" class="w-full h-full object-cover">
+                        </template>
+                        <template x-if="!linkThumb(link)">
+                          <div class="w-full h-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs"
+                               x-text="link.asset?.file_name?.slice(0,6) || '?'"></div>
+                        </template>
+                        <button @click="deleteLink(link.id)"
+                                class="absolute top-0 right-0 w-5 h-5 bg-black/60 text-white text-xs rounded-bl-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
+                      </div>
+                    </template>
+                  </div>
+
+                  <!-- 上传区 -->
+                  <label class="flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-lg py-4 cursor-pointer hover:border-accent/40 hover:bg-accent/5 transition-colors"
+                         :class="uploadingRole === cat.role && 'opacity-50 pointer-events-none'">
+                    <svg class="w-5 h-5 text-gray-300 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    <span class="text-xs text-gray-400" x-text="uploadingRole === cat.role ? t('uploading') : t('click_upload')"></span>
+                    <input type="file" class="hidden" accept="image/*,video/*" @change="uploadForRole($event, cat.role)">
+                  </label>
+                </div>
+              </template>
+            </div>
+
+            <!-- 其他参考（兜底） -->
+            <div class="mt-5 bg-white rounded-xl border p-5">
+              <h3 class="font-semibold text-gray-800 mb-3" x-text="t('other_reference')"></h3>
+              <div class="flex flex-wrap gap-2 mb-3" x-show="linksForRole('reference_image').concat(linksForRole('reference_video')).length > 0">
+                <template x-for="link in linksForRole('reference_image').concat(linksForRole('reference_video'))" :key="link.id">
+                  <div class="relative group w-20 h-20 rounded-lg overflow-hidden border border-gray-100">
+                    <template x-if="linkThumb(link)">
+                      <img :src="linkThumb(link)" class="w-full h-full object-cover">
+                    </template>
+                    <template x-if="!linkThumb(link)">
+                      <div class="w-full h-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs"
+                           x-text="link.asset?.file_name?.slice(0,6) || '?'"></div>
+                    </template>
+                    <button @click="deleteLink(link.id)"
+                            class="absolute top-0 right-0 w-5 h-5 bg-black/60 text-white text-xs rounded-bl-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
+                  </div>
+                </template>
+              </div>
+              <label class="flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-lg py-4 cursor-pointer hover:border-accent/40 hover:bg-accent/5 transition-colors"
+                     :class="uploadingRole === 'reference_image' && 'opacity-50 pointer-events-none'">
+                <svg class="w-5 h-5 text-gray-300 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                <span class="text-xs text-gray-400" x-text="uploadingRole === 'reference_image' ? t('uploading') : t('click_upload')"></span>
+                <input type="file" class="hidden" accept="image/*,video/*" @change="uploadForRole($event, $event.target.files[0]?.type?.startsWith('video') ? 'reference_video' : 'reference_image')">
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Save indicator -->
+        <div x-show="saving" x-cloak class="fixed bottom-6 right-6 bg-gray-800 text-white text-sm px-4 py-2 rounded-lg shadow-lg" x-text="t('saving')">
+        </div>
+        <div x-show="saved" x-cloak class="fixed bottom-6 right-6 bg-green-600 text-white text-sm px-4 py-2 rounded-lg shadow-lg" x-text="t('saved')">
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const API = '/api/v1';
+
+    function brandkitApp() {
+      return {
+        kitId: new URLSearchParams(location.search).get('id'),
+        kit: {},
+        tab: 'style',
+        loading: true,
+        saving: false,
+        saved: false,
+        inheritedFields: [],
+        overriddenFields: [],
+
+        aiExtract: { open: false, url: '', file: null, loading: false, results: null, error: '' },
+
+        profileFieldList: [
+          { key: 'style_profile_json', label: t('style_profile') },
+          { key: 'product_visual_profile_json', label: t('product_visual') },
+          { key: 'service_scene_profile_json', label: t('service_scene') },
+          { key: 'persona_profile_json', label: t('persona') },
+          { key: 'visual_do_json', label: t('visual_do') },
+          { key: 'visual_dont_json', label: t('visual_dont') },
+          { key: 'reference_prompt_json', label: t('reference_prompt') },
+        ],
+
+        jsonFields: {
+          style_profile_json: '',
+          product_visual_profile_json: '',
+          service_scene_profile_json: '',
+          persona_profile_json: '',
+          visual_do_json: '',
+          visual_dont_json: '',
+          reference_prompt_json: '',
+        },
+
+        // Asset links
+        assetLinks: [],
+        uploadingRole: null,
+
+        assetCategories: [
+          { role: 'product_reference', label: t('cat_product'), icon: '📦', hint: t('cat_product_hint') },
+          { role: 'scene_reference', label: t('cat_scene'), icon: '🏠', hint: t('cat_scene_hint') },
+          { role: 'persona_reference', label: t('cat_persona'), icon: '👤', hint: t('cat_persona_hint') },
+          { role: 'style_reference', label: t('cat_style'), icon: '🎨', hint: t('cat_style_hint') },
+          { role: 'negative_reference', label: t('cat_negative'), icon: '🚫', hint: t('cat_negative_hint') },
+        ],
+
+        roleLabels: {
+          reference_image: t('other_reference'), reference_video: t('other_reference'),
+          product_reference: t('cat_product'), scene_reference: t('cat_scene'),
+          persona_reference: t('cat_persona'), style_reference: t('cat_style'),
+          negative_reference: t('cat_negative'),
+        },
+
+        async init() {
+          const res = await fetch(`${API}/brandkits/${this.kitId}/merged`);
+          if (!res.ok) { location.href = '/brandkit-list.html'; return; }
+          const data = await res.json();
+          this.kit = data;
+          this.inheritedFields = data.inherited_fields || [];
+          this.overriddenFields = data.overridden_fields || [];
+
+          // Initialize text fields (plain text or JSON stringified for legacy data)
+          const fields = ['style_profile_json','product_visual_profile_json','service_scene_profile_json',
+                          'persona_profile_json','visual_do_json','visual_dont_json','reference_prompt_json'];
+          for (const f of fields) {
+            const v = data[f];
+            if (!v) this.jsonFields[f] = '';
+            else if (typeof v === 'string') this.jsonFields[f] = v;
+            else this.jsonFields[f] = JSON.stringify(v, null, 2);
+          }
+
+          document.title = t('page_title') + ' - OpenLucid';
+          this.loading = false;
+        },
+
+        isInherited(field) {
+          return this.kit?.scope_type === 'offer' && this.inheritedFields.includes(field);
+        },
+        isOverridden(field) {
+          return this.kit?.scope_type === 'offer' && this.overriddenFields.includes(field);
+        },
+
+        async saveField(field, value) {
+          this.saving = true;
+          try {
+            const body = {};
+            body[field] = value;
+            await fetch(`${API}/brandkits/${this.kitId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            this.showSaved();
+          } catch {}
+          this.saving = false;
+        },
+
+        async saveTextField(field) {
+          const text = this.jsonFields[field];
+          const value = text && text.trim() ? text.trim() : null;
+          this.saving = true;
+          try {
+            const body = {};
+            body[field] = value;
+            const res = await fetch(`${API}/brandkits/${this.kitId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            if (res.ok) {
+              this.kit[field] = value;
+              this.showSaved();
+            }
+          } catch {}
+          this.saving = false;
+        },
+
+        showSaved() {
+          this.saved = true;
+          setTimeout(() => this.saved = false, 1500);
+        },
+
+        async fetchAssetLinks() {
+          const res = await fetch(`${API}/brandkits/${this.kitId}/asset-links?page_size=100`);
+          if (res.ok) {
+            const data = await res.json();
+            this.assetLinks = data.items || [];
+          }
+        },
+
+        linksForRole(role) {
+          return this.assetLinks.filter(l => l.role === role);
+        },
+
+        linkThumb(link) {
+          if (!link.asset) return null;
+          if (link.asset.storage_uri) return `${API}/assets/${link.asset.id}/file`;
+          return null;
+        },
+
+        async uploadForRole(event, role) {
+          const file = event.target.files[0];
+          if (!file) return;
+          this.uploadingRole = role;
+          try {
+            // 1. Upload file
+            const fd = new FormData();
+            fd.append('file', file);
+            fd.append('scope_type', this.kit.scope_type);
+            fd.append('scope_id', this.kit.scope_id);
+            fd.append('asset_type', file.type.startsWith('video') ? 'video' : 'image');
+            const uploadRes = await fetch(`${API}/assets/upload`, { method: 'POST', body: fd });
+            if (!uploadRes.ok) { alert(t('save_failed')); return; }
+            const asset = await uploadRes.json();
+
+            // 2. Link to brandkit
+            const linkRes = await fetch(`${API}/brandkits/${this.kitId}/asset-links`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ asset_id: asset.id, role, priority: 0 }),
+            });
+            if (!linkRes.ok) { alert(t('save_failed')); return; }
+
+            // 3. Refresh
+            await this.fetchAssetLinks();
+          } catch { alert(t('save_failed')); }
+          this.uploadingRole = null;
+          event.target.value = '';
+        },
+
+        async deleteLink(linkId) {
+          if (!confirm(t('confirm_remove_link'))) return;
+          const res = await fetch(`${API}/brandkits/${this.kitId}/asset-links/${linkId}`, { method: 'DELETE' });
+          if (res.ok) await this.fetchAssetLinks();
+        },
+
+        async runAiExtract() {
+          this.aiExtract.loading = true;
+          this.aiExtract.error = '';
+          this.aiExtract.results = null;
+          try {
+            const fd = new FormData();
+            if (this.aiExtract.file) {
+              fd.append('file', this.aiExtract.file);
+            }
+            if (this.aiExtract.url) {
+              fd.append('url', this.aiExtract.url);
+            }
+            const res = await fetch(`${API}/brandkits/${this.kitId}/extract-profile`, {
+              method: 'POST',
+              body: fd,
+            });
+            const data = await res.json();
+            if (data.error) {
+              this.aiExtract.error = data.error;
+            } else {
+              this.aiExtract.results = data;
+            }
+          } catch (e) {
+            this.aiExtract.error = t('network_error');
+          }
+          this.aiExtract.loading = false;
+        },
+
+        applyExtractedField(fieldKey) {
+          const value = this.aiExtract.results?.[fieldKey];
+          if (!value) return;
+          this.jsonFields[fieldKey] = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+          this.saveTextField(fieldKey);
+        },
+
+        applyAllExtracted() {
+          if (!this.aiExtract.results) return;
+          for (const f of this.profileFieldList) {
+            if (this.aiExtract.results[f.key]) {
+              this.applyExtractedField(f.key);
+            }
+          }
+        },
+
+        async deleteKit() {
+          if (!confirm(t('confirm_delete_kit'))) return;
+          const res = await fetch(`${API}/brandkits/${this.kitId}`, { method: 'DELETE' });
+          if (res.ok) location.href = '/brandkit-list.html';
+          else alert(t('delete_failed'));
+        },
+      };
+    }
+  </script>
+</body>
+</html>

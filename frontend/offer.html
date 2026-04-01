@@ -1,0 +1,1677 @@
+<!DOCTYPE html>
+<html :lang="window._odLang === 'zh' ? 'zh-CN' : 'en'">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenLucid</title>
+  <script>
+    document.documentElement.style.display='none';
+    fetch('/api/v1/auth/me').then(r=>{
+      if(!r.ok) fetch('/api/v1/auth/setup-status').then(r=>r.json()).then(s=>{
+        location.href=s.needs_setup?'/install.html':'/signin.html';
+      });
+      else document.documentElement.style.display='';
+    });
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        sidebar: { DEFAULT: '#1C1C28', hover: '#2A2A3C' },
+        accent: { DEFAULT: '#155EEF', light: '#EFF4FF', hover: '#1849C6' },
+      }}}
+    }
+  </script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/pinned-apps.js"></script>
+  <script src="/js/avatar.js"></script>
+  <script src="/js/topic-picker.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif}
+    .sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;color:#A0A0B0;font-size:14px;cursor:pointer;transition:all .15s}
+    .sidebar-item:hover{background:#2A2A3C;color:#E0E0EE}
+    .sidebar-item.active{background:#2D2D40;color:#fff}
+    .tab-btn{padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;color:#6B7280;transition:all .15s}
+    .tab-btn:hover{color:#374151;background:#F3F4F6}
+    .tab-btn.active{color:#155EEF;background:#EFF4FF}
+    @keyframes shimmer{0%{background-position:-200% center}100%{background-position:200% center}}
+  </style>
+</head>
+<body class="bg-gray-50 h-screen flex overflow-hidden" x-data="offerApp()" x-init="init()" @topic-picker-select.window="goToTopics($event.detail.unitId)">
+
+  <!-- Sidebar -->
+  <aside class="w-56 bg-sidebar flex flex-col shrink-0">
+    <div class="px-4 py-5 flex items-center gap-2.5">
+      <img src="/images/logo.png" alt="OpenLucid" class="w-8 h-8 rounded-lg">
+      <span class="text-white font-semibold text-base">OpenLucid</span>
+    </div>
+    <nav class="flex-1 px-3 space-y-1 mt-2">
+      <a href="/" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        <span x-text="t('sidebar_offers')"></span>
+      </a>
+            <a href="/apps.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+        <span x-text="t('sidebar_apps')"></span>
+      </a>
+      <a href="/brandkit-list.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
+      </a>
+    </nav>
+    <div class="px-3 pb-3 mt-auto">
+      <div class="text-[10px] text-white/25 text-center">Powered by OpenLucid</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <!-- Header -->
+    <header class="h-14 bg-white border-b flex items-center px-6 shrink-0 gap-3">
+      <a href="/" class="text-sm text-gray-400 hover:text-accent" x-text="t('sidebar_offers')"></a>
+      <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      <span class="text-sm font-medium text-gray-800" x-text="offer?.name || '...'"></span>
+      <div class="flex-1"></div>
+      <button @click="openTopicPicker()"
+              class="bg-gradient-to-r from-purple-600 to-accent text-white px-4 py-[7px] rounded-lg text-[13px] font-medium hover:opacity-90 transition-opacity flex items-center gap-1.5">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        <span x-text="t('generate_topics')"></span>
+      </button>
+
+      <!-- More actions dropdown -->
+      <div class="relative" x-data="{ open: false }" @click.outside="open = false">
+        <button @click="open = !open" class="h-[33px] w-[33px] flex items-center justify-center border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+        </button>
+        <div x-show="open" x-cloak class="absolute right-0 top-9 w-36 bg-white border border-gray-100 rounded-xl shadow-lg z-50 py-1 overflow-hidden">
+          <button @click="open = false; deleteConfirm = true"
+                  class="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            <span x-text="t('btn_delete')"></span>
+          </button>
+        </div>
+      </div>
+
+      <div id="avatar-mount"></div>
+    </header>
+
+    <!-- Delete confirm modal -->
+    <div x-show="deleteConfirm" x-cloak class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center shrink-0">
+            <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+          </div>
+          <div>
+            <h3 class="font-semibold text-gray-800" x-text="t('delete_confirm_title')"></h3>
+            <p class="text-sm text-gray-500 mt-0.5" x-text="t('delete_confirm_desc')"></p>
+          </div>
+        </div>
+        <p class="text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2 mb-5">
+          <span x-text="t('about_to_delete')"></span><span class="font-medium" x-text="offer?.name"></span>
+        </p>
+        <div class="flex gap-3 justify-end">
+          <button @click="deleteConfirm = false" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg border border-gray-200 transition" x-text="t('btn_cancel')"></button>
+          <button @click="deleteOffer()" :disabled="deleting"
+                  class="px-4 py-2 text-sm text-white bg-red-500 hover:bg-red-600 rounded-lg transition disabled:opacity-50">
+            <span x-text="deleting ? t('deleting') : t('confirm_delete_btn')"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <main class="flex-1 overflow-y-auto">
+      <!-- Offer Info -->
+      <div class="px-6 py-5 bg-white border-b">
+        <div class="flex items-center gap-3 mb-2">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg"
+               :class="{'bg-blue-50': offer?.offer_type==='product', 'bg-green-50': offer?.offer_type==='service', 'bg-purple-50': offer?.offer_type==='bundle', 'bg-orange-50': offer?.offer_type==='solution'}"
+               x-text="({product:'📦', service:'🛎️', bundle:'📋', solution:'💡'}[offer?.offer_type] || '📦')"></div>
+          <div>
+            <h1 class="text-lg font-semibold text-gray-800" x-text="offer?.name"></h1>
+            <p class="text-sm text-gray-400 cursor-pointer"
+               :class="descExpanded ? '' : 'line-clamp-2'"
+               @click="descExpanded = !descExpanded"
+               x-text="offer?.description || t('no_description')"></p>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-1.5 mt-3">
+          <template x-for="sp in (offer?.core_selling_points_json?.points || [])">
+            <span class="bg-blue-50 text-blue-600 text-[11px] px-2.5 py-1 rounded-full font-medium" x-text="sp"></span>
+          </template>
+          <template x-for="a in (offer?.target_audience_json?.items || [])">
+            <span class="bg-green-50 text-green-600 text-[11px] px-2.5 py-1 rounded-full font-medium" x-text="a"></span>
+          </template>
+          <template x-for="s in (offer?.target_scenarios_json?.items || [])">
+            <span class="bg-orange-50 text-orange-600 text-[11px] px-2.5 py-1 rounded-full font-medium" x-text="s"></span>
+          </template>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="px-6 py-3 bg-white border-b flex items-center gap-2">
+        <button @click="tab='overview'" :class="tab==='overview' && 'active'" class="tab-btn" x-text="t('tab_overview')"></button>
+        <button @click="tab='knowledge'" :class="tab==='knowledge' && 'active'" class="tab-btn" x-text="t('tab_knowledge')"></button>
+        <button @click="tab='assets'; fetchAssets()" :class="tab==='assets' && 'active'" class="tab-btn" x-text="t('tab_assets')"></button>
+        <button @click="tab='strategy'; fetchStrategyUnits()" :class="tab==='strategy' && 'active'" class="tab-btn" x-text="t('tab_strategy')"></button>
+        <button @click="tab='brandkit'; fetchBrandKit()" :class="tab==='brandkit' && 'active'" class="tab-btn" x-text="t('tab_brandkit')"></button>
+      </div>
+
+      <div class="p-6">
+
+        <!-- ====== OVERVIEW TAB ====== -->
+        <div x-show="tab==='overview'">
+          <div x-show="loadingOverview" class="text-center py-12 text-gray-400 text-sm" x-text="t('loading')"></div>
+          <div x-show="overview && !loadingOverview">
+
+            <!-- 4-col stats grid -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div class="bg-white rounded-xl border p-4">
+                <div class="text-2xl font-bold text-gray-800" x-text="overview?.knowledge_count ?? 0"></div>
+                <div class="text-xs text-gray-400 mt-0.5 mb-2" x-text="t('knowledge_count')"></div>
+                <div class="flex flex-wrap gap-1">
+                  <template x-for="[type, cnt] in Object.entries(overview?.knowledge_by_type || {})" :key="type">
+                    <span class="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full" x-text="type + ' ' + cnt"></span>
+                  </template>
+                </div>
+              </div>
+              <div class="bg-white rounded-xl border p-4">
+                <div class="text-2xl font-bold text-gray-800" x-text="overview?.asset_count ?? 0"></div>
+                <div class="text-xs text-gray-400 mt-0.5 mb-2" x-text="t('asset_count')"></div>
+                <div class="flex flex-wrap gap-1">
+                  <template x-for="[type, cnt] in Object.entries(overview?.asset_by_type || {})" :key="type">
+                    <span class="text-[10px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded-full" x-text="type + ' ' + cnt"></span>
+                  </template>
+                </div>
+              </div>
+              <div class="bg-white rounded-xl border p-4">
+                <div class="text-2xl font-bold text-gray-800" x-text="overview?.strategy_unit_count ?? 0"></div>
+                <div class="text-xs text-gray-400 mt-0.5" x-text="t('strategy_unit_count')"></div>
+              </div>
+              <div class="bg-white rounded-xl border p-4">
+                <div class="text-2xl font-bold text-gray-800" x-text="overview?.topic_count ?? 0"></div>
+                <div class="text-xs text-gray-400 mt-0.5" x-text="t('topic_count')"></div>
+              </div>
+            </div>
+
+            <!-- Missing items -->
+            <div x-show="(overview?.missing?.length ?? 0) > 0"
+                 class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5 flex flex-wrap gap-2 items-center">
+              <span class="text-xs font-medium text-amber-700 shrink-0" x-text="t('missing_label')"></span>
+              <template x-for="m in (overview?.missing || [])" :key="m">
+                <span class="text-[11px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full" x-text="({
+                  selling_point: t('missing_selling_point'), audience: t('missing_audience'), scenario: t('missing_scenario'),
+                  assets: t('missing_assets'), strategy_units: t('missing_strategy_units')
+                }[m] || m)"></span>
+              </template>
+            </div>
+
+            <!-- Next Best Action -->
+            <div class="bg-white rounded-xl border p-5 mb-5 flex items-center gap-4">
+              <div class="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
+                <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              </div>
+              <div class="flex-1">
+                <div class="text-xs text-gray-400 mb-0.5" x-text="t('next_action')"></div>
+                <div class="text-sm font-medium text-gray-800" x-text="t('next_action_' + (overview?.next_action || 'done'))"></div>
+              </div>
+              <button @click="handleNextAction(overview?.next_action)"
+                      class="bg-accent text-white px-4 py-2 rounded-lg text-[13px] font-medium hover:bg-accent-hover transition shrink-0">
+                <span x-text="t('execute_now')"></span>
+              </button>
+            </div>
+
+            <!-- Readiness progress -->
+            <div class="bg-white rounded-xl border p-5 mb-5">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-sm font-medium text-gray-700" x-text="t('readiness')"></span>
+                <span class="text-sm font-bold text-accent" x-text="Math.round((overview?.readiness_score ?? 0) * 100) + '%'"></span>
+              </div>
+              <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div class="h-full rounded-full bg-gradient-to-r from-blue-400 to-accent transition-all duration-500"
+                     :style="'width:' + Math.round((overview?.readiness_score ?? 0) * 100) + '%'"></div>
+              </div>
+              <p class="text-xs text-gray-400 mt-2" x-text="t('readiness_hint')"></p>
+            </div>
+
+            <!-- Knowledge summary -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div class="bg-white rounded-xl border p-4">
+                <h4 class="text-xs font-semibold text-gray-500 mb-2.5 flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full bg-blue-400 shrink-0"></span><span x-text="t('kt_selling_point')"></span>
+                </h4>
+                <div class="flex flex-wrap gap-1.5">
+                  <template x-for="k in knowledgeItems.filter(k => k.knowledge_type === 'selling_point').slice(0,6)" :key="k.id">
+                    <span class="bg-blue-50 text-blue-700 text-[11px] px-2 py-0.5 rounded-full" x-text="k.title"></span>
+                  </template>
+                  <span x-show="knowledgeItems.filter(k => k.knowledge_type === 'selling_point').length === 0" class="text-gray-400 text-xs" x-text="t('none_go_add')"></span>
+                </div>
+              </div>
+              <div class="bg-white rounded-xl border p-4">
+                <h4 class="text-xs font-semibold text-gray-500 mb-2.5 flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full bg-green-400 shrink-0"></span><span x-text="t('kt_audience')"></span>
+                </h4>
+                <div class="flex flex-wrap gap-1.5">
+                  <template x-for="k in knowledgeItems.filter(k => k.knowledge_type === 'audience').slice(0,6)" :key="k.id">
+                    <span class="bg-green-50 text-green-700 text-[11px] px-2 py-0.5 rounded-full" x-text="k.title"></span>
+                  </template>
+                  <span x-show="knowledgeItems.filter(k => k.knowledge_type === 'audience').length === 0" class="text-gray-400 text-xs" x-text="t('none_go_add')"></span>
+                </div>
+              </div>
+              <div class="bg-white rounded-xl border p-4">
+                <h4 class="text-xs font-semibold text-gray-500 mb-2.5 flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full bg-orange-400 shrink-0"></span><span x-text="t('kt_scenario')"></span>
+                </h4>
+                <div class="flex flex-wrap gap-1.5">
+                  <template x-for="k in knowledgeItems.filter(k => k.knowledge_type === 'scenario').slice(0,6)" :key="k.id">
+                    <span class="bg-orange-50 text-orange-700 text-[11px] px-2 py-0.5 rounded-full" x-text="k.title"></span>
+                  </template>
+                  <span x-show="knowledgeItems.filter(k => k.knowledge_type === 'scenario').length === 0" class="text-gray-400 text-xs" x-text="t('none_go_add')"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ====== KNOWLEDGE TAB ====== -->
+        <div x-show="tab==='knowledge'" @click="knowledgeMenu = null">
+          <!-- Action Bar -->
+          <div class="flex items-center gap-3 mb-5">
+            <button @click="inferKnowledge()" :disabled="inferring"
+                    class="bg-gradient-to-r from-purple-600 to-accent text-white px-4 py-2 rounded-lg text-[13px] font-medium hover:opacity-90 disabled:opacity-50 transition flex items-center gap-2">
+              <svg x-show="!inferring" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              <svg x-show="inferring" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+              <span x-text="inferring ? t('ai_analyzing') : t('ai_smart_update')"></span>
+            </button>
+            <button @click="showAddManual = true" class="border border-gray-200 text-gray-600 px-4 py-2 rounded-lg text-[13px] hover:bg-gray-50 transition" x-text="t('manual_add')"></button>
+            <div class="flex-1"></div>
+            <span class="text-sm text-gray-400" x-text="knowledgeTotal + t('knowledge_items_count')"></span>
+          </div>
+
+          <!-- AI Suggestions -->
+          <div x-show="suggestions" x-cloak class="mb-6 rounded-xl border-2 border-purple-200 bg-gradient-to-br from-purple-50/50 to-blue-50/30 overflow-hidden">
+            <div class="px-5 py-4 border-b border-purple-100 flex items-center justify-between">
+              <div>
+                <h3 class="font-semibold text-purple-900 text-[15px]" x-text="t('ai_results')"></h3>
+                <p class="text-xs text-purple-400 mt-0.5" x-text="t('ai_results_hint')"></p>
+              </div>
+              <button @click="suggestions = null" class="text-gray-400 hover:text-gray-600 p-1">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="p-5 space-y-5">
+              <!-- 待更新区 -->
+              <div x-show="updateItems.length > 0">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-sm font-semibold text-orange-600" x-text="t('to_update')"></span>
+                  <span class="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full" x-text="updateItems.length + t('n_items')"></span>
+                </div>
+                <div class="space-y-2">
+                  <template x-for="(item, idx) in updateItems" :key="'u'+idx">
+                    <div class="bg-white rounded-lg border border-orange-100 p-3.5 flex items-start gap-3 hover:shadow-sm transition-shadow">
+                      <input type="checkbox" x-model="item._selected" class="mt-0.5 rounded border-gray-300 text-accent focus:ring-accent/30 w-4 h-4">
+                      <div class="flex-1 min-w-0">
+                        <template x-if="item._editing">
+                          <div class="space-y-2">
+                            <input x-model="item.title" class="w-full border border-gray-200 rounded-md px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+                            <textarea x-model="item.content_raw" rows="2" class="w-full border border-gray-200 rounded-md px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none resize-none"></textarea>
+                            <button @click="item._editing = false" class="text-xs text-accent hover:underline" x-text="t('done')"></button>
+                          </div>
+                        </template>
+                        <template x-if="!item._editing">
+                          <div @click="item._editing = true" class="cursor-pointer group/item">
+                            <div class="flex items-center gap-2">
+                              <span class="text-sm font-medium text-gray-800 group-hover/item:text-accent transition-colors" x-text="item.title"></span>
+                              <span class="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded" x-text="t('update_tag')"></span>
+                            </div>
+                            <div class="text-[13px] text-gray-500 mt-0.5 leading-relaxed" x-text="item.content_raw"></div>
+                          </div>
+                        </template>
+                      </div>
+                      <div class="text-[11px] text-gray-400 tabular-nums shrink-0 mt-0.5" x-text="Math.round((item.confidence||0)*100)+'%'"></div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+              <!-- 待新增区 -->
+              <div x-show="createItems.length > 0">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-sm font-semibold text-green-600" x-text="t('to_create')"></span>
+                  <span class="text-xs bg-green-100 text-green-600 px-2 py-0.5 rounded-full" x-text="createItems.length + t('n_items')"></span>
+                </div>
+                <div class="space-y-2">
+                  <template x-for="(item, idx) in createItems" :key="'c'+idx">
+                    <div class="bg-white rounded-lg border border-green-100 p-3.5 flex items-start gap-3 hover:shadow-sm transition-shadow">
+                      <input type="checkbox" x-model="item._selected" class="mt-0.5 rounded border-gray-300 text-accent focus:ring-accent/30 w-4 h-4">
+                      <div class="flex-1 min-w-0">
+                        <template x-if="item._editing">
+                          <div class="space-y-2">
+                            <input x-model="item.title" class="w-full border border-gray-200 rounded-md px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+                            <textarea x-model="item.content_raw" rows="2" class="w-full border border-gray-200 rounded-md px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none resize-none"></textarea>
+                            <button @click="item._editing = false" class="text-xs text-accent hover:underline" x-text="t('done')"></button>
+                          </div>
+                        </template>
+                        <template x-if="!item._editing">
+                          <div @click="item._editing = true" class="cursor-pointer group/item">
+                            <div class="flex items-center gap-2">
+                              <span class="text-sm font-medium text-gray-800 group-hover/item:text-accent transition-colors" x-text="item.title"></span>
+                              <span class="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded" x-text="t('create_tag')"></span>
+                            </div>
+                            <div class="text-[13px] text-gray-500 mt-0.5 leading-relaxed" x-text="item.content_raw"></div>
+                          </div>
+                        </template>
+                      </div>
+                      <div class="text-[11px] text-gray-400 tabular-nums shrink-0 mt-0.5" x-text="Math.round((item.confidence||0)*100)+'%'"></div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+            <div class="px-5 py-4 border-t border-purple-100 flex items-center gap-3 bg-white/50">
+              <button @click="selectAll()" class="text-[13px] text-accent hover:underline" x-text="t('select_all')"></button>
+              <button @click="deselectAll()" class="text-[13px] text-gray-400 hover:underline" x-text="t('deselect_all')"></button>
+              <div class="flex-1"></div>
+              <span class="text-[13px] text-gray-500" x-text="selectedCount + t('n_selected')"></span>
+              <button @click="saveSelected()" :disabled="selectedCount===0 || saving"
+                      class="bg-accent text-white px-5 py-2 rounded-lg text-[13px] font-medium hover:bg-accent-hover disabled:opacity-50 transition-colors">
+                <span x-text="saving ? t('saving') : t('confirm_save')"></span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Empty -->
+          <div x-show="knowledgeItems.length === 0 && !suggestions" class="flex flex-col items-center justify-center py-20 bg-white rounded-xl border border-dashed border-gray-200">
+            <div class="w-14 h-14 bg-purple-50 rounded-2xl flex items-center justify-center mb-4">
+              <svg class="w-7 h-7 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            </div>
+            <p class="text-gray-500 text-sm mb-1" x-text="t('kb_empty')"></p>
+            <p class="text-gray-400 text-xs" x-text="t('kb_empty_hint')"></p>
+          </div>
+
+          <!-- Knowledge List -->
+          <div x-show="knowledgeItems.length > 0" class="space-y-6">
+            <template x-for="[catKey, catLabel] of catEntries" :key="'k-'+catKey">
+              <div x-show="knowledgeItems.filter(k => k.knowledge_type === catKey).length > 0">
+                <h4 class="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-2" x-text="catLabel"></h4>
+                <div class="space-y-2">
+                  <template x-for="k in knowledgeItems.filter(k => k.knowledge_type === catKey)" :key="k.id">
+                    <div class="bg-white rounded-lg border border-gray-100 p-4 group hover:shadow-sm transition-shadow relative">
+                      <div class="flex items-start justify-between gap-3">
+                        <div class="flex-1 min-w-0">
+                          <div class="text-sm font-medium text-gray-800" x-text="k.title"></div>
+                          <div class="text-[13px] text-gray-500 mt-1 leading-relaxed" x-text="k.content_raw || ''"></div>
+                        </div>
+                        <!-- ⋯ menu trigger -->
+                        <div class="relative shrink-0">
+                          <button @click.stop="knowledgeMenu = knowledgeMenu === k.id ? null : k.id"
+                                  class="text-gray-300 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-all p-1 rounded-md hover:bg-gray-100">
+                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="4" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="10" cy="16" r="1.5"/></svg>
+                          </button>
+                          <!-- dropdown -->
+                          <div x-show="knowledgeMenu === k.id" @click.outside="knowledgeMenu = null"
+                               x-transition.origin.top.right
+                               class="absolute right-0 top-7 bg-white border border-gray-100 rounded-xl shadow-lg z-20 py-1 w-28 text-sm">
+                            <button @click="openEditKnowledge(k); knowledgeMenu = null"
+                                    class="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-700 flex items-center gap-2">
+                              <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                              <span x-text="t('btn_edit')"></span>
+                            </button>
+                            <button @click="deleteKnowledge(k.id); knowledgeMenu = null"
+                                    class="w-full text-left px-4 py-2 hover:bg-red-50 text-red-500 flex items-center gap-2">
+                              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                              <span x-text="t('btn_delete')"></span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- ====== ASSETS TAB ====== -->
+        <div x-show="tab==='assets'" x-cloak>
+          <label class="flex items-center justify-center w-full h-28 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:border-accent/40 hover:bg-accent-light/30 bg-white transition-all mb-5"
+                 :class="(uploading || hashing) && 'pointer-events-none opacity-60'">
+            <div class="text-center">
+              <svg class="w-6 h-6 text-gray-300 mx-auto mb-1" :class="(uploading || hashing) && 'animate-pulse'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+              <span class="text-sm text-gray-400" x-text="hashing ? t('loading') : uploading ? t('saving') : t('upload_asset')"></span>
+            </div>
+            <input type="file" class="hidden" @change="uploadAsset($event)" :disabled="uploading || hashing" accept="image/*,video/*,audio/*">
+          </label>
+
+          <!-- Duplicate file dialog -->
+          <div x-show="duplicateDialog" x-cloak
+               class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+               @click.self="duplicateDialog = null">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
+              <div class="flex items-start gap-3 mb-4">
+                <div class="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
+                  <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                </div>
+                <div>
+                  <p class="font-semibold text-gray-800 text-[15px]" x-text="t('duplicate_title')"></p>
+                  <p class="text-gray-500 text-[13px] mt-0.5" x-text="t('duplicate_desc')"></p>
+                </div>
+              </div>
+              <template x-if="duplicateDialog">
+                <div class="bg-gray-50 rounded-xl p-3 mb-4 flex items-center gap-3">
+                  <template x-if="duplicateDialog.asset.preview_uri">
+                    <img :src="'/api/v1/assets/'+duplicateDialog.asset.id+'/thumbnail'" class="w-12 h-12 rounded-lg object-cover bg-gray-200" @error="$el.style.display='none'">
+                  </template>
+                  <div class="min-w-0">
+                    <p class="text-[13px] font-medium text-gray-700 truncate" x-text="duplicateDialog.asset.title || duplicateDialog.asset.file_name"></p>
+                    <p class="text-[11px] text-gray-400 mt-0.5" x-text="new Date(duplicateDialog.asset.created_at).toLocaleDateString(window._odLang === 'zh' ? 'zh-CN' : 'en')"></p>
+                    <p class="text-[11px] mt-0.5"
+                       :class="flattenTags(duplicateDialog.asset.tags_json).length > 0 ? 'text-green-600' : 'text-amber-500'"
+                       x-text="flattenTags(duplicateDialog.asset.tags_json).length > 0 ? flattenTags(duplicateDialog.asset.tags_json).length + ' ' + t('asset_tags') : t('none_yet')"></p>
+                  </div>
+                </div>
+              </template>
+              <div class="flex gap-2">
+                <button @click="duplicateDialog = null; $event.target.closest('form') && ($event.target.closest('form').reset())"
+                        class="flex-1 px-4 py-2 rounded-lg text-[13px] font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition">
+                  <span x-text="t('btn_cancel')"></span>
+                </button>
+                <button @click="goToDuplicateAsset()"
+                        class="flex-1 px-4 py-2 rounded-lg text-[13px] font-medium text-white bg-accent hover:bg-accent-hover transition">
+                  <span x-text="t('view_existing')"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <!-- Search bar -->
+          <div class="mb-4 space-y-2">
+            <div class="flex gap-2">
+              <div class="flex-1 relative">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                <input type="text" x-model="searchQ" @input="onSearchInput()" :placeholder="t('search_placeholder')"
+                       class="w-full pl-9 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 bg-white">
+                <button x-show="searchQ" @click="searchQ=''; searchAssets()" class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+              </div>
+              <select x-model="assetTypeFilter" @change="searchAssets()" class="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-accent">
+                <option value="" x-text="t('filter_tags')"></option>
+                <option value="image">image</option>
+                <option value="video">video</option>
+                <option value="audio">audio</option>
+              </select>
+            </div>
+            <!-- Selected tags -->
+            <div x-show="selectedTags.length > 0" class="flex flex-wrap gap-1.5 items-center">
+              <span class="text-xs text-gray-400" x-text="t('asset_tags') + ':'"></span>
+              <template x-for="(st, idx) in selectedTags" :key="st.category + '/' + st.label">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-accent-light text-accent">
+                  <span x-text="st.label"></span>
+                  <button @click="selectedTags.splice(idx, 1); searchAssets()" class="hover:text-accent-hover">&times;</button>
+                </span>
+              </template>
+              <button @click="selectedTags=[]; searchAssets()" class="text-xs text-gray-400 hover:text-gray-600 ml-1" x-text="t('clear_screen')"></button>
+            </div>
+            <!-- Tag picker toggle -->
+            <div class="flex items-center gap-2">
+              <button @click="showTagPicker = !showTagPicker; if(showTagPicker && availableTags.length===0) fetchTagAnalytics()"
+                      class="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-accent transition px-2 py-1 rounded-md hover:bg-accent-light/50">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                <span x-text="t('filter_tags')"></span>
+              </button>
+            </div>
+            <!-- Tag picker panel -->
+            <div x-show="showTagPicker" x-cloak x-transition class="bg-white border border-gray-200 rounded-xl p-3 shadow-sm max-h-60 overflow-y-auto">
+              <template x-if="availableTags.length === 0">
+                <p class="text-xs text-gray-400 text-center py-2" x-text="t('none_yet')"></p>
+              </template>
+              <template x-for="cat in tagCategories" :key="cat">
+                <div x-show="availableTags.filter(t => t.category === cat).length > 0" class="mb-2 last:mb-0">
+                  <p class="text-[11px] text-gray-400 font-medium mb-1" x-text="categoryLabels[cat] || cat"></p>
+                  <div class="flex flex-wrap gap-1">
+                    <template x-for="t in availableTags.filter(t => t.category === cat)" :key="t.tag">
+                      <button @click="toggleTag(t)"
+                              :class="selectedTags.some(s => s.category === t.category && s.label === t.tag) ? 'bg-accent text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+                              class="px-2 py-0.5 rounded-full text-xs transition">
+                        <span x-text="t.tag"></span>
+                        <span class="opacity-60" x-text="'(' + t.count + ')'"></span>
+                      </button>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <div x-show="assets.length === 0 && !isSearchActive()" class="text-center py-12 text-gray-400 text-sm" x-text="t('none_yet')"></div>
+          <div x-show="assets.length === 0 && isSearchActive()" class="text-center py-12 text-gray-400 text-sm" x-text="t('none_yet')"></div>
+          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <template x-for="a in assets" :key="a.id">
+              <div class="bg-white rounded-xl border border-gray-100 overflow-hidden hover:border-blue-200 hover:shadow-md transition-all group cursor-pointer relative"
+                   :data-asset-id="a.id" @click="previewAsset = a">
+                <!-- Dropdown menu button -->
+                <div class="absolute top-1.5 right-1.5 z-10" @click.stop>
+                  <button @click="assetMenu = assetMenu === a.id ? null : a.id"
+                          class="w-7 h-7 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-black/60">
+                    <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="6" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="18" r="1.5"/></svg>
+                  </button>
+                  <!-- Dropdown -->
+                  <div x-show="assetMenu === a.id" x-transition
+                       @click.outside="assetMenu = null"
+                       class="absolute right-0 top-8 w-32 bg-white rounded-lg shadow-lg border border-gray-100 py-1 text-[13px]">
+                    <button @click="openEditTags(a); assetMenu = null" class="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-gray-700 flex items-center gap-2">
+                      <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z"/></svg>
+                      <span x-text="t('edit_tags')"></span>
+                    </button>
+                    <a :href="'/api/v1/assets/' + a.id + '/file?download=1'" :download="a.file_name" @click="assetMenu = null" class="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-gray-700 flex items-center gap-2">
+                      <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                      Download
+                    </a>
+                    <button @click="deleteAsset(a.id); assetMenu = null" class="w-full text-left px-3 py-1.5 hover:bg-red-50 text-red-600 flex items-center gap-2">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                      <span x-text="t('btn_delete')"></span>
+                    </button>
+                  </div>
+                </div>
+                <!-- Thumbnail area -->
+                <div class="aspect-[16/10] bg-gray-100 relative overflow-hidden">
+                  <!-- Video: done with thumbnail -->
+                  <template x-if="a.asset_type==='video' && a.parse_status==='done' && a.preview_uri">
+                    <div class="absolute inset-0">
+                      <img :src="'/api/v1/assets/'+a.id+'/thumbnail'" class="w-full h-full object-cover" alt="" loading="lazy" @error="$el.style.display='none'">
+                      <div class="absolute inset-0 flex items-center justify-center">
+                        <div class="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200">
+                          <svg class="w-5 h-5 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                  <!-- Video: processing / tagging -->
+                  <template x-if="a.asset_type==='video' && ['pending','processing','tagging'].includes(a.parse_status)">
+                    <div class="absolute inset-0 flex flex-col items-center justify-center gap-1.5" style="background:linear-gradient(90deg,#f0f0f0 25%,#e8e8e8 50%,#f0f0f0 75%);background-size:200% 100%;animation:shimmer 1.5s infinite linear">
+                      <svg class="w-5 h-5 animate-spin" :class="a.parse_status==='tagging' ? 'text-purple-400' : 'text-blue-400'" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                      <span class="text-[11px] text-gray-500 font-medium" x-text="a.parse_status==='tagging' ? t('ai_analyzing') : t('loading')"></span>
+                    </div>
+                  </template>
+                  <!-- Video: done but no thumbnail -->
+                  <template x-if="a.asset_type==='video' && a.parse_status==='done' && !a.preview_uri">
+                    <div class="absolute inset-0 bg-gray-800 flex items-center justify-center">
+                      <svg class="w-10 h-10 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    </div>
+                  </template>
+                  <!-- Video: failed -->
+                  <template x-if="a.asset_type==='video' && a.parse_status==='failed'">
+                    <div class="absolute inset-0 bg-red-50 flex flex-col items-center justify-center gap-1.5">
+                      <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                      <span class="text-[11px] text-red-500 font-medium" x-text="t('unknown_error')"></span>
+                    </div>
+                  </template>
+                  <!-- Image -->
+                  <template x-if="a.asset_type==='image' && a.parse_status==='done'">
+                    <img :src="'/api/v1/assets/'+a.id+'/file'" class="absolute inset-0 w-full h-full object-cover" alt="" loading="lazy">
+                  </template>
+                  <!-- Audio -->
+                  <template x-if="a.asset_type==='audio'">
+                    <div class="absolute inset-0 bg-gradient-to-br from-violet-50 to-purple-100 flex items-center justify-center">
+                      <svg class="w-10 h-10 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>
+                    </div>
+                  </template>
+                  <!-- Duration overlay -->
+                  <template x-if="a.metadata_json?.duration_ms">
+                    <span class="absolute bottom-1.5 right-1.5 bg-black/70 text-white text-[10px] font-medium px-1.5 py-0.5 rounded" x-text="formatAssetDuration(a.metadata_json.duration_ms/1000)"></span>
+                  </template>
+                  <!-- Type badge -->
+                  <span class="absolute top-1.5 left-1.5 text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-black/40 backdrop-blur-sm text-white" x-text="a.asset_type"></span>
+                </div>
+                <!-- Card body -->
+                <div class="p-2.5">
+                  <p class="text-[13px] font-medium text-gray-800 truncate" x-text="a.title || a.file_name"></p>
+                  <div class="flex items-center gap-1.5 mt-1">
+                    <span class="inline-flex items-center gap-1 text-[10px] font-medium"
+                      :class="{
+                        'text-green-600': a.parse_status==='done',
+                        'text-blue-500': a.parse_status==='processing' || a.parse_status==='pending',
+                        'text-purple-500': a.parse_status==='tagging',
+                        'text-red-500': a.parse_status==='failed'
+                      }">
+                      <span class="w-1.5 h-1.5 rounded-full"
+                        :class="{
+                          'bg-green-500': a.parse_status==='done',
+                          'bg-blue-400 animate-pulse': a.parse_status==='processing' || a.parse_status==='pending',
+                          'bg-purple-400 animate-pulse': a.parse_status==='tagging',
+                          'bg-red-500': a.parse_status==='failed'
+                        }"></span>
+                      <span x-text="({pending: t('status_draft'), processing: t('loading'), tagging: t('ai_analyzing'), done: t('done'), failed: t('unknown_error')})[a.parse_status] || a.parse_status"></span>
+                    </span>
+                    <template x-if="a.metadata_json?.file_size_bytes">
+                      <span class="text-[10px] text-gray-400" x-text="formatAssetBytes(a.metadata_json.file_size_bytes)"></span>
+                    </template>
+                  </div>
+                  <!-- Tags (structured dict or legacy array) -->
+                  <div class="flex flex-wrap gap-1 mt-1.5" x-show="flattenTags(a.tags_json).length > 0">
+                    <template x-for="t in flattenTags(a.tags_json).slice(0, 4)" :key="t.category+t.label">
+                      <span class="text-[10px] font-medium px-1.5 py-0.5 rounded"
+                            :class="tagCategoryColors[t.category] || 'bg-gray-100 text-gray-500'"
+                            x-text="t.label"></span>
+                    </template>
+                    <template x-if="flattenTags(a.tags_json).length > 4">
+                      <span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-400" x-text="'+' + (flattenTags(a.tags_json).length - 4)"></span>
+                    </template>
+                  </div>
+                  <!-- No tags hint -->
+                  <div class="mt-1.5" x-show="flattenTags(a.tags_json).length === 0">
+                    <span class="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded"
+                      :class="{
+                        'bg-purple-50 text-purple-500': a.parse_status==='tagging',
+                        'bg-amber-50 text-amber-600': a.parse_status==='done',
+                        'bg-gray-50 text-gray-400': !['tagging','done'].includes(a.parse_status)
+                      }">
+                      <svg class="w-3 h-3" :class="a.parse_status==='tagging' && 'animate-spin'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z"/></svg>
+                      <span x-text="a.parse_status==='tagging' ? t('ai_analyzing') : a.parse_status==='done' ? t('edit_tags') : t('loading')"></span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- ====== STRATEGY UNITS TAB ====== -->
+        <div x-show="tab==='strategy'" x-cloak>
+          <!-- Action bar -->
+          <div class="flex items-center gap-3 mb-5">
+            <button @click="openUnitForm(null)"
+                    class="bg-accent text-white px-4 py-2 rounded-lg text-[13px] font-medium hover:bg-accent-hover transition flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              <span x-text="t('new_unit')"></span>
+            </button>
+            <div class="flex-1"></div>
+            <span class="text-sm text-gray-400" x-text="strategyUnitsTotal + ' ' + t('tab_strategy')"></span>
+          </div>
+
+          <!-- Empty state -->
+          <div x-show="strategyUnits.length === 0" class="flex flex-col items-center justify-center py-20 bg-white rounded-xl border border-dashed border-gray-200">
+            <div class="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4">
+              <svg class="w-7 h-7 text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+            </div>
+            <p class="text-gray-500 text-sm mb-1" x-text="t('none_yet')"></p>
+            <p class="text-gray-400 text-xs" x-text="t('new_unit')"></p>
+          </div>
+
+          <!-- Strategy unit cards -->
+          <div x-show="strategyUnits.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <template x-for="u in strategyUnits" :key="u.id">
+              <div class="bg-white rounded-xl border border-gray-100 p-5 hover:shadow-sm transition-shadow group">
+                <div class="flex items-start justify-between gap-3 mb-3">
+                  <div class="flex-1 min-w-0">
+                    <a :href="'/strategy-unit.html?id='+u.id+'&offer_id='+offerId"
+                       class="font-medium text-gray-800 text-[15px] hover:text-accent transition-colors" x-text="u.name"></a>
+                    <div class="text-[12px] text-gray-400 mt-0.5" x-text="u.notes || ''"></div>
+                  </div>
+                  <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <button @click="openUnitForm(u)" class="p-1.5 text-gray-400 hover:text-accent hover:bg-accent-light rounded-lg transition">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    </button>
+                    <button @click="deleteUnit(u.id)" class="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Tags row -->
+                <div class="flex flex-wrap gap-1.5">
+                  <template x-if="u.audience_segment">
+                    <span class="bg-green-50 text-green-700 text-[11px] px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                      <span x-text="u.audience_segment"></span>
+                    </span>
+                  </template>
+                  <template x-if="u.scenario">
+                    <span class="bg-orange-50 text-orange-700 text-[11px] px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.069A1 1 0 0121 8.868V15.13a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                      <span x-text="u.scenario"></span>
+                    </span>
+                  </template>
+                  <template x-if="u.channel">
+                    <span class="bg-purple-50 text-purple-700 text-[11px] px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
+                      <span x-text="u.channel"></span>
+                    </span>
+                  </template>
+                  <template x-if="u.marketing_objective">
+                    <span class="bg-blue-50 text-blue-700 text-[11px] px-2 py-0.5 rounded-full" x-text="unitObjectiveLabel(u.marketing_objective)"></span>
+                  </template>
+                </div>
+
+                <!-- Stage + stats + generate row -->
+                <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-50">
+                  <span class="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                        :class="unitStageClass(u.strategy_stage)"
+                        x-text="unitStageLabel(u.strategy_stage)"></span>
+                  <div class="flex items-center gap-3 text-[11px] text-gray-400">
+                    <span x-text="u.asset_count + ' ' + t('tab_assets')"></span>
+                    <span x-text="u.topic_count + ' ' + t('topic_count')"></span>
+                    <a :href="'/topic-studio.html?offer_id=' + offerId + '&strategy_unit_id=' + u.id"
+                       class="text-accent hover:underline font-medium flex items-center gap-0.5"
+                       @click.stop>
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                      <span x-text="t('generate_topics')"></span>
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- ====== BRANDKIT TAB ====== -->
+        <div x-show="tab==='brandkit'" x-cloak>
+          <div x-show="brandkitLoading" class="text-center py-12 text-gray-400 text-sm" x-text="t('loading')"></div>
+          <div x-show="!brandkitLoading">
+            <template x-if="offerBrandKit">
+              <div class="bg-white rounded-xl border p-5">
+                <div class="flex items-center justify-between mb-4">
+                  <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                      <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+                    </div>
+                    <div>
+                      <div class="font-semibold text-gray-800" x-text="offerBrandKit.name"></div>
+                      <div class="text-xs text-gray-400" x-text="offerBrandKit.description || t('no_description')"></div>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                          :class="offerBrandKit.status === 'active' ? 'bg-green-50 text-green-600' : 'bg-yellow-50 text-yellow-600'"
+                          x-text="{draft: t('bk_draft'), active: t('bk_active'), archived: t('bk_archived')}[offerBrandKit.status] || offerBrandKit.status"></span>
+                    <a :href="'/brandkit.html?id=' + offerBrandKit.id"
+                       class="text-sm text-accent hover:text-accent-hover font-medium" x-text="t('tab_brandkit') + ' &rarr;'"></a>
+                  </div>
+                </div>
+                <!-- Summary of profile fields -->
+                <div class="grid grid-cols-2 gap-3 text-sm">
+                  <div class="p-3 bg-gray-50 rounded-lg">
+                    <div class="text-xs text-gray-400 mb-1" x-text="t('style_profile')"></div>
+                    <div x-text="offerBrandKit.style_profile_json ? t('configured') : t('not_configured')" :class="offerBrandKit.style_profile_json ? 'text-green-600' : 'text-gray-300'"></div>
+                  </div>
+                  <div class="p-3 bg-gray-50 rounded-lg">
+                    <div class="text-xs text-gray-400 mb-1" x-text="t('product_visual')"></div>
+                    <div x-text="offerBrandKit.product_visual_profile_json ? t('configured') : t('not_configured')" :class="offerBrandKit.product_visual_profile_json ? 'text-green-600' : 'text-gray-300'"></div>
+                  </div>
+                  <div class="p-3 bg-gray-50 rounded-lg">
+                    <div class="text-xs text-gray-400 mb-1" x-text="t('visual_rules')"></div>
+                    <div x-text="(offerBrandKit.visual_do_json || offerBrandKit.visual_dont_json) ? t('configured') : t('not_configured')" :class="(offerBrandKit.visual_do_json || offerBrandKit.visual_dont_json) ? 'text-green-600' : 'text-gray-300'"></div>
+                  </div>
+                  <div class="p-3 bg-gray-50 rounded-lg">
+                    <div class="text-xs text-gray-400 mb-1" x-text="t('reference_prompt')"></div>
+                    <div x-text="offerBrandKit.reference_prompt_json ? t('configured') : t('not_configured')" :class="offerBrandKit.reference_prompt_json ? 'text-green-600' : 'text-gray-300'"></div>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <template x-if="!offerBrandKit">
+              <div class="bg-white rounded-xl border border-dashed p-8 text-center">
+                <div class="text-gray-400 text-sm mb-3" x-text="t('no_brandkit')"></div>
+                <button @click="createOfferBrandKit()" :disabled="brandkitCreating"
+                        class="bg-accent text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors">
+                  <span x-text="brandkitCreating ? t('creating') : t('create_brandkit')"></span>
+                </button>
+              </div>
+            </template>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <div id="topic-picker-mount"></div>
+
+  <!-- No LLM configured dialog (shared) -->
+  <div x-show="showNoLLMDialog" x-cloak
+       class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+       @click.self="showNoLLMDialog = false">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
+      <div class="flex items-start gap-3 mb-4">
+        <div class="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
+          <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        </div>
+        <div>
+          <p class="font-semibold text-gray-800 text-[15px]" x-text="t('ai_not_configured')"></p>
+          <p class="text-gray-500 text-[13px] mt-1 leading-relaxed" x-text="t('ai_not_configured_desc')"></p>
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <button @click="showNoLLMDialog = false"
+                class="flex-1 px-4 py-2 rounded-lg text-[13px] font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition">
+          <span x-text="t('ai_configure_later')"></span>
+        </button>
+        <a href="/setting.html"
+           class="flex-1 px-4 py-2 rounded-lg text-[13px] font-medium text-white bg-accent hover:bg-accent-hover transition text-center">
+          <span x-text="t('ai_go_settings')"></span>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manual Add Modal -->
+  <div x-show="showAddManual" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showAddManual = false" x-transition.opacity>
+    <div class="bg-white rounded-2xl w-full max-w-md shadow-2xl" x-transition.scale.95 @click.stop>
+      <div class="px-6 py-4 border-b"><h3 class="font-semibold text-gray-800" x-text="t('manual_add_title')"></h3></div>
+      <div class="px-6 py-5 space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('knowledge_type')"></label>
+          <select x-model="manualForm.knowledge_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+            <option value="selling_point" x-text="t('kt_selling_point')"></option>
+            <option value="audience" x-text="t('kt_audience')"></option>
+            <option value="scenario" x-text="t('kt_scenario')"></option>
+            <option value="faq" x-text="t('kt_faq')"></option>
+            <option value="objection" x-text="t('kt_objection')"></option>
+            <option value="brand" x-text="t('kt_brand')"></option>
+            <option value="proof" x-text="t('kt_proof')"></option>
+            <option value="general" x-text="t('kt_general')"></option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('knowledge_title')"></label>
+          <input x-model="manualForm.title" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('knowledge_content')"></label>
+          <textarea x-model="manualForm.content_raw" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none resize-none"></textarea>
+        </div>
+      </div>
+      <div class="px-6 py-4 border-t flex justify-end gap-3">
+        <button @click="showAddManual = false" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg" x-text="t('btn_cancel')"></button>
+        <button @click="addManual()" :disabled="!manualForm.title"
+                class="bg-accent text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-accent-hover disabled:opacity-50" x-text="t('btn_save')"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Knowledge Modal -->
+  <div x-show="showEditKnowledge" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showEditKnowledge = false" x-transition.opacity>
+    <div class="bg-white rounded-2xl w-full max-w-md shadow-2xl" x-transition.scale.95 @click.stop>
+      <div class="px-6 py-4 border-b"><h3 class="font-semibold text-gray-800" x-text="t('edit_knowledge_title')"></h3></div>
+      <div class="px-6 py-5 space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('knowledge_type')"></label>
+          <select x-model="editForm.knowledge_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+            <option value="selling_point" x-text="t('kt_selling_point')"></option>
+            <option value="audience" x-text="t('kt_audience')"></option>
+            <option value="scenario" x-text="t('kt_scenario')"></option>
+            <option value="faq" x-text="t('kt_faq')"></option>
+            <option value="objection" x-text="t('kt_objection')"></option>
+            <option value="brand" x-text="t('kt_brand')"></option>
+            <option value="proof" x-text="t('kt_proof')"></option>
+            <option value="general" x-text="t('kt_general')"></option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('knowledge_title')"></label>
+          <input x-model="editForm.title" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('knowledge_content')"></label>
+          <textarea x-model="editForm.content_raw" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none resize-none"></textarea>
+        </div>
+      </div>
+      <div class="px-6 py-4 border-t flex justify-end gap-3">
+        <button @click="showEditKnowledge = false" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg" x-text="t('btn_cancel')"></button>
+        <button @click="updateKnowledge()" :disabled="!editForm.title"
+                class="bg-accent text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-accent-hover disabled:opacity-50" x-text="t('btn_save')"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI智能更新 - 输入补充说明 -->
+  <div x-show="showInferInput" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" @click.self="showInferInput=false" x-transition.opacity>
+    <div class="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl" x-transition.scale.95 @click.stop>
+      <h3 class="text-lg font-semibold mb-1" x-text="t('ai_update_title')"></h3>
+      <p class="text-sm text-gray-500 mb-4" x-text="t('ai_update_hint')"></p>
+
+      <div class="mb-3">
+        <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('text_hint_label')"></label>
+        <textarea x-model="inferHint" rows="2" :placeholder="t('text_hint_placeholder')"
+                  class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-accent/30"></textarea>
+      </div>
+
+      <div class="mb-3">
+        <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('url_label')"></label>
+        <div class="flex items-center gap-2 border border-gray-200 rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-accent/30">
+          <svg class="w-4 h-4 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+          <input x-model="inferUrl" type="url" placeholder="https://example.com/product-page" class="flex-1 text-sm outline-none bg-transparent">
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('file_label')"></label>
+        <label class="flex items-center gap-3 border border-dashed border-gray-200 rounded-xl px-3 py-2.5 cursor-pointer hover:border-accent/40 hover:bg-accent-light/20 transition-colors">
+          <svg class="w-4 h-4 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+          <span class="text-sm" :class="inferFileName ? 'text-gray-700' : 'text-gray-400'" x-text="inferFileName || t('click_select_file')"></span>
+          <input type="file" class="hidden" accept=".pdf,.doc,.docx,.txt" @change="setInferFile($event)">
+          <button x-show="inferFileName" @click.prevent="inferFile=null;inferFileName=''" class="ml-auto text-gray-300 hover:text-gray-500">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </label>
+      </div>
+
+      <div class="flex gap-3">
+        <button @click="showInferInput=false" class="flex-1 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50" x-text="t('btn_cancel')"></button>
+        <button @click="startInfer()" :disabled="inferExtracting"
+                class="flex-1 py-2 bg-gradient-to-r from-purple-600 to-accent text-white rounded-xl text-sm font-medium hover:opacity-90 disabled:opacity-60">
+          <span x-text="inferExtracting ? t('extracting_content') : t('start_analysis')"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Strategy Unit Form Modal -->
+  <div x-show="showUnitForm" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showUnitForm = false" x-transition.opacity>
+    <div class="bg-white rounded-2xl w-full max-w-lg shadow-2xl" x-transition.scale.95 @click.stop>
+      <div class="px-6 py-4 border-b flex items-center justify-between">
+        <h3 class="font-semibold text-gray-800" x-text="editingUnit ? t('edit_unit') : t('new_unit')"></h3>
+        <button @click="showUnitForm = false" class="text-gray-400 hover:text-gray-600 p-1">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="px-6 py-5 space-y-4 max-h-[60vh] overflow-y-auto">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5"><span x-text="t('unit_name')"></span> <span class="text-red-400">*</span></label>
+          <input x-model="unitForm.name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div x-data="{ open: false }" @click.outside="open = false" class="relative">
+            <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('unit_audience')"></label>
+            <button @click="open = !open" type="button"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-left bg-white focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none flex items-center justify-between">
+              <span :class="unitForm.audience_segment ? 'text-gray-800' : 'text-gray-400'"
+                    x-text="unitForm.audience_segment || t('select_placeholder')"></span>
+              <svg class="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </button>
+            <div x-show="open" x-cloak class="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+              <button @click="unitForm.audience_segment = ''; open = false" type="button"
+                      class="w-full text-left px-3 py-2 text-sm text-gray-400 hover:bg-gray-50 transition" x-text="t('no_option')"></button>
+              <template x-for="opt in audienceOptions" :key="opt">
+                <button @click="unitForm.audience_segment = opt; open = false" type="button"
+                        class="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-accent-light hover:text-accent transition truncate"
+                        :class="unitForm.audience_segment === opt && 'bg-accent-light text-accent font-medium'"
+                        x-text="opt"></button>
+              </template>
+              <div x-show="audienceOptions.length === 0" class="px-3 py-2 text-[12px] text-amber-600" x-text="t('no_audience_hint')"></div>
+            </div>
+          </div>
+          <div x-data="{ open: false }" @click.outside="open = false" class="relative">
+            <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('unit_scenario')"></label>
+            <button @click="open = !open" type="button"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-left bg-white focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none flex items-center justify-between">
+              <span :class="unitForm.scenario ? 'text-gray-800' : 'text-gray-400'"
+                    x-text="unitForm.scenario || t('select_placeholder')"></span>
+              <svg class="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </button>
+            <div x-show="open" x-cloak class="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+              <button @click="unitForm.scenario = ''; open = false" type="button"
+                      class="w-full text-left px-3 py-2 text-sm text-gray-400 hover:bg-gray-50 transition" x-text="t('no_option')"></button>
+              <template x-for="opt in scenarioOptions" :key="opt">
+                <button @click="unitForm.scenario = opt; open = false" type="button"
+                        class="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-accent-light hover:text-accent transition truncate"
+                        :class="unitForm.scenario === opt && 'bg-accent-light text-accent font-medium'"
+                        x-text="opt"></button>
+              </template>
+              <div x-show="scenarioOptions.length === 0" class="px-3 py-2 text-[12px] text-amber-600" x-text="t('no_scenario_hint')"></div>
+            </div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('unit_objective')"></label>
+            <select x-model="unitForm.marketing_objective" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none bg-white">
+              <option value="" x-text="t('no_option')"></option>
+              <option value="seeding" x-text="t('mo_seeding')"></option>
+              <option value="trust_building" x-text="t('mo_trust_building')"></option>
+              <option value="lead_generation" x-text="t('mo_lead_generation')"></option>
+              <option value="conversion" x-text="t('mo_conversion')"></option>
+              <option value="retention" x-text="t('mo_retention')"></option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('unit_channel')"></label>
+            <input x-model="unitForm.channel" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('unit_stage')"></label>
+          <div class="flex gap-2">
+            <template x-for="[v, tKey] of [['exploring','ss_exploring'],['rising','ss_rising'],['stable','ss_stable'],['declining','ss_declining']]" :key="v">
+              <button @click="unitForm.strategy_stage = v" type="button"
+                      :class="unitForm.strategy_stage === v ? 'bg-accent text-white border-accent' : 'bg-white text-gray-600 border-gray-200 hover:border-accent/50'"
+                      class="flex-1 py-1.5 text-xs font-medium rounded-lg border transition" x-text="t(tKey)"></button>
+            </template>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('unit_notes')"></label>
+          <textarea x-model="unitForm.notes" rows="2" :placeholder="t('unit_notes_placeholder')" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none resize-none"></textarea>
+        </div>
+      </div>
+      <div class="px-6 py-4 border-t flex justify-end gap-3">
+        <button @click="showUnitForm = false" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg border border-gray-200 transition" x-text="t('btn_cancel')"></button>
+        <button @click="saveUnit()" :disabled="!unitForm.name.trim() || savingUnit"
+                class="bg-accent text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition">
+          <span x-text="savingUnit ? t('saving') : (editingUnit ? t('btn_save') : t('btn_create'))"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Asset Preview Modal ══ -->
+  <template x-teleport="body">
+    <div x-show="previewAsset" x-transition.opacity class="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+         @click.self="previewAsset = null" @keydown.escape.window="previewAsset = null" x-cloak>
+      <div class="relative max-w-4xl w-full mx-4 max-h-[90vh] flex flex-col items-center">
+        <!-- Close button -->
+        <button @click="previewAsset = null" class="absolute -top-10 right-0 text-white/70 hover:text-white transition">
+          <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+        <!-- Video -->
+        <template x-if="previewAsset?.asset_type === 'video'">
+          <video :src="'/api/v1/assets/' + previewAsset.id + '/file'" controls autoplay
+                 class="max-h-[80vh] w-auto rounded-lg shadow-2xl bg-black"></video>
+        </template>
+        <!-- Image -->
+        <template x-if="previewAsset?.asset_type === 'image'">
+          <img :src="'/api/v1/assets/' + previewAsset.id + '/file'"
+               class="max-h-[80vh] w-auto rounded-lg shadow-2xl object-contain bg-black" alt="">
+        </template>
+        <!-- Audio -->
+        <template x-if="previewAsset?.asset_type === 'audio'">
+          <div class="bg-white rounded-xl p-8 shadow-2xl flex flex-col items-center gap-4 min-w-[320px]">
+            <div class="w-20 h-20 bg-gradient-to-br from-violet-100 to-purple-200 rounded-2xl flex items-center justify-center">
+              <svg class="w-10 h-10 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>
+            </div>
+            <p class="text-sm font-medium text-gray-700 text-center" x-text="previewAsset.title || previewAsset.file_name"></p>
+            <audio :src="'/api/v1/assets/' + previewAsset.id + '/file'" controls autoplay class="w-full"></audio>
+          </div>
+        </template>
+        <!-- File info bar -->
+        <div class="mt-3 text-center">
+          <p class="text-white/90 text-sm font-medium" x-text="previewAsset?.title || previewAsset?.file_name"></p>
+          <p class="text-white/50 text-xs mt-0.5" x-text="previewAsset?.asset_type + (previewAsset?.metadata_json?.duration_ms ? ' · ' + formatAssetDuration(previewAsset.metadata_json.duration_ms/1000) : '')"></p>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- ══ Edit Tags Modal ══ -->
+  <template x-teleport="body">
+    <div x-show="editTagsAsset" x-transition.opacity class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+         @click.self="editTagsAsset = null" @keydown.escape.window="editTagsAsset = null" x-cloak>
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" @click.stop>
+        <!-- Header -->
+        <div class="px-6 py-4 border-b flex items-center justify-between">
+          <h3 class="text-base font-semibold text-gray-800" x-text="t('edit_tags_title')"></h3>
+          <button @click="editTagsAsset = null" class="text-gray-400 hover:text-gray-600 transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <!-- File info -->
+        <div class="px-6 pt-4 pb-2 flex items-center gap-3">
+          <div class="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden shrink-0">
+            <template x-if="editTagsAsset?.asset_type === 'image' || editTagsAsset?.preview_uri">
+              <img :src="'/api/v1/assets/' + editTagsAsset?.id + '/' + (editTagsAsset?.asset_type === 'image' ? 'file' : 'thumbnail')" class="w-full h-full object-cover" alt="">
+            </template>
+          </div>
+          <div class="min-w-0">
+            <p class="text-sm font-medium text-gray-800 truncate" x-text="editTagsAsset?.title || editTagsAsset?.file_name"></p>
+            <p class="text-xs text-gray-400" x-text="editTagsAsset?.asset_type"></p>
+          </div>
+        </div>
+        <!-- Tag fields by category -->
+        <div class="px-6 py-4 space-y-3 max-h-[50vh] overflow-y-auto">
+          <template x-for="[cat, tKey] of [['subject','tag_subject'],['usage','tag_usage'],['selling_point','tag_selling_point'],['scenario','tag_scenario'],['channel_fit','tag_channel_fit'],['style','tag_style'],['emotion','tag_emotion']]" :key="cat">
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">
+                <span class="inline-block w-2 h-2 rounded-full mr-1" :class="(tagCategoryColors[cat] || '').split(' ')[0]"></span>
+                <span x-text="t(tKey)"></span>
+              </label>
+              <input type="text" :value="editTagsForm[cat] || ''"
+                     @input="editTagsForm[cat] = $el.value"
+                     :placeholder="t('tags_comma_hint')"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+            </div>
+          </template>
+        </div>
+        <!-- Footer -->
+        <div class="px-6 py-4 border-t flex justify-end gap-3">
+          <button @click="editTagsAsset = null" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg border border-gray-200 transition" x-text="t('btn_cancel')"></button>
+          <button @click="saveAssetTags()" class="bg-accent text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-accent-hover transition" x-text="t('btn_save')"></button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <script>
+    const API = '/api/v1';
+
+    function offerApp() {
+      return {
+        offerId: new URLSearchParams(location.search).get('id'),
+        offer: null, tab: 'overview', descExpanded: false, showNoLLMDialog: false,
+        overview: null, loadingOverview: false,
+        deleteConfirm: false, deleting: false,
+
+        // Knowledge
+        knowledgeItems: [], knowledgeTotal: 0,
+        suggestions: null, inferring: false, saving: false,
+        showInferInput: false, inferHint: '', inferUrl: '', inferFile: null, inferFileName: '', inferExtracting: false,
+        showAddManual: false,
+        manualForm: { knowledge_type: 'selling_point', title: '', content_raw: '' },
+        knowledgeMenu: null,
+        showEditKnowledge: false,
+        editForm: { id: null, knowledge_type: 'selling_point', title: '', content_raw: '' },
+
+        get catEntries() {
+          return [
+            ['selling_point', t('kt_selling_point')], ['audience', t('kt_audience')], ['scenario', t('kt_scenario')],
+            ['faq', t('kt_faq')], ['objection', t('kt_objection')], ['brand', t('kt_brand')], ['proof', t('kt_proof')],
+          ];
+        },
+
+        // Tag category colors
+        tagCategoryColors: {
+          subject: 'bg-blue-50 text-blue-600',
+          usage: 'bg-green-50 text-green-600',
+          selling_point: 'bg-orange-50 text-orange-600',
+          scenario: 'bg-purple-50 text-purple-600',
+          channel_fit: 'bg-pink-50 text-pink-500',
+          style: 'bg-cyan-50 text-cyan-600',
+          emotion: 'bg-yellow-50 text-yellow-600',
+          legacy: 'bg-gray-100 text-gray-500',
+        },
+        get tagCategoryLabels() {
+          return {
+            subject: t('tag_subject'), usage: t('tag_usage'), selling_point: t('tag_selling_point'), scenario: t('tag_scenario'),
+            channel_fit: t('tag_channel_fit'), style: t('tag_style'), emotion: t('tag_emotion'), legacy: t('tag_legacy'),
+          };
+        },
+
+        // Assets
+        assets: [], assetsTotal: 0, uploading: false, hashing: false,
+        duplicateDialog: null, // { asset, file, event } when duplicate detected
+        previewAsset: null,   // asset object for preview modal
+        assetMenu: null,      // asset id for dropdown menu
+        editTagsAsset: null,  // asset object for tag editing modal
+        editTagsForm: {},     // { category: 'tag1, tag2, ...' }
+        searchQ: '', selectedTags: [], availableTags: [], searchTimer: null,
+        assetTypeFilter: '', showTagPicker: false,
+        tagCategories: ['subject','usage','selling_point','scenario','channel_fit','style','emotion'],
+        get categoryLabels() { return { subject: t('tag_subject'), usage: t('tag_usage'), selling_point: t('tag_selling_point'), scenario: t('tag_scenario'), channel_fit: t('tag_channel_fit'), style: t('tag_style'), emotion: t('tag_emotion') }; },
+        // BrandKit
+        offerBrandKit: null, brandkitLoading: false, brandkitCreating: false,
+
+        // Strategy Units
+        strategyUnits: [], strategyUnitsTotal: 0,
+        showUnitForm: false, editingUnit: null, savingUnit: false,
+        unitForm: { name: '', audience_segment: '', scenario: '', marketing_objective: '', channel: '', strategy_stage: 'exploring', notes: '' },
+        audienceOptions: [], scenarioOptions: [],
+
+        get selectedCount() {
+          if (!this.suggestions) return 0;
+          let c = 0;
+          for (const items of Object.values(this.suggestions)) for (const i of items) if (i._selected) c++;
+          return c;
+        },
+
+        async init() {
+          document.title = t('page_title') + ' - OpenLucid';
+          const res = await fetch(`${API}/offers/${this.offerId}`);
+          this.offer = await res.json();
+          document.title = `${this.offer.name} - OpenLucid`;
+          await Promise.all([this.fetchKnowledge(), this.fetchAssets(), this.fetchOverview()]);
+        },
+
+        async fetchOverview() {
+          this.loadingOverview = true;
+          try {
+            const res = await fetch(`${API}/offers/${this.offerId}/coverage-review`);
+            if (res.ok) this.overview = await res.json();
+          } catch {}
+          this.loadingOverview = false;
+        },
+
+        handleNextAction(action) {
+          if (!action) return;
+          if (action === 'add_knowledge' || action === 'add_audience' || action === 'add_scenario') {
+            this.tab = 'knowledge';
+          } else if (action === 'upload_assets') {
+            this.tab = 'assets'; this.fetchAssets();
+          } else if (action === 'create_strategy_unit') {
+            this.tab = 'strategy'; this.fetchStrategyUnits();
+          } else if (action === 'generate_topics') {
+            this.openTopicPicker();
+          }
+        },
+
+        async deleteOffer() {
+          this.deleting = true;
+          try {
+            const res = await fetch(`${API}/offers/${this.offerId}`, { method: 'DELETE' });
+            if (res.ok) { location.href = '/'; return; }
+            alert(t('delete_failed'));
+          } catch { alert(t('delete_failed')); }
+          this.deleting = false;
+          this.deleteConfirm = false;
+        },
+
+        // ── BrandKit ──
+        async fetchBrandKit() {
+          this.brandkitLoading = true;
+          try {
+            const res = await fetch(`${API}/brandkits?scope_type=offer&scope_id=${this.offerId}&page_size=1`);
+            if (res.ok) {
+              const data = await res.json();
+              this.offerBrandKit = data.items && data.items.length > 0 ? data.items[0] : null;
+            }
+          } catch {}
+          this.brandkitLoading = false;
+        },
+
+        async createOfferBrandKit() {
+          this.brandkitCreating = true;
+          try {
+            const res = await fetch(`${API}/brandkits`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                scope_type: 'offer',
+                scope_id: this.offerId,
+                name: (this.offer?.name || t('tab_brandkit')) + ' ' + t('tab_brandkit'),
+              }),
+            });
+            if (res.ok) {
+              const kit = await res.json();
+              location.href = `/brandkit.html?id=${kit.id}`;
+            } else {
+              const err = await res.json();
+              alert(err.error?.message || t('save_failed'));
+            }
+          } catch { alert(t('save_failed')); }
+          this.brandkitCreating = false;
+        },
+
+        // ── Knowledge ──
+        async fetchKnowledge() {
+          const res = await fetch(`${API}/knowledge?scope_type=offer&scope_id=${this.offerId}&page_size=100`);
+          const data = await res.json();
+          this.knowledgeItems = data.items;
+          this.knowledgeTotal = data.total;
+        },
+
+        inferKnowledge() {
+          this.inferHint = ''; this.inferUrl = ''; this.inferFile = null; this.inferFileName = '';
+          this.showInferInput = true;
+        },
+
+        setInferFile(e) {
+          const f = e.target.files?.[0];
+          if (f) { this.inferFile = f; this.inferFileName = f.name; }
+        },
+
+        async startInfer() {
+          this.inferExtracting = true;
+          const parts = [];
+          if (this.inferHint.trim()) parts.push(this.inferHint.trim());
+          try {
+            if (this.inferUrl.trim()) {
+              const fd = new FormData(); fd.append('url', this.inferUrl.trim());
+              const r = await fetch(`${API}/ai/extract-text`, { method: 'POST', body: fd });
+              if (r.ok) { const d = await r.json(); if (d.text) parts.push(d.text); }
+              else alert(t('infer_url_failed'));
+            }
+            if (this.inferFile) {
+              const fd = new FormData(); fd.append('file', this.inferFile);
+              const r = await fetch(`${API}/ai/extract-text`, { method: 'POST', body: fd });
+              if (r.ok) { const d = await r.json(); if (d.text) parts.push(d.text); }
+              else alert(t('infer_file_failed'));
+            }
+          } catch { alert(t('extract_error')); }
+          this.inferExtracting = false;
+          this.showInferInput = false;
+          this.inferring = true;
+          try {
+            const res = await fetch(`${API}/ai/infer-knowledge`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ offer_id: this.offerId, user_hint: parts.length ? parts.join('\n\n') : null, language: getApiLang() }),
+            });
+            if (!res.ok) {
+              if (res.status === 503) {
+                this.showNoLLMDialog = true;
+              } else {
+                alert(t('ai_infer_failed'));
+              }
+              this.inferring = false;
+              return;
+            }
+            const data = await res.json();
+            for (const [cat, items] of Object.entries(data.suggestions)) {
+              for (const item of items) {
+                item._selected = true;
+                item._editing = false;
+                const exists = this.knowledgeItems.find(
+                  k => k.knowledge_type === (item.knowledge_type || cat) && k.title === item.title
+                );
+                item._action = exists ? 'update' : 'create';
+              }
+            }
+            this.suggestions = data.suggestions;
+          } catch { alert(t('ai_infer_failed')); }
+          this.inferring = false;
+        },
+
+        get updateItems() {
+          if (!this.suggestions) return [];
+          return Object.entries(this.suggestions).flatMap(([cat, items]) =>
+            items.filter(i => i._action === 'update').map(i => ({...i, _cat: cat}))
+          );
+        },
+        get createItems() {
+          if (!this.suggestions) return [];
+          return Object.entries(this.suggestions).flatMap(([cat, items]) =>
+            items.filter(i => i._action === 'create').map(i => ({...i, _cat: cat}))
+          );
+        },
+
+        selectAll() { for (const items of Object.values(this.suggestions)) for (const i of items) i._selected = true; },
+        deselectAll() { for (const items of Object.values(this.suggestions)) for (const i of items) i._selected = false; },
+
+        async saveSelected() {
+          this.saving = true;
+          const batch = [];
+          for (const [cat, items] of Object.entries(this.suggestions))
+            for (const item of items)
+              if (item._selected) batch.push({ scope_type: 'offer', scope_id: this.offerId, knowledge_type: item.knowledge_type || cat, title: item.title, content_raw: item.content_raw });
+          if (!batch.length) { this.saving = false; return; }
+          const res = await fetch(`${API}/knowledge/batch-upsert`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scope_type: 'offer', scope_id: this.offerId, items: batch }),
+          });
+          if (res.ok) {
+            this.suggestions = null;
+            await this.fetchKnowledge();
+          } else alert(t('save_failed'));
+          this.saving = false;
+        },
+
+        async addManual() {
+          const res = await fetch(`${API}/knowledge`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scope_type: 'offer', scope_id: this.offerId, ...this.manualForm }),
+          });
+          if (res.ok) { this.showAddManual = false; this.manualForm = { knowledge_type: 'selling_point', title: '', content_raw: '' }; await this.fetchKnowledge(); }
+        },
+
+        openEditKnowledge(k) {
+          this.editForm = { id: k.id, knowledge_type: k.knowledge_type, title: k.title, content_raw: k.content_raw || '' };
+          this.showEditKnowledge = true;
+        },
+
+        async updateKnowledge() {
+          const res = await fetch(`${API}/knowledge/${this.editForm.id}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: this.editForm.title, content_raw: this.editForm.content_raw, knowledge_type: this.editForm.knowledge_type }),
+          });
+          if (res.ok) {
+            const item = this.knowledgeItems.find(k => k.id === this.editForm.id);
+            if (item) { item.title = this.editForm.title; item.content_raw = this.editForm.content_raw; item.knowledge_type = this.editForm.knowledge_type; }
+            this.showEditKnowledge = false;
+          } else alert(t('save_failed'));
+        },
+
+        async deleteKnowledge(id) {
+          if (!confirm(t('confirm_delete'))) return;
+          await fetch(`${API}/knowledge/${id}`, { method: 'DELETE' });
+          await this.fetchKnowledge();
+        },
+
+        // ── Assets ──
+        async fetchAssets() {
+          const res = await fetch(`${API}/assets?scope_type=offer&scope_id=${this.offerId}&page_size=50`);
+          const data = await res.json();
+          this.assets = data.items; this.assetsTotal = data.total;
+        },
+        async _hashFile(file) {
+          const buf = await file.arrayBuffer();
+          const digest = await crypto.subtle.digest('SHA-256', buf);
+          return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+        },
+        async uploadAsset(event) {
+          const file = event.target.files[0];
+          if (!file) return;
+
+          // 1. Compute hash
+          this.hashing = true;
+          let hash;
+          try { hash = await this._hashFile(file); }
+          catch { hash = null; }
+          this.hashing = false;
+
+          // 2. Check for duplicate in this offer
+          if (hash) {
+            const res = await fetch(`${API}/assets/check-duplicate?hash=${hash}&scope_type=offer&scope_id=${this.offerId}`);
+            if (res.ok) {
+              const data = await res.json();
+              if (data.exists) {
+                this.duplicateDialog = { asset: data.asset, file };
+                event.target.value = '';
+                return;
+              }
+            }
+          }
+
+          // 3. Upload
+          this.uploading = true;
+          const fd = new FormData();
+          fd.append('file', file); fd.append('scope_type', 'offer'); fd.append('scope_id', this.offerId);
+          fd.append('asset_type', file.type.startsWith('video') ? 'video' : file.type.startsWith('audio') ? 'audio' : 'image');
+          await fetch(`${API}/assets/upload`, { method: 'POST', body: fd });
+          await this.fetchAssets();
+          this.uploading = false; event.target.value = '';
+          this._pollParseStatus();
+        },
+        goToDuplicateAsset() {
+          if (!this.duplicateDialog) return;
+          // Scroll to existing asset card in the list
+          const assetId = this.duplicateDialog.asset.id;
+          this.duplicateDialog = null;
+          this.$nextTick(() => {
+            const el = document.querySelector(`[data-asset-id="${assetId}"]`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          });
+        },
+        _pollParseStatus() {
+          if (this._pollTimer) clearInterval(this._pollTimer);
+          let polls = 0;
+          this._pollTimer = setInterval(async () => {
+            await this.fetchAssets();
+            polls++;
+            const pending = this.assets.some(a => ['pending','processing','tagging'].includes(a.parse_status));
+            if (!pending || polls >= 90) clearInterval(this._pollTimer);  // stop after 3 min max
+          }, 2000);
+        },
+        formatAssetDuration(sec) {
+          if (sec == null) return '';
+          const m = Math.floor(sec / 60);
+          const s = Math.floor(sec % 60);
+          return `${m}:${String(s).padStart(2, '0')}`;
+        },
+        formatAssetBytes(bytes) {
+          if (!bytes) return '';
+          if (bytes < 1024) return bytes + ' B';
+          if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+          return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+        },
+
+        flattenTags(tagsJson) {
+          if (Array.isArray(tagsJson)) return tagsJson.map(t => ({ category: 'legacy', label: t }));
+          if (!tagsJson || typeof tagsJson !== 'object') return [];
+          return Object.entries(tagsJson).flatMap(([cat, tags]) =>
+            (tags || []).map(t => ({ category: cat, label: t }))
+          );
+        },
+
+        openEditTags(asset) {
+          this.editTagsAsset = asset;
+          const tags = asset.tags_json && typeof asset.tags_json === 'object' && !Array.isArray(asset.tags_json) ? asset.tags_json : {};
+          this.editTagsForm = {};
+          for (const cat of ['subject','usage','selling_point','scenario','channel_fit','style','emotion']) {
+            this.editTagsForm[cat] = (tags[cat] || []).join(', ');
+          }
+        },
+
+        async saveAssetTags() {
+          const tags = {};
+          for (const [cat, val] of Object.entries(this.editTagsForm)) {
+            const arr = val.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+            if (arr.length) tags[cat] = arr;
+          }
+          await fetch(`${API}/assets/${this.editTagsAsset.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tags_json: tags }),
+          });
+          this.editTagsAsset = null;
+          await this.fetchAssets();
+        },
+
+        async deleteAsset(id) {
+          if (!confirm(t('confirm_delete_asset'))) return;
+          await fetch(`${API}/assets/${id}`, { method: 'DELETE' });
+          await this.fetchAssets();
+        },
+
+        isSearchActive() {
+          return this.searchQ.trim() || this.selectedTags.length > 0 || this.assetTypeFilter;
+        },
+        onSearchInput() {
+          clearTimeout(this.searchTimer);
+          this.searchTimer = setTimeout(() => this.searchAssets(), 300);
+        },
+        async searchAssets() {
+          if (!this.isSearchActive()) { await this.fetchAssets(); return; }
+          const params = new URLSearchParams({ scope_type: 'offer', scope_id: this.offerId, page_size: '50' });
+          if (this.searchQ.trim()) params.set('q', this.searchQ.trim());
+          if (this.assetTypeFilter) params.set('asset_type', this.assetTypeFilter);
+          if (this.selectedTags.length > 0) params.set('tags', this.selectedTags.map(t => t.label).join(','));
+          const res = await fetch(`${API}/assets/search?${params}`);
+          const data = await res.json();
+          this.assets = data.items; this.assetsTotal = data.total;
+        },
+        async fetchTagAnalytics() {
+          const res = await fetch(`${API}/assets/tag-analytics?scope_type=offer&scope_id=${this.offerId}`);
+          if (res.ok) { const data = await res.json(); this.availableTags = data.items || data; }
+        },
+        toggleTag(t) {
+          const idx = this.selectedTags.findIndex(s => s.category === t.category && s.label === t.tag);
+          if (idx >= 0) this.selectedTags.splice(idx, 1);
+          else this.selectedTags.push({ category: t.category, label: t.tag });
+          this.searchAssets();
+        },
+
+        // ── Strategy Units ──
+        async fetchStrategyUnits() {
+          const res = await fetch(`${API}/strategy-units?offer_id=${this.offerId}&page_size=50`);
+          const data = await res.json();
+          this.strategyUnits = data.items;
+          this.strategyUnitsTotal = data.total;
+        },
+
+        async loadKBOptions() {
+          const res = await fetch(`${API}/knowledge?scope_type=offer&scope_id=${this.offerId}&page_size=100`);
+          if (!res.ok) return;
+          const data = await res.json();
+          this.audienceOptions = [...new Set(data.items.filter(k => k.knowledge_type === 'audience').map(k => k.title))];
+          this.scenarioOptions = [...new Set(data.items.filter(k => k.knowledge_type === 'scenario').map(k => k.title))];
+        },
+
+        openUnitForm(unit) {
+          if (unit) {
+            this.editingUnit = unit;
+            this.unitForm = {
+              name: unit.name,
+              audience_segment: unit.audience_segment || '',
+              scenario: unit.scenario || '',
+              marketing_objective: unit.marketing_objective || '',
+              channel: unit.channel || '',
+              strategy_stage: unit.strategy_stage,
+              notes: unit.notes || '',
+            };
+          } else {
+            this.editingUnit = null;
+            this.unitForm = { name: '', audience_segment: '', scenario: '', marketing_objective: '', channel: '', strategy_stage: 'exploring', notes: '' };
+          }
+          this.showUnitForm = true;
+          this.loadKBOptions();
+        },
+
+        async saveUnit() {
+          if (!this.unitForm.name.trim()) return;
+          this.savingUnit = true;
+          const body = {
+            name: this.unitForm.name.trim(),
+            audience_segment: this.unitForm.audience_segment || null,
+            scenario: this.unitForm.scenario || null,
+            marketing_objective: this.unitForm.marketing_objective || null,
+            channel: this.unitForm.channel || null,
+            strategy_stage: this.unitForm.strategy_stage,
+            notes: this.unitForm.notes || null,
+          };
+          try {
+            if (this.editingUnit) {
+              await fetch(`${API}/strategy-units/${this.editingUnit.id}`, {
+                method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+              });
+            } else {
+              await fetch(`${API}/strategy-units`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...body, merchant_id: this.offer.merchant_id, offer_id: this.offerId }),
+              });
+            }
+            this.showUnitForm = false;
+            await this.fetchStrategyUnits();
+          } catch { alert(t('save_failed')); }
+          this.savingUnit = false;
+        },
+
+        async deleteUnit(id) {
+          if (!confirm(t('confirm_delete'))) return;
+          await fetch(`${API}/strategy-units/${id}`, { method: 'DELETE' });
+          await this.fetchStrategyUnits();
+        },
+
+        openTopicPicker() {
+          window.dispatchEvent(new CustomEvent('open-topic-picker', { detail: { offerId: this.offerId } }));
+        },
+
+        goToTopics(strategyUnitId) {
+          let url = '/topic-studio.html?offer_id=' + this.offerId;
+          if (strategyUnitId) url += '&strategy_unit_id=' + strategyUnitId;
+          location.href = url;
+        },
+
+        unitObjectiveLabel(v) {
+          return { seeding: t('mo_seeding'), conversion: t('mo_conversion'), lead_generation: t('mo_lead_generation'), trust_building: t('mo_trust_building'), retention: t('mo_retention') }[v] || v;
+        },
+        unitStageLabel(v) {
+          return { exploring: t('ss_exploring'), rising: t('ss_rising'), stable: t('ss_stable'), declining: t('ss_declining') }[v] || v;
+        },
+        unitStageClass(v) {
+          return { exploring:'bg-gray-100 text-gray-600', rising:'bg-green-100 text-green-700', stable:'bg-blue-100 text-blue-700', declining:'bg-orange-100 text-orange-700' }[v] || 'bg-gray-100 text-gray-600';
+        },
+      };
+    }
+  </script>
+
+</body>
+</html>

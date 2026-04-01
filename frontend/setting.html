@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenLucid</title>
+  <script>
+    document.documentElement.style.display='none';
+    fetch('/api/v1/auth/me').then(r=>{
+      if(!r.ok) fetch('/api/v1/auth/setup-status').then(r=>r.json()).then(s=>{
+        location.href=s.needs_setup?'/install.html':'/signin.html';
+      });
+      else document.documentElement.style.display='';
+    });
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        sidebar: { DEFAULT: '#1C1C28', hover: '#2A2A3C', active: '#3B3B50' },
+        accent: { DEFAULT: '#155EEF', light: '#EFF4FF', hover: '#1849C6' },
+      }}}
+    }
+  </script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/pinned-apps.js"></script>
+  <script src="/js/avatar.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif}
+    .sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;color:#A0A0B0;font-size:14px;cursor:pointer;transition:all .15s}
+    .sidebar-item:hover{background:#2A2A3C;color:#E0E0EE}
+    .sidebar-item.active{background:#2D2D40;color:#fff}
+    .setting-nav-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;font-size:13.5px;color:#6B7280;cursor:pointer;transition:all .15s;text-decoration:none}
+    .setting-nav-item:hover{background:#F3F4F6;color:#111827}
+    .setting-nav-item.active{background:#EFF4FF;color:#155EEF;font-weight:500}
+  </style>
+</head>
+<body class="bg-gray-50 h-screen flex overflow-hidden" x-data="settingApp()" x-init="init()">
+
+  <!-- App Sidebar -->
+  <aside class="w-56 bg-sidebar flex flex-col shrink-0">
+    <div class="px-4 py-5 flex items-center gap-2.5">
+      <img src="/images/logo.png" alt="OpenLucid" class="w-8 h-8 rounded-lg">
+      <span class="text-white font-semibold text-base">OpenLucid</span>
+    </div>
+    <nav class="flex-1 px-3 space-y-1 mt-2">
+      <a href="/" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        <span x-text="t('sidebar_offers')"></span>
+      </a>
+      <a href="/apps.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+        <span x-text="t('sidebar_apps')"></span>
+      </a>
+      <a href="/brandkit-list.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
+      </a>
+    </nav>
+    <div class="px-3 pb-3 mt-auto">
+      <div class="text-[10px] text-white/25 text-center">Powered by OpenLucid</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+
+    <!-- Top header -->
+    <header class="h-14 bg-white border-b flex items-center justify-between px-6 shrink-0">
+      <div class="flex items-center gap-2 text-sm text-gray-500">
+        <a href="/" class="hover:text-gray-700 transition-colors" x-text="t('breadcrumb_home')"></a>
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        <span class="text-gray-800 font-medium" x-text="t('breadcrumb_settings')"></span>
+      </div>
+      <div id="avatar-mount"></div>
+    </header>
+
+    <!-- Settings layout -->
+    <div class="flex-1 flex overflow-hidden">
+
+      <!-- Settings left nav -->
+      <nav class="w-52 bg-white border-r flex flex-col py-4 px-3 shrink-0 gap-0.5">
+        <p class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-2 mb-1" x-text="t('nav_general')"></p>
+        <a href="?section=language" @click.prevent="section='language'; pushState('language')"
+           class="setting-nav-item" :class="section==='language' && 'active'">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"/></svg>
+          <span x-text="t('nav_language')"></span>
+        </a>
+
+        <p class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-2 mt-4 mb-1" x-text="t('nav_ai')"></p>
+        <a href="?section=llm" @click.prevent="section='llm'; pushState('llm'); loadLLMConfigs()"
+           class="setting-nav-item" :class="section==='llm' && 'active'">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2"/></svg>
+          <span x-text="t('nav_llm')"></span>
+        </a>
+
+        <p class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-2 mt-4 mb-1" x-text="t('nav_integrations')"></p>
+        <a href="?section=mcp" @click.prevent="section='mcp'; pushState('mcp')"
+           class="setting-nav-item" :class="section==='mcp' && 'active'">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <span x-text="t('nav_mcp')"></span>
+        </a>
+        <a href="/docs" target="_blank"
+           class="setting-nav-item">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+          <span x-text="t('nav_api_docs')"></span>
+        </a>
+
+        <p class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-2 mt-4 mb-1" x-text="t('nav_service')"></p>
+        <a href="?section=service" @click.prevent="section='service'; pushState('service')"
+           class="setting-nav-item" :class="section==='service' && 'active'">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          <span x-text="t('nav_logs')"></span>
+        </a>
+      </nav>
+
+      <!-- Settings content -->
+      <main class="flex-1 overflow-y-auto p-8">
+        <div class="max-w-2xl">
+
+          <!-- Language -->
+          <div x-show="section==='language'">
+            <h2 class="text-lg font-semibold text-gray-900 mb-1" x-text="t('lang_title')"></h2>
+            <p class="text-sm text-gray-500 mb-6" x-text="t('lang_subtitle')"></p>
+
+            <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
+              <template x-for="opt in langOptions" :key="opt.value">
+                <label class="flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-colors"
+                       :class="lang === opt.value ? 'border-accent bg-accent/5' : 'border-gray-200 hover:border-gray-300'">
+                  <div class="flex items-center gap-3">
+                    <span class="text-xl" x-text="opt.flag"></span>
+                    <div>
+                      <p class="text-sm font-medium text-gray-900" x-text="opt.label"></p>
+                      <p class="text-xs text-gray-400" x-text="opt.sublabel"></p>
+                    </div>
+                  </div>
+                  <input type="radio" :value="opt.value" x-model="lang" class="accent-accent w-4 h-4">
+                </label>
+              </template>
+
+              <div class="pt-2">
+                <button @click="saveLang()"
+                        class="bg-accent text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-accent-hover transition-colors"
+                        :class="langSaved && 'bg-green-500 hover:bg-green-500'">
+                  <span x-text="langSaved ? t('lang_saved') : t('btn_save')"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- LLM -->
+          <div x-show="section==='llm'" x-cloak>
+            <div class="flex items-center justify-between mb-1">
+              <h2 class="text-lg font-semibold text-gray-900" x-text="t('llm_title')"></h2>
+              <div class="flex items-center gap-3">
+                <button @click="openSceneModal()"
+                        class="flex items-center gap-1.5 text-sm text-gray-500 font-medium hover:text-gray-700 border border-gray-200 hover:border-gray-300 px-3 py-1.5 rounded-xl transition-colors">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                  <span x-text="t('scene_config')"></span>
+                </button>
+                <button @click="openForm(null)"
+                        class="flex items-center gap-1.5 text-sm text-accent font-medium hover:text-accent-hover transition-colors">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                  <span x-text="t('add_provider')"></span>
+                </button>
+              </div>
+            </div>
+            <p class="text-sm text-gray-500 mb-6" x-text="t('llm_subtitle')"></p>
+
+            <!-- Loading -->
+            <div x-show="llmLoading" class="flex items-center justify-center py-12">
+              <svg class="animate-spin w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+            </div>
+
+            <!-- Empty state -->
+            <div x-show="!llmLoading && llmConfigs.length === 0 && !showForm"
+                 class="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
+              <div class="flex flex-col items-center justify-center text-center">
+                <div class="w-12 h-12 bg-gray-100 rounded-2xl flex items-center justify-center mb-3">
+                  <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2"/></svg>
+                </div>
+                <p class="text-sm font-medium text-gray-700 mb-1" x-text="t('no_llm')"></p>
+                <p class="text-xs text-gray-400 mb-4" x-text="t('no_llm_hint')"></p>
+                <button @click="openForm(null)"
+                        class="bg-accent text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-accent-hover transition-colors">
+                  <span x-text="t('add_provider')"></span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Config cards -->
+            <div x-show="!llmLoading && llmConfigs.length > 0" class="space-y-3 mb-4">
+              <template x-for="cfg in llmConfigs" :key="cfg.id">
+                <div class="bg-white rounded-2xl border shadow-sm p-4 transition-all"
+                     :class="cfg.is_active ? 'border-accent/40 ring-1 ring-accent/20' : 'border-gray-100'">
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="flex items-center gap-3 min-w-0">
+                      <!-- Provider badge -->
+                      <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-base"
+                           :class="{
+                             'bg-green-50': cfg.provider === 'openai',
+                             'bg-purple-50': cfg.provider === 'minimax',
+                             'bg-amber-50': cfg.provider === 'anthropic',
+                             'bg-blue-50': cfg.provider === 'deepseek',
+                             'bg-orange-50': cfg.provider === 'ollama',
+                             'bg-gray-100': cfg.provider === 'custom',
+                           }"
+                           x-text="PROVIDER_PRESETS[cfg.provider]?.icon || '⚙️'">
+                      </div>
+                      <div class="min-w-0">
+                        <div class="flex items-center gap-2">
+                          <p class="text-sm font-semibold text-gray-900" x-text="cfg.label"></p>
+                          <span x-show="cfg.is_active"
+                                class="inline-flex items-center gap-1 text-[11px] font-medium text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
+                            <span class="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+                            <span x-text="t('default_badge')"></span>
+                          </span>
+                        </div>
+                        <p class="text-xs text-gray-400 truncate" x-text="`${cfg.model_name} · ${cfg.base_url}`"></p>
+                      </div>
+                    </div>
+
+                    <!-- Three-dot menu -->
+                    <div class="relative shrink-0" x-data="{ open: false }">
+                      <button @click="open = !open" @click.outside="open = false"
+                              class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+                      </button>
+                      <div x-show="open" x-cloak
+                           class="absolute right-0 top-8 w-36 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-10">
+                        <button x-show="!cfg.is_active"
+                                @click="activateConfig(cfg.id); open=false"
+                                class="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2">
+                          <svg class="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                          <span x-text="t('set_default')"></span>
+                        </button>
+                        <button @click="openForm(cfg); open=false"
+                                class="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2">
+                          <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                          <span x-text="t('btn_edit')"></span>
+                        </button>
+                        <button @click="deleteConfig(cfg); open=false"
+                                class="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2">
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                          <span x-text="t('btn_delete')"></span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <!-- Add/Edit Form -->
+            <div x-show="showForm" x-cloak
+                 class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mt-2">
+              <h3 class="text-sm font-semibold text-gray-800 mb-4"
+                  x-text="editingId ? t('edit_provider') : t('add_provider_title')"></h3>
+
+              <div class="space-y-4">
+                <!-- Provider type -->
+                <div>
+                  <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('provider_type')"></label>
+                  <div class="grid grid-cols-3 gap-2">
+                    <template x-for="(preset, key) in PROVIDER_PRESETS" :key="key">
+                      <button type="button"
+                              @click="selectProvider(key)"
+                              class="flex flex-col items-center gap-1 py-2.5 px-2 rounded-xl border text-xs font-medium transition-all"
+                              :class="form.provider === key
+                                ? 'border-accent bg-accent/5 text-accent'
+                                : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'">
+                        <span class="text-base" x-text="preset.icon"></span>
+                        <span x-text="preset.label || t('custom_provider')"></span>
+                      </button>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- API Key -->
+                <div x-show="form.provider !== 'ollama'">
+                  <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('api_key')"></label>
+                  <div class="relative" x-data="{ show: true }">
+                    <input :type="show ? 'text' : 'password'"
+                           x-model="form.api_key"
+                           :placeholder="form.api_key_masked || PROVIDER_PRESETS[form.provider]?.key_hint || 'sk-...'"
+                           @input="onApiKeyInput()"
+                           autocomplete="off"
+                           class="w-full border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                    <button type="button" @click="show = !show"
+                            class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors">
+                      <svg x-show="show" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
+                      <svg x-show="!show" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Base URL -->
+                <div>
+                  <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('base_url')"></label>
+                  <input type="text" x-model="form.base_url"
+                         :placeholder="PROVIDER_PRESETS[form.provider]?.base_url || 'https://your-api.example.com/v1'"
+                         class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                  <p x-show="form.provider === 'ollama'" class="mt-1.5 text-[11px] text-gray-400" x-text="t('ollama_hint')"></p>
+                </div>
+
+                <!-- Model name -->
+                <div>
+                  <div class="flex items-center justify-between mb-1.5">
+                    <label class="text-xs font-medium text-gray-500" x-text="t('model_name')"></label>
+                    <button x-show="modelsFetched && modelInputMode === 'select'"
+                            type="button"
+                            @click="modelInputMode = 'text'"
+                            class="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                            x-text="t('manual_input')">
+                    </button>
+                    <button x-show="modelsFetched && modelInputMode === 'text'"
+                            type="button"
+                            @click="modelInputMode = 'select'"
+                            class="text-xs text-accent hover:text-accent-hover transition-colors"
+                            x-text="t('from_list')">
+                    </button>
+                  </div>
+                  <!-- Select mode -->
+                  <div x-show="modelsFetched && modelInputMode === 'select'" class="flex gap-2">
+                    <select x-model="form.model_name"
+                            @change="onModelSelect()"
+                            class="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                      <template x-for="m in modelList" :key="m">
+                        <option :value="m" x-text="m"></option>
+                      </template>
+                    </select>
+                    <button type="button" @click="fetchModels()" :disabled="modelsFetching"
+                            class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50 transition-all whitespace-nowrap">
+                      <svg x-show="!modelsFetching" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                      <svg x-show="modelsFetching" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                      <span x-text="modelsFetching ? t('fetching') : t('btn_refresh')"></span>
+                    </button>
+                  </div>
+                  <!-- Text mode (with fetch button) -->
+                  <div x-show="!modelsFetched || modelInputMode === 'text'" class="flex gap-2">
+                    <input type="text" x-model="form.model_name"
+                           @change="onModelSelect()"
+                           :placeholder="form.provider === 'ollama' ? t('model_hint_ollama') : t('model_hint_cloud')"
+                           class="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                    <button type="button" @click="fetchModels()"
+                            :disabled="(form.provider !== 'ollama' && form.api_key.length < 8) || modelsFetching"
+                            class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all whitespace-nowrap"
+                            :class="(form.provider === 'ollama' || form.api_key.length >= 8) && !modelsFetching
+                              ? 'border-accent text-accent hover:bg-accent/5'
+                              : 'border-gray-200 text-gray-400 cursor-not-allowed'">
+                      <svg x-show="!modelsFetching" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                      <svg x-show="modelsFetching" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                      <span x-text="modelsFetching ? t('fetching') : t('fetch_models')"></span>
+                    </button>
+                  </div>
+                  <!-- Fetch error -->
+                  <p x-show="fetchModelsError" class="mt-1.5 text-xs text-amber-600 flex items-center gap-1">
+                    <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span x-text="fetchModelsError"></span>
+                  </p>
+                </div>
+
+                <!-- Label -->
+                <div>
+                  <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('label_name')"></label>
+                  <input type="text" x-model="form.label"
+                         :placeholder="`${t('label_hint_prefix')}${PROVIDER_PRESETS[form.provider]?.label || ''} / ${form.model_name || 'model'}`"
+                         class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                </div>
+
+                <!-- Validate status -->
+                <div x-show="validateStatus" class="text-xs px-3 py-2 rounded-xl"
+                     :class="validateStatus === 'ok' ? 'bg-green-50 text-green-700' : validateStatus === 'error' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-500'">
+                  <span x-show="validateStatus === 'checking'" x-text="t('validating')"></span>
+                  <span x-show="validateStatus === 'ok'" x-text="t('validate_ok')"></span>
+                  <span x-show="validateStatus === 'error'" x-text="validateError || t('validate_error')"></span>
+                </div>
+
+                <!-- Form actions -->
+                <div class="flex items-center gap-3 pt-1">
+                  <button @click="validateConnection()"
+                          :disabled="validateStatus === 'checking'"
+                          class="px-4 py-2 rounded-xl text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                          x-text="t('validate_connection')">
+                  </button>
+                  <div class="flex-1"></div>
+                  <button @click="cancelForm()"
+                          class="px-4 py-2 rounded-xl text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                          x-text="t('btn_cancel')">
+                  </button>
+                  <button @click="saveForm()"
+                          :disabled="formSaving"
+                          class="bg-accent text-white px-5 py-2 rounded-xl text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50">
+                    <span x-text="formSaving ? t('saving') : t('btn_save')"></span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Error banner -->
+            <div x-show="llmError" x-cloak class="mt-3 text-xs text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
+                 x-text="llmError"></div>
+          </div>
+
+          <!-- MCP -->
+          <div x-show="section==='mcp'" x-cloak x-data="mcpSection()" x-init="loadMcpTokens()">
+            <h2 class="text-lg font-semibold text-gray-900 mb-1" x-text="t('mcp_title')"></h2>
+            <p class="text-sm text-gray-500 mb-6" x-text="t('mcp_subtitle')"></p>
+
+            <!-- Status -->
+            <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-4">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                <span class="text-sm font-medium text-gray-800" x-text="t('mcp_status_running')"></span>
+              </div>
+              <p class="text-xs text-gray-400" x-text="t('mcp_status_hint')"></p>
+            </div>
+
+            <!-- SSE Endpoint -->
+            <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-4">
+              <label class="block text-xs font-medium text-gray-500 mb-2" x-text="t('mcp_endpoint_label')"></label>
+              <div class="flex items-center gap-2">
+                <code class="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 font-mono truncate"
+                      x-text="mcpEndpoint"></code>
+                <button @click="copyText(mcpEndpoint); copiedField='endpoint'; setTimeout(()=>copiedField='', 2000)"
+                        class="shrink-0 border border-gray-200 text-gray-600 px-3 py-2.5 rounded-xl text-xs hover:bg-gray-50 transition-colors">
+                  <span x-text="copiedField==='endpoint' ? t('mcp_copied') : t('btn_copy')"></span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Access Tokens -->
+            <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-4">
+              <div class="flex items-center justify-between mb-1">
+                <h3 class="text-sm font-semibold text-gray-800" x-text="t('mcp_tokens_title')"></h3>
+                <span class="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                      :class="mcpTokens.length > 0 ? 'bg-green-50 text-green-600' : 'bg-yellow-50 text-yellow-600'"
+                      x-text="mcpTokens.length > 0 ? t('mcp_tokens_status_protected') : t('mcp_tokens_status_open')"></span>
+              </div>
+              <p class="text-xs text-gray-400 mb-4" x-text="t('mcp_tokens_subtitle')"></p>
+
+              <!-- Token list -->
+              <div class="space-y-2 mb-3" x-show="mcpTokens.length > 0">
+                <template x-for="tk in mcpTokens" :key="tk.id">
+                  <div class="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-2.5">
+                    <div class="flex items-center gap-3">
+                      <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+                      <div>
+                        <div class="text-sm font-medium text-gray-700" x-text="tk.label"></div>
+                        <div class="text-[11px] text-gray-400 font-mono" x-text="tk.token_preview"></div>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-[11px] text-gray-400" x-text="new Date(tk.created_at).toLocaleDateString()"></span>
+                      <button @click="deleteMcpToken(tk)" class="text-gray-300 hover:text-red-500 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Empty state -->
+              <div x-show="mcpTokens.length === 0 && !showTokenForm" class="text-center py-4">
+                <p class="text-xs text-gray-400 mb-3" x-text="t('mcp_tokens_empty')"></p>
+              </div>
+
+              <!-- New token created banner -->
+              <div x-show="newTokenValue" class="bg-green-50 border border-green-200 rounded-xl p-4 mb-3">
+                <p class="text-xs font-medium text-green-700 mb-2" x-text="t('mcp_tokens_created')"></p>
+                <div class="flex items-center gap-2">
+                  <code class="flex-1 bg-white border border-green-200 rounded-lg px-3 py-2 text-xs font-mono text-gray-800 select-all break-all" x-text="newTokenValue"></code>
+                  <button @click="copyText(newTokenValue); copiedField='mcp-token'; setTimeout(()=>copiedField='', 2000)"
+                          class="shrink-0 bg-green-600 text-white px-3 py-2 rounded-lg text-xs font-medium hover:bg-green-700 transition-colors">
+                    <span x-text="copiedField==='mcp-token' ? t('mcp_tokens_copied') : t('mcp_tokens_copy')"></span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Create form -->
+              <div x-show="showTokenForm" class="flex items-center gap-2 mb-3">
+                <input x-model="tokenLabel" type="text" :placeholder="t('mcp_tokens_label_placeholder')"
+                       class="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none"
+                       @keydown.enter="createMcpToken()" @keydown.escape="showTokenForm=false; tokenLabel=''">
+                <button @click="createMcpToken()" :disabled="!tokenLabel.trim() || tokenSaving"
+                        class="bg-accent text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition-colors">
+                  <span x-text="tokenSaving ? t('creating') : t('btn_create')"></span>
+                </button>
+                <button @click="showTokenForm=false; tokenLabel=''" class="text-gray-400 hover:text-gray-600 px-2 py-2">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+              </div>
+
+              <!-- Create button -->
+              <button x-show="!showTokenForm" @click="showTokenForm=true; newTokenValue=''; $nextTick(()=>$el.previousElementSibling?.querySelector('input')?.focus())"
+                      class="w-full border border-dashed border-gray-300 text-gray-500 rounded-xl py-2 text-xs font-medium hover:border-accent hover:text-accent transition-colors">
+                + <span x-text="t('mcp_tokens_create')"></span>
+              </button>
+            </div>
+
+            <!-- Quick Start Guide — tabbed -->
+            <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-4">
+              <h3 class="text-sm font-semibold text-gray-800 mb-3" x-text="t('mcp_guide_title')"></h3>
+
+              <!-- Tab bar -->
+              <div class="flex gap-1 mb-4 bg-gray-100 rounded-xl p-1 w-fit">
+                <button @click="mcpTab='claude-code'"
+                        class="px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+                        :class="mcpTab==='claude-code' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'">
+                  Claude Code
+                </button>
+                <button @click="mcpTab='openclaw'"
+                        class="px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+                        :class="mcpTab==='openclaw' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'">
+                  OpenClaw
+                </button>
+              </div>
+
+              <!-- Claude Code guide -->
+              <div x-show="mcpTab==='claude-code'" class="space-y-4">
+                <!-- Step 1 -->
+                <div class="flex gap-3">
+                  <div class="w-5 h-5 rounded-full bg-accent text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">1</div>
+                  <div class="flex-1">
+                    <p class="text-sm font-medium text-gray-800 mb-1" x-text="t('mcp_cc_step1_title')"></p>
+                    <p class="text-xs text-gray-500 mb-2" x-text="t('mcp_cc_step1_desc')"></p>
+                    <div class="bg-gray-900 text-green-300 text-xs font-mono p-3 rounded-xl overflow-auto">claude mcp add openlucid --transport sse <span x-text="mcpEndpoint" class="text-blue-300"></span></div>
+                    <button @click="copyText('claude mcp add openlucid --transport sse ' + mcpEndpoint); copiedField='cc-cmd'; setTimeout(()=>copiedField='', 2000)"
+                            class="mt-2 text-xs text-accent hover:text-accent-hover font-medium transition-colors">
+                      <span x-text="copiedField==='cc-cmd' ? t('mcp_copied') : t('mcp_copy_command')"></span>
+                    </button>
+                  </div>
+                </div>
+                <!-- Step 2 -->
+                <div class="flex gap-3">
+                  <div class="w-5 h-5 rounded-full bg-accent text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</div>
+                  <div class="flex-1">
+                    <p class="text-sm font-medium text-gray-800 mb-1" x-text="t('mcp_cc_step2_title')"></p>
+                    <p class="text-xs text-gray-500 mb-2" x-text="t('mcp_cc_step2_desc')"></p>
+                    <pre class="bg-gray-900 text-green-300 text-xs leading-relaxed font-mono p-3 rounded-xl overflow-auto whitespace-pre" x-text="mcpConfigJson"></pre>
+                    <button @click="copyText(mcpConfigJson); copiedField='cc-json'; setTimeout(()=>copiedField='', 2000)"
+                            class="mt-2 text-xs text-accent hover:text-accent-hover font-medium transition-colors">
+                      <span x-text="copiedField==='cc-json' ? t('mcp_copied') : t('mcp_copy_config')"></span>
+                    </button>
+                  </div>
+                </div>
+                <!-- Step 3 -->
+                <div class="flex gap-3">
+                  <div class="w-5 h-5 rounded-full bg-accent text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">3</div>
+                  <div class="flex-1">
+                    <p class="text-sm font-medium text-gray-800 mb-1" x-text="t('mcp_cc_step3_title')"></p>
+                    <p class="text-xs text-gray-500" x-text="t('mcp_cc_step3_desc')"></p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- OpenClaw guide -->
+              <div x-show="mcpTab==='openclaw'" class="space-y-4">
+                <!-- Step 1 -->
+                <div class="flex gap-3">
+                  <div class="w-5 h-5 rounded-full bg-accent text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">1</div>
+                  <div class="flex-1">
+                    <p class="text-sm font-medium text-gray-800 mb-1" x-text="t('mcp_oc_step1_title')"></p>
+                    <p class="text-xs text-gray-500" x-text="t('mcp_oc_step1_desc')"></p>
+                  </div>
+                </div>
+                <!-- Step 2 -->
+                <div class="flex gap-3">
+                  <div class="w-5 h-5 rounded-full bg-accent text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</div>
+                  <div class="flex-1">
+                    <p class="text-sm font-medium text-gray-800 mb-1" x-text="t('mcp_oc_step2_title')"></p>
+                    <p class="text-xs text-gray-500 mb-2" x-text="t('mcp_oc_step2_desc')"></p>
+                    <div class="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-2">
+                      <div>
+                        <span class="text-[11px] text-gray-400 font-medium">Name</span>
+                        <p class="text-xs text-gray-700 font-mono">openlucid</p>
+                      </div>
+                      <div>
+                        <span class="text-[11px] text-gray-400 font-medium">Type</span>
+                        <p class="text-xs text-gray-700 font-mono">SSE</p>
+                      </div>
+                      <div>
+                        <span class="text-[11px] text-gray-400 font-medium">URL</span>
+                        <p class="text-xs text-gray-700 font-mono" x-text="mcpEndpoint"></p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <!-- Step 3 -->
+                <div class="flex gap-3">
+                  <div class="w-5 h-5 rounded-full bg-accent text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">3</div>
+                  <div class="flex-1">
+                    <p class="text-sm font-medium text-gray-800 mb-1" x-text="t('mcp_oc_step3_title')"></p>
+                    <p class="text-xs text-gray-500" x-text="t('mcp_oc_step3_desc')"></p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Available Tools -->
+            <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+              <h3 class="text-sm font-semibold text-gray-800 mb-1" x-text="t('mcp_tools_title')"></h3>
+              <p class="text-xs text-gray-400 mb-3" x-text="t('mcp_tools_hint')"></p>
+              <div class="space-y-2">
+                <template x-for="tool in mcpTools" :key="tool.name">
+                  <div class="flex items-start gap-2 py-1.5">
+                    <code class="text-xs font-mono text-accent bg-accent/5 px-1.5 py-0.5 rounded shrink-0" x-text="tool.name"></code>
+                    <span class="text-xs text-gray-500" x-text="tool.desc"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- Service -->
+          <div x-show="section==='service'" x-cloak
+               x-init="$watch('section', v => { if(v==='service') startLogPolling(); else stopLogPolling(); }); if(section==='service') startLogPolling();"
+               x-effect="if(section!=='service') stopLogPolling()">
+            <h2 class="text-lg font-semibold text-gray-900 mb-1" x-text="t('logs_title')"></h2>
+            <p class="text-sm text-gray-500 mb-4" x-text="t('logs_subtitle')"></p>
+
+            <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+              <!-- Toolbar -->
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                  <span class="inline-block w-2 h-2 rounded-full" :class="logPolling ? 'bg-green-400 animate-pulse' : 'bg-gray-300'"></span>
+                  <span class="text-xs text-gray-500" x-text="logPolling ? t('log_live') : t('log_paused')"></span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <label class="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+                    <input type="checkbox" x-model="logAutoScroll" class="rounded border-gray-300 text-accent focus:ring-accent/30 w-3.5 h-3.5">
+                    <span x-text="t('auto_scroll')"></span>
+                  </label>
+                  <button @click="logLines=[]"
+                          class="border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg text-xs hover:bg-gray-50 transition-colors"
+                          x-text="t('clear_screen')">
+                  </button>
+                  <button @click="window.location = '/api/v1/settings/logs/export'"
+                          class="bg-accent text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-accent-hover transition-colors"
+                          x-text="t('export_logs')">
+                  </button>
+                </div>
+              </div>
+              <!-- Log viewer -->
+              <pre x-ref="logViewer"
+                   class="bg-gray-900 text-green-300 text-xs leading-relaxed font-mono p-4 rounded-xl overflow-auto whitespace-pre-wrap break-all"
+                   style="height:480px; max-height:70vh;"
+                   x-text="logLines.length ? logLines.join('\n') : t('no_logs')"></pre>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Scene Model Config Modal -->
+  <div x-show="showSceneModal" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+       @click.self="showSceneModal = false">
+    <div class="bg-white rounded-2xl shadow-xl border border-gray-100 w-full max-w-lg mx-4 p-6 max-h-[80vh] flex flex-col">
+      <h3 class="text-base font-semibold text-gray-900 mb-1" x-text="t('scene_modal_title')"></h3>
+      <p class="text-xs text-gray-400 mb-5" x-text="t('scene_modal_subtitle')"></p>
+
+      <div class="flex-1 overflow-y-auto space-y-5 pr-1">
+        <template x-for="section in sceneSections" :key="section.scene_key">
+          <div>
+            <!-- Section header -->
+            <div class="flex items-center gap-2 mb-2.5">
+              <span class="text-base leading-none" x-text="section.icon"></span>
+              <span class="text-sm font-medium text-gray-800" x-text="section.label"></span>
+              <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full"
+                    :class="section.scene_type === 'system'
+                      ? 'bg-gray-100 text-gray-400'
+                      : 'bg-accent/10 text-accent'">
+                <span x-text="section.scene_type === 'system' ? t('scene_type_system') : t('scene_type_app')"></span>
+              </span>
+            </div>
+            <!-- Model type rows -->
+            <template x-for="mc in section.model_configs" :key="mc.model_type">
+              <div class="flex items-center gap-3 pl-6 mb-2">
+                <span class="text-xs text-gray-500 w-20 shrink-0" x-text="mc.model_type_label"></span>
+                <select @change="sceneConfigs[sceneConfigKey(section.scene_key, mc.model_type)] = $event.target.value"
+                        class="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                  <option value=""
+                          :selected="!sceneConfigs[sceneConfigKey(section.scene_key, mc.model_type)]"
+                          x-text="t('default_model')">
+                  </option>
+                  <template x-for="cfg in llmConfigs" :key="cfg.id">
+                    <option :value="cfg.id"
+                            :selected="sceneConfigs[sceneConfigKey(section.scene_key, mc.model_type)] === cfg.id"
+                            x-text="modelCapabilityLabel(cfg)"></option>
+                  </template>
+                </select>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <div x-show="sceneError" class="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-xl" x-text="sceneError"></div>
+      </div>
+
+      <div class="flex justify-end gap-3 mt-5 pt-4 border-t border-gray-100">
+        <button @click="showSceneModal = false"
+                class="px-4 py-2 rounded-xl text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                x-text="t('btn_cancel')">
+        </button>
+        <button @click="saveSceneConfigs()" :disabled="sceneSaving"
+                class="bg-accent text-white px-5 py-2 rounded-xl text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50">
+          <span x-text="sceneSaving ? t('saving') : t('btn_save')"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const _STATIC_MODELS = {
+      minimax: ['MiniMax-M2.7','MiniMax-M2.7-highspeed','MiniMax-M2.5','MiniMax-M2.5-highspeed','MiniMax-M2.1','MiniMax-M2.1-highspeed','MiniMax-M2'],
+    };
+
+    const PROVIDER_PRESETS = {
+      openai:    { label: 'OpenAI',    icon: '🟢', base_url: 'https://api.openai.com/v1',                          key_hint: 'sk-...' },
+      anthropic: { label: 'Anthropic', icon: '🟠', base_url: 'https://api.anthropic.com/v1',                       key_hint: 'sk-ant-...' },
+      gemini:    { label: 'Gemini',    icon: '💎', base_url: 'https://generativelanguage.googleapis.com/v1beta/openai', key_hint: 'AIza...' },
+      ollama:    { label: 'Ollama',    icon: '🦙', base_url: 'http://localhost:11434/v1',                           key_hint: '' },
+      minimax:   { label: 'MiniMax',   icon: '💜', base_url: 'https://api.minimaxi.com/v1',                        key_hint: 'eyJ...' },
+      deepseek:  { label: 'DeepSeek',  icon: '🔵', base_url: 'https://api.deepseek.com',                           key_hint: 'sk-...' },
+      custom:    { label: 'Custom',    icon: '⚙️', base_url: '',                                                    key_hint: '' },
+    };
+
+    function mcpSection() {
+      return {
+        mcpTab: 'claude-code',
+        copiedField: '',
+        mcpTokens: [],
+        showTokenForm: false,
+        tokenLabel: '',
+        tokenSaving: false,
+        newTokenValue: '',
+
+        mcpEndpoint: `${location.protocol}//${location.host}/mcp/sse`,
+        get mcpConfigJson() {
+          return JSON.stringify({
+            mcpServers: {
+              openlucid: {
+                type: "sse",
+                url: `${location.protocol}//${location.host}/mcp/sse`
+              }
+            }
+          }, null, 2);
+        },
+        mcpTools: [
+          { name: 'create_merchant', desc: 'Create a new merchant' },
+          { name: 'get_merchant', desc: 'Get a single merchant by ID' },
+          { name: 'list_merchants', desc: 'List all merchants with pagination' },
+          { name: 'create_offer', desc: 'Create an offer under a merchant' },
+          { name: 'list_offers', desc: 'List offers, optionally filter by merchant' },
+          { name: 'get_offer', desc: 'Get a single offer by ID' },
+          { name: 'get_brandkit', desc: 'List brand kits for a scope' },
+          { name: 'add_knowledge_item', desc: 'Add a knowledge item' },
+          { name: 'list_knowledge', desc: 'List knowledge items' },
+          { name: 'search_assets', desc: 'Search/list assets' },
+          { name: 'list_asset_slices', desc: 'List parsed slices for an asset' },
+          { name: 'get_offer_context_summary', desc: 'Get aggregated context for an offer' },
+          { name: 'generate_topic_plans', desc: 'Generate topic plans for an offer' },
+          { name: 'create_strategy_unit', desc: 'Create a strategy unit' },
+          { name: 'list_strategy_units', desc: 'List strategy units' },
+          { name: 'link_knowledge_to_strategy_unit', desc: 'Link knowledge to strategy unit' },
+          { name: 'link_asset_to_strategy_unit', desc: 'Link asset to strategy unit' },
+        ],
+
+        async loadMcpTokens() {
+          try {
+            const res = await fetch('/api/v1/settings/mcp-tokens');
+            if (res.ok) this.mcpTokens = await res.json();
+          } catch {}
+        },
+
+        async createMcpToken() {
+          if (!this.tokenLabel.trim()) return;
+          this.tokenSaving = true;
+          try {
+            const res = await fetch('/api/v1/settings/mcp-tokens', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ label: this.tokenLabel.trim() }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              this.newTokenValue = data.raw_token;
+              this.tokenLabel = '';
+              this.showTokenForm = false;
+              await this.loadMcpTokens();
+            }
+          } catch {}
+          this.tokenSaving = false;
+        },
+
+        async deleteMcpToken(tk) {
+          const msg = this.mcpTokens.length === 1 ? t('mcp_tokens_last_warning') : t('mcp_tokens_confirm_delete');
+          if (!confirm(msg)) return;
+          try {
+            await fetch(`/api/v1/settings/mcp-tokens/${tk.id}`, { method: 'DELETE' });
+            await this.loadMcpTokens();
+            if (this.mcpTokens.length === 0) this.newTokenValue = '';
+          } catch {}
+        },
+      };
+    }
+
+    function settingApp() {
+      return {
+        PROVIDER_PRESETS,
+        section: new URLSearchParams(location.search).get('section') || 'language',
+        lang: localStorage.getItem('od_lang') || 'en',
+        langSaved: false,
+        langOptions: [
+          { value: 'en', flag: '🇺🇸', label: 'English', sublabel: 'English' },
+          { value: 'zh', flag: '🇨🇳', label: '简体中文', sublabel: 'Simplified Chinese' },
+        ],
+
+        // LLM state
+        llmConfigs: [],
+        llmLoading: false,
+        llmError: '',
+        showForm: false,
+        editingId: null,
+        formSaving: false,
+        validateStatus: '',
+        validateError: '',
+        form: { label: '', provider: 'openai', api_key: '', base_url: '', model_name: '', api_key_masked: '' },
+
+        // Scene model config state
+        showSceneModal: false,
+        sceneSections: [],
+        sceneConfigs: {},   // flat map: "scene_key::model_type" → config_id_or_empty
+        sceneSaving: false,
+        sceneError: '',
+
+        // Log viewer state
+        logLines: [],
+        logPolling: false,
+        logAutoScroll: true,
+        _logTimer: null,
+
+        // Model fetch state
+        modelList: [],
+        modelsFetched: false,
+        modelsFetching: false,
+        modelInputMode: 'text',
+        fetchModelsError: '',
+        _debounceTimer: null,
+
+        init() {
+          document.title = t('page_title') + ' - OpenLucid';
+          if (this.section === 'llm') this.loadLLMConfigs();
+          if (this.section === 'service') this.startLogPolling();
+        },
+
+        pushState(s) {
+          history.pushState({}, '', `?section=${s}`);
+        },
+
+        async copyText(text) {
+          try {
+            await navigator.clipboard.writeText(text);
+          } catch {
+            // fallback
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+          }
+        },
+
+        async fetchLogs() {
+          try {
+            const r = await fetch('/api/v1/settings/logs?n=200');
+            if (!r.ok) return;
+            const data = await r.json();
+            this.logLines = data.lines || [];
+            if (this.logAutoScroll) {
+              this.$nextTick(() => {
+                const el = this.$refs.logViewer;
+                if (el) el.scrollTop = el.scrollHeight;
+              });
+            }
+          } catch {}
+        },
+
+        startLogPolling() {
+          if (this._logTimer) return;
+          this.logPolling = true;
+          this.fetchLogs();
+          this._logTimer = setInterval(() => this.fetchLogs(), 3000);
+        },
+
+        stopLogPolling() {
+          this.logPolling = false;
+          if (this._logTimer) { clearInterval(this._logTimer); this._logTimer = null; }
+        },
+
+        saveLang() {
+          setOdLang(this.lang);
+          document.documentElement.lang = this.lang === 'zh' ? 'zh-CN' : 'en';
+          this.langSaved = true;
+          setTimeout(() => { this.langSaved = false; location.reload(); }, 800);
+        },
+
+        async loadLLMConfigs() {
+          this.llmLoading = true;
+          this.llmError = '';
+          try {
+            const r = await fetch('/api/v1/settings/llm');
+            if (!r.ok) throw new Error(await r.text());
+            this.llmConfigs = await r.json();
+          } catch (e) {
+            this.llmError = t('load_failed') + e.message;
+          } finally {
+            this.llmLoading = false;
+          }
+        },
+
+        selectProvider(key) {
+          this.form.provider = key;
+          const preset = PROVIDER_PRESETS[key] || PROVIDER_PRESETS.custom;
+          this.form.base_url = preset.base_url;
+          // Ollama doesn't use a real API key — pre-fill with placeholder
+          if (key === 'ollama') this.form.api_key = 'ollama';
+          // Reset model state when switching provider
+          this.modelList = [];
+          this.modelsFetched = false;
+          this.modelInputMode = 'text';
+          this.fetchModelsError = '';
+          this.form.model_name = '';
+          this.validateStatus = '';
+        },
+
+        onApiKeyInput() {
+          // Clear previous fetch state when key changes
+          this.fetchModelsError = '';
+        },
+
+        async fetchModels() {
+          if (this.form.provider !== 'ollama' && this.form.api_key.length < 8) return;
+          this.modelsFetching = true;
+          this.fetchModelsError = '';
+          try {
+            let models = [], recommended = '';
+
+            if (this.form.provider === 'ollama') {
+              // Ollama 是本地服务，直接从浏览器获取，避免 Docker 容器内 localhost 解析错误
+              const base = this.form.base_url.replace(/\/v1\/?$/, '');
+              const r = await fetch(`${base}/api/tags`);
+              if (!r.ok) throw new Error(`Ollama HTTP ${r.status}`);
+              const data = await r.json();
+              models = (data.models || []).map(m => m.name);
+              if (!models.length) throw new Error(t('no_model_found'));
+              // 推荐排序：优先常用多模态/聊天模型
+              const preferred = ['llama3.2:latest','llama3:latest','qwen2.5:latest','mistral:latest'];
+              recommended = preferred.find(p => models.includes(p)) || models[0];
+            } else {
+              const r = await fetch('/api/v1/settings/llm/fetch-models', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  api_key: this.form.api_key,
+                  base_url: this.form.base_url,
+                  provider: this.form.provider,
+                }),
+              });
+              if (!r.ok) {
+                const d = await r.json().catch(() => ({}));
+                throw new Error(d.detail || 'Fetch failed');
+              }
+              const data = await r.json();
+              models = data.models;
+              recommended = data.recommended;
+            }
+
+            this.modelList = models;
+            this.modelsFetched = true;
+            this.modelInputMode = 'select';
+            if (recommended) this.form.model_name = recommended;
+            this.onModelSelect();
+          } catch (e) {
+            this.fetchModelsError = t('fetch_models_error') + e.message;
+            this.modelsFetched = false;
+            this.modelInputMode = 'text';
+          } finally {
+            this.modelsFetching = false;
+          }
+        },
+
+        onModelSelect() {
+          // Always sync label with provider / model_name
+          if (this.form.model_name) {
+            const providerLabel = PROVIDER_PRESETS[this.form.provider]?.label || this.form.provider;
+            this.form.label = `${providerLabel} / ${this.form.model_name}`;
+          }
+        },
+
+        openForm(cfg) {
+          this.validateStatus = '';
+          this.validateError = '';
+          this.modelList = [];
+          this.modelsFetched = false;
+          this.modelInputMode = 'text';
+          this.fetchModelsError = '';
+          if (cfg) {
+            this.editingId = cfg.id;
+            this.form = {
+              label: cfg.label,
+              provider: cfg.provider,
+              api_key: '',
+              api_key_masked: cfg.api_key_masked || '',
+              base_url: cfg.base_url,
+              model_name: cfg.model_name,
+            };
+            // Pre-populate model list for known providers
+            if (_STATIC_MODELS[cfg.provider]) {
+              this.modelList = _STATIC_MODELS[cfg.provider];
+              this.modelsFetched = true;
+              this.modelInputMode = 'select';
+            }
+          } else {
+            this.editingId = null;
+            const preset = PROVIDER_PRESETS.openai;
+            this.form = { label: '', provider: 'openai', api_key: '', api_key_masked: '', base_url: preset.base_url, model_name: '' };
+          }
+          this.showForm = true;
+        },
+
+        cancelForm() {
+          this.showForm = false;
+          this.editingId = null;
+          this.validateStatus = '';
+        },
+
+        async validateConnection() {
+          if (!this.form.base_url || !this.form.model_name) {
+            this.validateStatus = 'error';
+            this.validateError = t('fill_base_url_model');
+            return;
+          }
+          if (this.form.provider !== 'ollama' && !this.form.api_key) {
+            this.validateStatus = 'error';
+            this.validateError = t('fill_api_key');
+            return;
+          }
+          this.validateStatus = 'checking';
+          this.validateError = '';
+          try {
+            if (this.form.provider === 'ollama') {
+              // 浏览器直连验证，避免 Docker 容器内 localhost 无法访问宿主机
+              const r = await fetch(`${this.form.base_url}/chat/completions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  model: this.form.model_name,
+                  messages: [{ role: 'user', content: 'Hi' }],
+                  max_tokens: 5,
+                  stream: false,
+                }),
+              });
+              if (!r.ok) {
+                const d = await r.json().catch(() => ({}));
+                throw new Error(d.error?.message || `HTTP ${r.status}`);
+              }
+            } else {
+              const r = await fetch('/api/v1/settings/llm/validate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  api_key: this.form.api_key,
+                  base_url: this.form.base_url,
+                  model_name: this.form.model_name,
+                  provider: this.form.provider,
+                }),
+              });
+              if (!r.ok) {
+                const d = await r.json().catch(() => ({}));
+                throw new Error(d.detail || t('validate_error'));
+              }
+            }
+            this.validateStatus = 'ok';
+          } catch (e) {
+            this.validateStatus = 'error';
+            this.validateError = e.message;
+          }
+        },
+
+        async saveForm() {
+          if (!this.form.label || !this.form.base_url || !this.form.model_name) {
+            this.llmError = t('fill_required');
+            return;
+          }
+          this.formSaving = true;
+          this.llmError = '';
+          try {
+            let r;
+            if (this.editingId) {
+              const payload = { label: this.form.label, provider: this.form.provider, base_url: this.form.base_url, model_name: this.form.model_name };
+              if (this.form.api_key) payload.api_key = this.form.api_key;
+              r = await fetch(`/api/v1/settings/llm/${this.editingId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              });
+            } else {
+              if (!this.form.api_key) { this.llmError = t('fill_api_key'); this.formSaving = false; return; }
+              r = await fetch('/api/v1/settings/llm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.form),
+              });
+            }
+            if (!r.ok) {
+              const d = await r.json().catch(() => ({}));
+              throw new Error(d.detail || r.statusText);
+            }
+            this.showForm = false;
+            this.editingId = null;
+            await this.loadLLMConfigs();
+          } catch (e) {
+            this.llmError = t('save_failed') + e.message;
+          } finally {
+            this.formSaving = false;
+          }
+        },
+
+        async activateConfig(id) {
+          this.llmError = '';
+          try {
+            const r = await fetch(`/api/v1/settings/llm/${id}/activate`, { method: 'POST' });
+            if (!r.ok) { const d = await r.json().catch(()=>({})); throw new Error(d.detail || r.statusText); }
+            await this.loadLLMConfigs();
+          } catch (e) {
+            this.llmError = t('activate_failed') + e.message;
+          }
+        },
+
+        sceneConfigKey(scene_key, model_type) {
+          return `${scene_key}::${model_type}`;
+        },
+
+        modelCapabilityLabel(cfg) {
+          const m = (cfg.model_name || '').toLowerCase();
+          let tag = '';
+          if (/(-vl\b|:vl\b|\bvl\b|vision|visual)/.test(m)) tag = '👁 ';
+          else if (/embed|embedding/.test(m)) tag = '📐 ';
+          return tag + cfg.label;
+        },
+
+        async openSceneModal() {
+          this.showSceneModal = true;
+          this.sceneError = '';
+          if (!this.llmConfigs.length) await this.loadLLMConfigs();
+          try {
+            const r = await fetch('/api/v1/settings/llm/scenes');
+            if (!r.ok) throw new Error(await r.text());
+            const data = await r.json();
+            // 先重置为新对象，再用平铺 key 赋值，避免 Alpine 嵌套响应式问题
+            const configs = {};
+            for (const section of data.sections) {
+              for (const mc of section.model_configs) {
+                configs[this.sceneConfigKey(section.scene_key, mc.model_type)] = mc.config_id || '';
+              }
+            }
+            this.sceneSections = data.sections;
+            this.sceneConfigs = configs;
+          } catch (e) {
+            this.sceneError = t('load_failed') + e.message;
+          }
+        },
+
+        async saveSceneConfigs() {
+          this.sceneSaving = true;
+          this.sceneError = '';
+          try {
+            const updates = [];
+            for (const section of this.sceneSections) {
+              for (const mc of section.model_configs) {
+                const key = this.sceneConfigKey(section.scene_key, mc.model_type);
+                updates.push({
+                  scene_key: section.scene_key,
+                  model_type: mc.model_type,
+                  config_id: this.sceneConfigs[key] || null,
+                });
+              }
+            }
+            const r = await fetch('/api/v1/settings/llm/scenes', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ updates }),
+            });
+            if (!r.ok) {
+              const d = await r.json().catch(() => ({}));
+              throw new Error(d.detail || r.statusText);
+            }
+            this.showSceneModal = false;
+          } catch (e) {
+            this.sceneError = t('save_failed') + e.message;
+          } finally {
+            this.sceneSaving = false;
+          }
+        },
+
+        async deleteConfig(cfg) {
+          if (!confirm(t('confirm_delete_provider').replace('{label}', cfg.label))) return;
+          this.llmError = '';
+          try {
+            const r = await fetch(`/api/v1/settings/llm/${cfg.id}`, { method: 'DELETE' });
+            if (!r.ok && r.status !== 204) { const d = await r.json().catch(()=>({})); throw new Error(d.detail || r.statusText); }
+            await this.loadLLMConfigs();
+          } catch (e) {
+            this.llmError = t('delete_failed') + e.message;
+          }
+        },
+      };
+    }
+  </script>
+</body>
+</html>

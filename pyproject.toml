@@ -1,0 +1,9 @@
+[project]
+name = "openlucid"
+version = "0.8.0"
+description = "AI Director Platform - Merchant-facing multimodal knowledge and content planning engine"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

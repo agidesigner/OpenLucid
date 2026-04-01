@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenLucid — Marketing World Model</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: { accent: { DEFAULT: '#155EEF', hover: '#1849C6' } } } } }
+  </script>
+  <script src="/js/i18n.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <style>[x-cloak]{display:none!important}</style>
+  <script>
+    // If already has users, redirect to signin
+    fetch('/api/v1/auth/setup-status').then(r => r.json()).then(s => {
+      if (!s.needs_setup) location.href = '/signin.html';
+    });
+  </script>
+</head>
+<body class="bg-gray-50 min-h-screen flex items-center justify-center p-4" x-data="installApp()" x-init="init()">
+
+  <div class="w-full max-w-md">
+    <!-- Logo & Tagline -->
+    <div class="text-center mb-8">
+      <img src="/images/logo.png" alt="OpenLucid" class="w-14 h-14 rounded-2xl mx-auto mb-4">
+      <h1 class="text-2xl font-bold text-gray-900" x-text="t('title')"></h1>
+      <p class="text-sm text-gray-500 mt-1" x-text="t('subtitle')"></p>
+
+      <!-- Three pillars -->
+      <div class="mt-5 grid grid-cols-3 gap-3 text-center">
+        <div class="bg-white rounded-xl border border-gray-100 py-3 px-2">
+          <div class="text-lg mb-1">🧠</div>
+          <div class="text-xs font-medium text-gray-700" x-text="t('pillar1_title')"></div>
+          <div class="text-[10px] text-gray-400 mt-0.5 leading-tight" x-text="t('pillar1_desc')"></div>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-100 py-3 px-2">
+          <div class="text-lg mb-1">🔍</div>
+          <div class="text-xs font-medium text-gray-700" x-text="t('pillar2_title')"></div>
+          <div class="text-[10px] text-gray-400 mt-0.5 leading-tight" x-text="t('pillar2_desc')"></div>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-100 py-3 px-2">
+          <div class="text-lg mb-1">🔌</div>
+          <div class="text-xs font-medium text-gray-700" x-text="t('pillar3_title')"></div>
+          <div class="text-[10px] text-gray-400 mt-0.5 leading-tight" x-text="t('pillar3_desc')"></div>
+        </div>
+      </div>
+
+      <!-- Language switcher -->
+      <div class="mt-4 inline-flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"/></svg>
+        <select x-model="lang" @change="setLang($event.target.value)"
+                class="text-xs text-gray-500 bg-transparent border-none outline-none cursor-pointer hover:text-gray-700">
+          <option value="en">English</option>
+          <option value="zh">简体中文</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Card -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+      <h2 class="text-base font-semibold text-gray-800 mb-6" x-text="t('cardTitle')"></h2>
+
+      <form @submit.prevent="submit()" class="space-y-4">
+        <!-- Email -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('emailLabel')"></label>
+          <input x-model="form.email" type="email" required :placeholder="t('emailPlaceholder')" autocomplete="email"
+                 class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition">
+        </div>
+
+        <!-- Password -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('passwordLabel')"></label>
+          <div class="relative">
+            <input x-model="form.password" :type="showPwd ? 'text' : 'password'" required :placeholder="t('passwordPlaceholder')" autocomplete="new-password"
+                   class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition pr-10">
+            <button type="button" @click="showPwd = !showPwd" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+              <svg x-show="!showPwd" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+              <svg x-show="showPwd" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
+            </button>
+          </div>
+          <!-- Strength indicator -->
+          <div x-show="form.password" class="mt-1.5 flex items-center gap-1.5">
+            <div class="flex gap-1">
+              <div class="h-1 w-8 rounded-full transition-colors" :class="pwdStrength >= 1 ? 'bg-red-400' : 'bg-gray-200'"></div>
+              <div class="h-1 w-8 rounded-full transition-colors" :class="pwdStrength >= 2 ? 'bg-yellow-400' : 'bg-gray-200'"></div>
+              <div class="h-1 w-8 rounded-full transition-colors" :class="pwdStrength >= 3 ? 'bg-green-500' : 'bg-gray-200'"></div>
+            </div>
+            <span class="text-[11px] text-gray-400" x-text="t('strength')[pwdStrength]"></span>
+          </div>
+        </div>
+
+        <!-- Confirm Password -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('confirmLabel')"></label>
+          <input x-model="form.password_confirm" :type="showPwd ? 'text' : 'password'" required :placeholder="t('confirmPlaceholder')" autocomplete="new-password"
+                 class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition"
+                 :class="form.password_confirm && form.password !== form.password_confirm ? 'border-red-400' : ''">
+          <p x-show="form.password_confirm && form.password !== form.password_confirm" class="text-xs text-red-500 mt-1" x-text="t('passwordMismatch')"></p>
+        </div>
+
+        <!-- Error -->
+        <p x-show="error" x-text="error" class="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2"></p>
+
+        <!-- Submit -->
+        <button type="submit" :disabled="loading || !canSubmit"
+                class="w-full bg-accent text-white py-2.5 rounded-xl text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition-colors mt-2">
+          <span x-text="loading ? t('creating') : t('submit')"></span>
+        </button>
+      </form>
+    </div>
+    <p class="text-center text-[11px] text-gray-400 mt-6">Powered by OpenLucid</p>
+  </div>
+
+  <script>
+    function installApp() {
+      return {
+        form: { email: '', password: '', password_confirm: '' },
+        showPwd: false, loading: false, error: '',
+        lang: window._odLang,
+
+        init() {
+          document.documentElement.lang = this.lang === 'zh' ? 'zh-CN' : 'en';
+        },
+
+        t(key) {
+          const ns = window.I18N.install || {};
+          return (ns[this.lang] || ns.en || {})[key] || window.t(key);
+        },
+
+        setLang(val) {
+          this.lang = val;
+          setOdLang(val);
+          document.documentElement.lang = val === 'zh' ? 'zh-CN' : 'en';
+        },
+
+        get pwdStrength() {
+          const p = this.form.password;
+          if (!p) return 0;
+          let s = 0;
+          if (p.length >= 8) s++;
+          if (/[a-zA-Z]/.test(p) && /\d/.test(p)) s++;
+          if (p.length >= 12 && /[^a-zA-Z0-9]/.test(p)) s++;
+          return s;
+        },
+
+        get canSubmit() {
+          return this.form.email && this.form.password && this.form.password === this.form.password_confirm;
+        },
+
+        async submit() {
+          this.error = '';
+          this.loading = true;
+          try {
+            const res = await fetch('/api/v1/auth/setup', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(this.form),
+            });
+            const data = await res.json();
+            if (res.ok) { location.href = '/'; }
+            else { this.error = data.detail || this.t('errDefault'); }
+          } catch { this.error = this.t('errNetwork'); }
+          this.loading = false;
+        },
+      };
+    }
+  </script>
+</body>
+</html>

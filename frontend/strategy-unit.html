@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html :lang="window._odLang === 'zh' ? 'zh-CN' : 'en'">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenLucid</title>
+  <script>
+    document.documentElement.style.display='none';
+    fetch('/api/v1/auth/me').then(r=>{
+      if(!r.ok) fetch('/api/v1/auth/setup-status').then(r=>r.json()).then(s=>{
+        location.href=s.needs_setup?'/install.html':'/signin.html';
+      });
+      else document.documentElement.style.display='';
+    });
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        sidebar: { DEFAULT: '#1C1C28', hover: '#2A2A3C' },
+        accent: { DEFAULT: '#155EEF', light: '#EFF4FF', hover: '#1849C6' },
+      }}}
+    }
+  </script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/pinned-apps.js"></script>
+  <script src="/js/avatar.js"></script>
+  <script src="/js/topic-picker.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif}
+    .sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;color:#A0A0B0;font-size:14px;cursor:pointer;transition:all .15s}
+    .sidebar-item:hover{background:#2A2A3C;color:#E0E0EE}
+    .sidebar-item.active{background:#2D2D40;color:#fff}
+    .tab-btn{padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;color:#6B7280;transition:all .15s}
+    .tab-btn:hover{color:#374151;background:#F3F4F6}
+    .tab-btn.active{color:#155EEF;background:#EFF4FF}
+  </style>
+</head>
+<body class="bg-gray-50 h-screen flex overflow-hidden" x-data="strategyUnitApp()" x-init="init()">
+
+  <!-- Sidebar -->
+  <aside class="w-56 bg-sidebar flex flex-col shrink-0">
+    <div class="px-4 py-5 flex items-center gap-2.5">
+      <img src="/images/logo.png" alt="OpenLucid" class="w-8 h-8 rounded-lg">
+      <span class="text-white font-semibold text-base">OpenLucid</span>
+    </div>
+    <nav class="flex-1 px-3 space-y-1 mt-2">
+      <a href="/" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        <span x-text="t('sidebar_offers')"></span>
+      </a>
+            <a href="/apps.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+        <span x-text="t('sidebar_apps')"></span>
+      </a>
+      <a href="/brandkit-list.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
+      </a>
+    </nav>
+    <div class="px-3 pb-3 mt-auto">
+      <div class="text-[10px] text-white/25 text-center">Powered by OpenLucid</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <!-- Header / breadcrumb -->
+    <header class="h-14 bg-white border-b flex items-center px-6 shrink-0 gap-2">
+      <a href="/" class="text-sm text-gray-400 hover:text-accent" x-text="t('sidebar_offers')"></a>
+      <svg class="w-4 h-4 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      <a :href="'/offer.html?id='+offerIdParam" class="text-sm text-gray-400 hover:text-accent truncate max-w-[160px]" x-text="offer?.name || '...'"></a>
+      <svg class="w-4 h-4 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      <span class="text-sm font-medium text-gray-800 truncate max-w-[200px]" x-text="unit?.name || '...'"></span>
+      <div class="flex-1"></div>
+      <div id="avatar-mount"></div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto">
+      <!-- Tabs -->
+      <div class="px-6 py-3 bg-white border-b flex items-center gap-2 sticky top-0 z-10">
+        <button @click="tab='definition'" :class="tab==='definition' && 'active'" class="tab-btn" x-text="t('tab_definition')"></button>
+        <button @click="tab='knowledge'; fetchRecommendedKnowledge()" :class="tab==='knowledge' && 'active'" class="tab-btn" x-text="t('tab_knowledge')"></button>
+        <button @click="tab='assets'; fetchRecommendedAssets()" :class="tab==='assets' && 'active'" class="tab-btn" x-text="t('tab_assets')"></button>
+        <button @click="tab='output'" :class="tab==='output' && 'active'" class="tab-btn" x-text="t('tab_output')"></button>
+      </div>
+
+      <div class="p-6">
+
+        <!-- ====== DEFINITION TAB ====== -->
+        <div x-show="tab==='definition'">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+            <!-- Unit info card -->
+            <div class="bg-white rounded-xl border p-5">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="font-semibold text-gray-800" x-text="t('unit_info')"></h3>
+                <button @click="openEditUnit()" class="text-[13px] text-accent hover:underline flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                  <span x-text="t('btn_edit')"></span>
+                </button>
+              </div>
+              <dl class="space-y-3">
+                <div>
+                  <dt class="text-xs text-gray-400 mb-0.5" x-text="t('name_label')"></dt>
+                  <dd class="text-sm font-medium text-gray-800" x-text="unit?.name || '-'"></dd>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <dt class="text-xs text-gray-400 mb-0.5" x-text="t('audience_label')"></dt>
+                    <dd class="text-sm text-gray-700" x-text="unit?.audience_segment || t('not_specified')"></dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs text-gray-400 mb-0.5" x-text="t('scenario_label')"></dt>
+                    <dd class="text-sm text-gray-700" x-text="unit?.scenario || t('not_specified')"></dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs text-gray-400 mb-0.5" x-text="t('objective_label')"></dt>
+                    <dd class="text-sm text-gray-700" x-text="({seeding:t('mo_seeding'),trust_building:t('mo_trust_building'),lead_generation:t('mo_lead_generation'),conversion:t('mo_conversion'),retention:t('mo_retention')}[unit?.marketing_objective] || unit?.marketing_objective || t('not_specified'))"></dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs text-gray-400 mb-0.5" x-text="t('channel_label_field')"></dt>
+                    <dd class="text-sm text-gray-700" x-text="unit?.channel || t('not_specified')"></dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs text-gray-400 mb-0.5" x-text="t('stage_label')"></dt>
+                    <dd class="text-sm text-gray-700" x-text="({exploring:t('ss_exploring'),rising:t('ss_rising'),stable:t('ss_stable'),declining:t('ss_declining')}[unit?.strategy_stage] || unit?.strategy_stage || '-')"></dd>
+                  </div>
+                </div>
+                <div x-show="unit?.notes">
+                  <dt class="text-xs text-gray-400 mb-0.5" x-text="t('notes_label')"></dt>
+                  <dd class="text-sm text-gray-600 leading-relaxed" x-text="unit?.notes"></dd>
+                </div>
+              </dl>
+            </div>
+
+            <!-- Coverage mini-board -->
+            <div class="bg-white rounded-xl border p-5">
+              <h3 class="font-semibold text-gray-800 mb-4" x-text="t('coverage_title')"></h3>
+              <div x-show="loadingCoverage" class="text-center py-8 text-gray-400 text-sm" x-text="t('loading')"></div>
+              <div x-show="coverage && !loadingCoverage" class="space-y-4">
+                <!-- Knowledge coverage -->
+                <div>
+                  <div class="flex items-center justify-between text-xs mb-1">
+                    <span class="text-gray-500" x-text="t('knowledge_coverage')"></span>
+                    <span class="font-medium text-gray-700" x-text="coverage?.linked_knowledge + ' / ' + coverage?.total_offer_knowledge"></span>
+                  </div>
+                  <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full bg-blue-400 transition-all"
+                         :style="'width:' + Math.round((coverage?.knowledge_coverage ?? 0)*100) + '%'"></div>
+                  </div>
+                </div>
+                <!-- Asset coverage -->
+                <div>
+                  <div class="flex items-center justify-between text-xs mb-1">
+                    <span class="text-gray-500" x-text="t('asset_coverage')"></span>
+                    <span class="font-medium text-gray-700" x-text="coverage?.linked_assets + ' / ' + coverage?.total_offer_assets"></span>
+                  </div>
+                  <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full bg-purple-400 transition-all"
+                         :style="'width:' + Math.round((coverage?.asset_coverage ?? 0)*100) + '%'"></div>
+                  </div>
+                </div>
+                <!-- Topic count -->
+                <div class="flex items-center justify-between text-sm pt-2 border-t border-gray-50">
+                  <span class="text-gray-500" x-text="t('topics_generated')"></span>
+                  <span class="font-bold text-gray-800" x-text="coverage?.topic_count ?? 0"></span>
+                </div>
+                <!-- Next action -->
+                <div class="bg-accent/5 rounded-lg px-3 py-2.5 flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-xs text-gray-400" x-text="t('next_step')"></div>
+                    <div class="text-sm font-medium text-accent" x-text="t('next_action_' + (coverage?.next_action || 'done'))"></div>
+                  </div>
+                  <button @click="handleCoverageAction(coverage?.next_action)"
+                          class="text-[12px] bg-accent text-white px-3 py-1.5 rounded-lg hover:bg-accent-hover transition shrink-0" x-text="t('execute')"></button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Available Apps -->
+          <div class="bg-white rounded-xl border p-5 mt-5">
+            <h3 class="font-semibold text-gray-800 mb-3" x-text="t('available_apps')"></h3>
+            <div class="flex gap-3">
+              <div class="flex-1 border rounded-xl p-4 hover:border-accent/50 hover:bg-accent/5 transition cursor-pointer"
+                   @click="location.href='/topic-studio.html?offer_id='+offerIdParam+'&strategy_unit_id='+unitId">
+                <div class="text-lg mb-1">💡</div>
+                <div class="text-sm font-medium text-gray-800" x-text="t('app_topic_studio')"></div>
+                <div class="text-xs text-gray-400 mt-0.5" x-text="t('topic_studio_desc')"></div>
+              </div>
+              <div class="flex-1 border rounded-xl p-4 bg-gray-50 opacity-50 cursor-not-allowed">
+                <div class="text-lg mb-1">🔒</div>
+                <div class="text-sm font-medium text-gray-500" x-text="t('content_brief')"></div>
+                <div class="text-xs text-gray-400 mt-0.5" x-text="t('coming_soon')"></div>
+              </div>
+              <div class="flex-1 border rounded-xl p-4 bg-gray-50 opacity-50 cursor-not-allowed">
+                <div class="text-lg mb-1">🔒</div>
+                <div class="text-sm font-medium text-gray-500" x-text="t('script_gen')"></div>
+                <div class="text-xs text-gray-400 mt-0.5" x-text="t('coming_soon')"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ====== KNOWLEDGE TAB ====== -->
+        <div x-show="tab==='knowledge'" x-cloak>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+            <!-- Linked knowledge -->
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-gray-700 text-sm"><span x-text="t('linked_knowledge')"></span> <span class="text-gray-400 font-normal" x-text="'(' + linkedKnowledgeTotal + ')'"></span></h3>
+              </div>
+              <div x-show="linkedKnowledge.length === 0" class="text-center py-10 bg-white rounded-xl border border-dashed border-gray-200 text-gray-400 text-sm" x-text="t('no_linked_knowledge')"></div>
+              <div class="space-y-2">
+                <template x-for="lnk in linkedKnowledge" :key="lnk.id">
+                  <div class="bg-white rounded-lg border border-gray-100 p-3.5 flex items-start gap-3 hover:shadow-sm transition-shadow">
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-medium text-gray-800" x-text="lnk.knowledge_item?.title || '-'"></div>
+                      <div class="text-[12px] text-gray-400 mt-0.5" x-text="lnk.knowledge_item?.knowledge_type || ''"></div>
+                    </div>
+                    <button @click="deleteKnowledgeLink(lnk.id)" class="text-gray-300 hover:text-red-500 transition p-1 shrink-0">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- Recommended knowledge -->
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-gray-700 text-sm"><span x-text="t('recommended_knowledge')"></span> <span class="text-gray-400 font-normal" x-text="t('recommended_unlinked')"></span></h3>
+                <button @click="fetchRecommendedKnowledge()" class="text-[12px] text-accent hover:underline" x-text="t('btn_refresh')"></button>
+              </div>
+              <div x-show="recommendedKnowledge.length === 0" class="text-center py-10 bg-white rounded-xl border border-dashed border-gray-200 text-gray-400 text-sm" x-text="t('no_recommended')"></div>
+              <div class="space-y-2">
+                <template x-for="ki in recommendedKnowledge" :key="ki.id">
+                  <div class="bg-white rounded-lg border border-gray-100 p-3.5 flex items-start gap-3 hover:shadow-sm transition-shadow">
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-medium text-gray-800" x-text="ki.title"></div>
+                      <div class="text-[12px] text-gray-400 mt-0.5" x-text="ki.knowledge_type"></div>
+                    </div>
+                    <button @click="addKnowledgeLink(ki.id)" class="text-gray-300 hover:text-accent transition p-1 shrink-0">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ====== ASSETS TAB ====== -->
+        <div x-show="tab==='assets'" x-cloak>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+            <!-- Linked assets -->
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-gray-700 text-sm"><span x-text="t('linked_assets')"></span> <span class="text-gray-400 font-normal" x-text="'(' + linkedAssetsTotal + ')'"></span></h3>
+              </div>
+              <div x-show="linkedAssets.length === 0" class="text-center py-10 bg-white rounded-xl border border-dashed border-gray-200 text-gray-400 text-sm" x-text="t('no_linked_assets')"></div>
+              <div class="space-y-2">
+                <template x-for="lnk in linkedAssets" :key="lnk.id">
+                  <div class="bg-white rounded-lg border border-gray-100 p-3.5 flex items-start gap-3 hover:shadow-sm transition-shadow">
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-medium text-gray-800" x-text="lnk.asset?.file_name || '-'"></div>
+                      <div class="text-[12px] text-gray-400 mt-0.5" x-text="lnk.asset?.asset_type || ''"></div>
+                    </div>
+                    <button @click="deleteAssetLink(lnk.id)" class="text-gray-300 hover:text-red-500 transition p-1 shrink-0">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- Recommended assets -->
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-gray-700 text-sm"><span x-text="t('recommended_assets')"></span> <span class="text-gray-400 font-normal" x-text="t('recommended_unlinked')"></span></h3>
+                <button @click="fetchRecommendedAssets()" class="text-[12px] text-accent hover:underline" x-text="t('btn_refresh')"></button>
+              </div>
+              <div x-show="recommendedAssets.length === 0" class="text-center py-10 bg-white rounded-xl border border-dashed border-gray-200 text-gray-400 text-sm" x-text="t('no_recommended_assets')"></div>
+              <div class="space-y-2">
+                <template x-for="a in recommendedAssets" :key="a.id">
+                  <div class="bg-white rounded-lg border border-gray-100 p-3.5 flex items-start gap-3 hover:shadow-sm transition-shadow">
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-medium text-gray-800" x-text="a.file_name"></div>
+                      <div class="text-[12px] text-gray-400 mt-0.5" x-text="a.asset_type"></div>
+                    </div>
+                    <button @click="addAssetLink(a.id)" class="text-gray-300 hover:text-accent transition p-1 shrink-0">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ====== OUTPUT TAB ====== -->
+        <div x-show="tab==='output'" x-cloak>
+
+          <!-- Generate card -->
+          <div class="bg-white rounded-xl border p-6 mb-6">
+            <h3 class="font-semibold text-gray-800 mb-4" x-text="t('generate_topics')"></h3>
+            <div class="flex items-end gap-5 flex-wrap">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('channel_label')"></label>
+                <select x-model="generateForm.channel" class="border border-gray-300 rounded-lg px-3 py-2 text-sm w-36 focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+                  <option value="" x-text="t('ch_general')"></option>
+                  <option value="douyin" x-text="t('ch_douyin')"></option>
+                  <option value="xiaohongshu" x-text="t('ch_xiaohongshu')"></option>
+                  <option value="kuaishou" x-text="t('ch_kuaishou')"></option>
+                  <option value="video_account" x-text="t('ch_video_account')"></option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('count_label')"></label>
+                <div class="flex items-center gap-3">
+                  <input x-model.number="generateForm.count" type="range" min="1" max="10" class="w-24 accent-accent">
+                  <span class="text-sm text-gray-600 tabular-nums w-4 text-center" x-text="generateForm.count"></span>
+                </div>
+              </div>
+              <button @click="generateTopics()" :disabled="generating"
+                      class="bg-gradient-to-r from-purple-600 to-accent text-white px-6 py-2 rounded-lg text-[13px] font-medium hover:opacity-90 disabled:opacity-50 transition flex items-center gap-2 ml-auto shrink-0">
+                <svg x-show="generating" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                <svg x-show="!generating" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                <span x-text="generating ? t('generating') : t('generate_topics')"></span>
+              </button>
+            </div>
+          </div>
+
+          <!-- History -->
+          <div>
+            <h3 class="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-3">
+              <span x-text="t('history_title')"></span> <span class="font-normal normal-case" x-text="'(' + topicPlansTotal + ')'"></span>
+            </h3>
+            <div x-show="topicPlans.length === 0" class="text-center py-16 bg-white rounded-xl border border-dashed border-gray-200 text-gray-400 text-sm" x-text="t('no_topics')"></div>
+            <div class="space-y-2">
+              <template x-for="p in topicPlans" :key="p.id">
+                <div class="bg-white rounded-lg border border-gray-100 p-4 hover:shadow-sm transition-shadow">
+                  <div class="flex items-start justify-between">
+                    <div class="flex-1 min-w-0">
+                      <h4 class="text-sm font-medium text-gray-800" x-text="p.title"></h4>
+                      <div class="flex items-center gap-2 mt-1 text-[11px] text-gray-400">
+                        <span x-show="p.angle" class="bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full" x-text="p.angle"></span>
+                        <span x-text="({douyin:t('ch_douyin'),xiaohongshu:t('ch_xiaohongshu'),kuaishou:t('ch_kuaishou'),video_account:t('ch_video_account')}[p.channel] || t('ch_general'))"></span>
+                      </div>
+                      <div x-show="p.hook" class="text-[13px] text-gray-500 mt-1.5 line-clamp-1" x-text="p.hook"></div>
+                    </div>
+                    <span class="text-[11px] text-gray-300 shrink-0 ml-3 tabular-nums" x-text="p.created_at?.slice(0,10)"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+            <div x-show="topicPlansTotal > topicPlans.length" class="text-center mt-4">
+              <button @click="topicPlansPage++; fetchTopicPlans(true)" class="text-sm text-accent hover:underline" x-text="t('load_more')"></button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <div id="topic-picker-mount"></div>
+
+  <!-- Edit Unit Modal -->
+  <div x-show="showEditUnit" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showEditUnit = false" x-transition.opacity>
+    <div class="bg-white rounded-2xl w-full max-w-lg shadow-2xl" x-transition.scale.95 @click.stop>
+      <div class="px-6 py-4 border-b flex items-center justify-between">
+        <h3 class="font-semibold text-gray-800" x-text="t('edit_unit_title')"></h3>
+        <button @click="showEditUnit = false" class="text-gray-400 hover:text-gray-600 p-1">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="px-6 py-5 space-y-4 max-h-[60vh] overflow-y-auto">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5"><span x-text="t('name_label')"></span> <span class="text-red-400">*</span></label>
+          <input x-model="editForm.name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('audience_label')"></label>
+            <input x-model="editForm.audience_segment" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('scenario_label')"></label>
+            <input x-model="editForm.scenario" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('objective_label')"></label>
+            <select x-model="editForm.marketing_objective" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none bg-white">
+              <option value="" x-text="t('not_specified')"></option>
+              <option value="seeding" x-text="t('mo_seeding')"></option>
+              <option value="trust_building" x-text="t('mo_trust_building')"></option>
+              <option value="lead_generation" x-text="t('mo_lead_generation')"></option>
+              <option value="conversion" x-text="t('mo_conversion')"></option>
+              <option value="retention" x-text="t('mo_retention')"></option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('channel_label_field')"></label>
+            <input x-model="editForm.channel" :placeholder="t('channel_placeholder')" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('stage_label')"></label>
+          <div class="flex gap-2">
+            <template x-for="[v, l] of [['exploring',t('ss_exploring')],['rising',t('ss_rising')],['stable',t('ss_stable')],['declining',t('ss_declining')]]" :key="v">
+              <button @click="editForm.strategy_stage = v" type="button"
+                      :class="editForm.strategy_stage === v ? 'bg-accent text-white border-accent' : 'bg-white text-gray-600 border-gray-200 hover:border-accent/50'"
+                      class="flex-1 py-1.5 text-xs font-medium rounded-lg border transition" x-text="l"></button>
+            </template>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('notes_label')"></label>
+          <textarea x-model="editForm.notes" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none resize-none"></textarea>
+        </div>
+      </div>
+      <div class="px-6 py-4 border-t flex justify-end gap-3">
+        <button @click="showEditUnit = false" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg border border-gray-200 transition" x-text="t('btn_cancel')"></button>
+        <button @click="saveUnit()" :disabled="!editForm.name.trim() || savingUnit"
+                class="bg-accent text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition">
+          <span x-text="savingUnit ? t('saving') : t('save_changes')"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API = '/api/v1';
+
+    function strategyUnitApp() {
+      return {
+        unitId: new URLSearchParams(location.search).get('id'),
+        offerIdParam: new URLSearchParams(location.search).get('offer_id'),
+        unit: null,
+        offer: null,
+        tab: 'definition',
+
+        coverage: null,
+        loadingCoverage: false,
+
+        linkedKnowledge: [],
+        linkedKnowledgeTotal: 0,
+        recommendedKnowledge: [],
+
+        linkedAssets: [],
+        linkedAssetsTotal: 0,
+        recommendedAssets: [],
+
+        topicPlans: [],
+        topicPlansTotal: 0,
+        topicPlansPage: 1,
+
+        generating: false,
+        generateForm: { channel: '', count: 5 },
+
+        showEditUnit: false,
+        savingUnit: false,
+        editForm: {
+          name: '',
+          audience_segment: '',
+          scenario: '',
+          marketing_objective: '',
+          channel: '',
+          strategy_stage: 'exploring',
+          notes: '',
+        },
+
+        async init() {
+          await Promise.all([
+            this.fetchUnit(),
+            this.fetchOffer(),
+            this.fetchCoverage(),
+            this.fetchLinkedKnowledge(),
+            this.fetchLinkedAssets(),
+            this.fetchTopicPlans(false),
+          ]);
+          document.title = t('page_title') + ' - OpenLucid';
+          if (this.unit) document.title = `${this.unit.name} - OpenLucid`;
+        },
+
+        async fetchUnit() {
+          const res = await fetch(`${API}/strategy-units/${this.unitId}`);
+          if (res.ok) this.unit = await res.json();
+        },
+
+        async fetchOffer() {
+          if (!this.offerIdParam) return;
+          const res = await fetch(`${API}/offers/${this.offerIdParam}`);
+          if (res.ok) this.offer = await res.json();
+        },
+
+        async fetchCoverage() {
+          this.loadingCoverage = true;
+          try {
+            const res = await fetch(`${API}/strategy-units/${this.unitId}/review-coverage`);
+            if (res.ok) this.coverage = await res.json();
+          } catch {}
+          this.loadingCoverage = false;
+        },
+
+        async fetchLinkedKnowledge() {
+          const res = await fetch(`${API}/strategy-units/${this.unitId}/knowledge-links?page_size=50`);
+          if (!res.ok) return;
+          const data = await res.json();
+          this.linkedKnowledge = data.items;
+          this.linkedKnowledgeTotal = data.total;
+        },
+
+        async fetchRecommendedKnowledge() {
+          const res = await fetch(`${API}/strategy-units/${this.unitId}/recommended-knowledge`);
+          if (!res.ok) return;
+          const data = await res.json();
+          this.recommendedKnowledge = data.items;
+        },
+
+        async addKnowledgeLink(kiId) {
+          const res = await fetch(`${API}/strategy-units/${this.unitId}/knowledge-links`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ knowledge_item_id: kiId, role: 'primary' }),
+          });
+          if (res.ok) {
+            await Promise.all([this.fetchLinkedKnowledge(), this.fetchRecommendedKnowledge(), this.fetchCoverage()]);
+          }
+        },
+
+        async deleteKnowledgeLink(linkId) {
+          if (!confirm(t('confirm_remove_link'))) return;
+          await fetch(`${API}/strategy-units/${this.unitId}/knowledge-links/${linkId}`, { method: 'DELETE' });
+          await Promise.all([this.fetchLinkedKnowledge(), this.fetchRecommendedKnowledge(), this.fetchCoverage()]);
+        },
+
+        async fetchLinkedAssets() {
+          const res = await fetch(`${API}/strategy-units/${this.unitId}/asset-links?page_size=50`);
+          if (!res.ok) return;
+          const data = await res.json();
+          this.linkedAssets = data.items;
+          this.linkedAssetsTotal = data.total;
+        },
+
+        async fetchRecommendedAssets() {
+          const res = await fetch(`${API}/strategy-units/${this.unitId}/recommended-assets`);
+          if (!res.ok) return;
+          const data = await res.json();
+          this.recommendedAssets = data.items;
+        },
+
+        async addAssetLink(assetId) {
+          const res = await fetch(`${API}/strategy-units/${this.unitId}/asset-links`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ asset_id: assetId, role: 'primary' }),
+          });
+          if (res.ok) {
+            await Promise.all([this.fetchLinkedAssets(), this.fetchRecommendedAssets(), this.fetchCoverage()]);
+          }
+        },
+
+        async deleteAssetLink(linkId) {
+          if (!confirm(t('confirm_remove_link'))) return;
+          await fetch(`${API}/strategy-units/${this.unitId}/asset-links/${linkId}`, { method: 'DELETE' });
+          await Promise.all([this.fetchLinkedAssets(), this.fetchRecommendedAssets(), this.fetchCoverage()]);
+        },
+
+        async fetchTopicPlans(append) {
+          const res = await fetch(`${API}/topic-plans?offer_id=${this.offerIdParam}&strategy_unit_id=${this.unitId}&page=${this.topicPlansPage}&page_size=20`);
+          if (!res.ok) return;
+          const data = await res.json();
+          if (append) {
+            this.topicPlans = [...this.topicPlans, ...data.items];
+          } else {
+            this.topicPlans = data.items;
+          }
+          this.topicPlansTotal = data.total;
+        },
+
+        async generateTopics() {
+          this.generating = true;
+          try {
+            const res = await fetch(`${API}/strategy-units/${this.unitId}/generate-topics`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                channel: this.generateForm.channel || null,
+                language: getApiLang(),
+                count: this.generateForm.count,
+              }),
+            });
+            if (res.ok) {
+              this.topicPlansPage = 1;
+              await this.fetchTopicPlans(false);
+              await this.fetchCoverage();
+            } else {
+              const err = await res.json().catch(() => ({}));
+              alert(t('generate_failed') + (err.detail || res.status));
+            }
+          } catch (e) {
+            alert(t('generate_failed_retry'));
+          }
+          this.generating = false;
+        },
+
+        handleCoverageAction(action) {
+          if (!action) return;
+          if (action === 'link_knowledge') {
+            this.tab = 'knowledge';
+            this.fetchRecommendedKnowledge();
+          } else if (action === 'link_assets') {
+            this.tab = 'assets';
+            this.fetchRecommendedAssets();
+          } else if (action === 'generate_topics') {
+            this.tab = 'output';
+          }
+        },
+
+        openEditUnit() {
+          if (!this.unit) return;
+          this.editForm = {
+            name: this.unit.name || '',
+            audience_segment: this.unit.audience_segment || '',
+            scenario: this.unit.scenario || '',
+            marketing_objective: this.unit.marketing_objective || '',
+            channel: this.unit.channel || '',
+            strategy_stage: this.unit.strategy_stage || 'exploring',
+            notes: this.unit.notes || '',
+          };
+          this.showEditUnit = true;
+        },
+
+        async saveUnit() {
+          if (!this.editForm.name.trim()) return;
+          this.savingUnit = true;
+          try {
+            const body = {
+              name: this.editForm.name.trim(),
+              audience_segment: this.editForm.audience_segment || null,
+              scenario: this.editForm.scenario || null,
+              marketing_objective: this.editForm.marketing_objective || null,
+              channel: this.editForm.channel || null,
+              strategy_stage: this.editForm.strategy_stage,
+              notes: this.editForm.notes || null,
+            };
+            const res = await fetch(`${API}/strategy-units/${this.unitId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            if (res.ok) {
+              this.unit = await res.json();
+              document.title = `${this.unit.name} - OpenLucid`;
+              this.showEditUnit = false;
+            } else {
+              alert(t('save_failed'));
+            }
+          } catch {
+            alert(t('save_failed'));
+          }
+          this.savingUnit = false;
+        },
+      };
+    }
+  </script>
+</body>
+</html>

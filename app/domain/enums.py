@@ -1,0 +1,163 @@
+from enum import Enum
+
+
+class MerchantType(str, Enum):
+    GOODS = "goods"
+    SERVICE = "service"
+    HYBRID = "hybrid"
+
+
+class OfferType(str, Enum):
+    PRODUCT = "product"
+    SERVICE = "service"
+    BUNDLE = "bundle"
+    SOLUTION = "solution"
+
+
+class OfferModel(str, Enum):
+    PHYSICAL_PRODUCT = "physical_product"
+    DIGITAL_PRODUCT = "digital_product"
+    LOCAL_SERVICE = "local_service"
+    PROFESSIONAL_SERVICE = "professional_service"
+    PACKAGE = "package"
+    SOLUTION = "solution"
+
+
+class ScopeType(str, Enum):
+    MERCHANT = "merchant"
+    OFFER = "offer"
+
+
+class KnowledgeType(str, Enum):
+    BRAND = "brand"
+    AUDIENCE = "audience"
+    SCENARIO = "scenario"
+    SELLING_POINT = "selling_point"
+    OBJECTION = "objection"
+    PROOF = "proof"
+    FAQ = "faq"
+    GENERAL = "general"
+
+
+class KnowledgeSourceType(str, Enum):
+    MANUAL = "manual"
+    FILE = "file"
+    URL = "url"
+    IMPORTED = "imported"
+
+
+class AssetType(str, Enum):
+    IMAGE = "image"
+    VIDEO = "video"
+    AUDIO = "audio"
+    DOCUMENT = "document"
+    URL = "url"
+    COPY = "copy"
+
+
+class AssetParseStatus(str, Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    DONE = "done"
+    FAILED = "failed"
+
+
+class AssetProcessingJobStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+
+
+class AssetStatus(str, Enum):
+    RAW = "raw"
+    REVIEWED = "reviewed"
+    APPROVED = "approved"
+    DEPRECATED = "deprecated"
+
+
+class SliceType(str, Enum):
+    CLIP = "clip"
+    FRAME = "frame"
+    QUOTE = "quote"
+    SCENE = "scene"
+    HIGHLIGHT = "highlight"
+
+
+class TopicSourceMode(str, Enum):
+    KB = "kb"
+    EXTERNAL = "external"
+    HYBRID = "hybrid"
+
+
+class TopicStatus(str, Enum):
+    DRAFT = "draft"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    ARCHIVED = "archived"
+
+
+class TagSource(str, Enum):
+    SYSTEM = "system"
+    MODEL = "model"
+    USER = "user"
+
+
+class MarketingObjective(str, Enum):
+    AWARENESS = "awareness"
+    CONVERSION = "conversion"
+    LEAD_GENERATION = "lead_generation"
+    EDUCATION = "education"
+    TRUST_BUILDING = "trust_building"
+    RETENTION = "retention"
+    LAUNCH = "launch"
+    BRANDING = "branding"
+
+
+class StrategyStage(str, Enum):
+    EXPLORING = "exploring"
+    RISING = "rising"
+    STABLE = "stable"
+    DECLINING = "declining"
+
+
+class TrendStatus(str, Enum):
+    UP = "up"
+    FLAT = "flat"
+    DOWN = "down"
+    UNKNOWN = "unknown"
+
+
+class KnowledgeLinkRole(str, Enum):
+    CORE_MESSAGE = "core_message"
+    PROOF = "proof"
+    AUDIENCE_INSIGHT = "audience_insight"
+    SCENARIO_ANCHOR = "scenario_anchor"
+    OBJECTION = "objection"
+    COMPLIANCE_NOTE = "compliance_note"
+    GENERAL = "general"
+
+
+class AssetLinkRole(str, Enum):
+    HOOK_ASSET = "hook_asset"
+    PROOF_ASSET = "proof_asset"
+    TRUST_ASSET = "trust_asset"
+    EXPLAINER_ASSET = "explainer_asset"
+    CTA_ASSET = "cta_asset"
+    GENERAL = "general"
+
+
+class BrandKitStatus(str, Enum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class BrandKitAssetRole(str, Enum):
+    REFERENCE_IMAGE = "reference_image"
+    REFERENCE_VIDEO = "reference_video"
+    PRODUCT_REFERENCE = "product_reference"
+    SCENE_REFERENCE = "scene_reference"
+    PERSONA_REFERENCE = "persona_reference"
+    STYLE_REFERENCE = "style_reference"
+    NEGATIVE_REFERENCE = "negative_reference"

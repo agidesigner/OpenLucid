@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html :lang="window._odLang === 'zh' ? 'zh-CN' : 'en'">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Topic Studio - OpenLucid</title>
+  <script>
+    document.documentElement.style.display='none';
+    fetch('/api/v1/auth/me').then(r=>{
+      if(!r.ok) fetch('/api/v1/auth/setup-status').then(r=>r.json()).then(s=>{
+        location.href=s.needs_setup?'/install.html':'/signin.html';
+      });
+      else document.documentElement.style.display='';
+    });
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        sidebar: { DEFAULT: '#1C1C28', hover: '#2A2A3C' },
+        accent: { DEFAULT: '#155EEF', light: '#EFF4FF', hover: '#1849C6' },
+      }}}
+    }
+  </script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/pinned-apps.js"></script>
+  <script src="/js/avatar.js"></script>
+  <script src="/js/topic-picker.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif}
+    .sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;color:#A0A0B0;font-size:14px;cursor:pointer;transition:all .15s}
+    .sidebar-item:hover{background:#2A2A3C;color:#E0E0EE}
+    .sidebar-item.active{background:#2D2D40;color:#fff}
+  </style>
+</head>
+<body class="bg-gray-50 h-screen flex overflow-hidden"
+      x-data="topicStudio()" x-init="init()"
+      @topic-picker-select.window="onTopicPickerSelect($event.detail.unitId)">
+
+  <!-- Sidebar -->
+  <aside class="w-56 bg-sidebar flex flex-col shrink-0">
+    <div class="px-4 py-5 flex items-center gap-2.5">
+      <img src="/images/logo.png" alt="OpenLucid" class="w-8 h-8 rounded-lg">
+      <span class="text-white font-semibold text-base">OpenLucid</span>
+    </div>
+    <nav class="flex-1 px-3 space-y-1 mt-2">
+      <a href="/" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        <span x-text="t('sidebar_offers')"></span>
+      </a>
+            <a href="/apps.html" class="sidebar-item active">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+        <span x-text="t('sidebar_apps')"></span>
+      </a>
+      <a href="/brandkit-list.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
+      </a>
+    </nav>
+    <div class="px-3 pb-3 mt-auto">
+      <div class="text-[10px] text-white/25 text-center">Powered by OpenLucid</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <!-- Header -->
+    <header class="bg-white border-b px-6 shrink-0">
+      <div class="h-14 flex items-center gap-2">
+        <a href="/apps.html" class="text-sm text-gray-400 hover:text-accent" x-text="t('breadcrumb_apps')"></a>
+        <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        <span class="text-sm font-medium text-gray-800">💡 <span x-text="t('page_title')"></span></span>
+        <div class="flex-1"></div>
+        <div id="avatar-mount"></div>
+      </div>
+      <!-- Offer selector row -->
+      <div class="pb-4 flex items-center gap-4 flex-wrap">
+        <div class="flex items-center gap-2">
+          <label class="text-sm text-gray-500 shrink-0" x-text="t('offer_label')"></label>
+          <select x-model="offerId" @change="onOfferChange()"
+                  class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent min-w-[14rem]">
+            <option value="" x-text="t('offer_placeholder')"></option>
+            <template x-for="o in offers" :key="o.id">
+              <option :value="o.id" x-text="o.name"></option>
+            </template>
+          </select>
+        </div>
+        <!-- LLM model selector -->
+        <div class="flex items-center gap-2" x-show="llmConfigs.length > 0" x-cloak>
+          <label class="text-sm text-gray-500 shrink-0" x-text="t('model_label')"></label>
+          <select x-model="configId"
+                  class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent min-w-[10rem]">
+            <option value="" x-text="t('model_default')"></option>
+            <template x-for="c in llmConfigs" :key="c.id">
+              <option :value="c.id" x-text="c.label + ' (' + c.model_name + ')'"></option>
+            </template>
+          </select>
+        </div>
+        <!-- Strategy unit selector (shown once offer is selected) -->
+        <div class="flex items-center gap-2" x-show="offerId && strategyUnits.length > 0" x-cloak>
+          <label class="text-sm text-gray-500 shrink-0" x-text="t('unit_label')"></label>
+          <select x-model="strategyUnitId" @change="onUnitChange()"
+                  class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent min-w-[12rem]">
+            <option value="" x-text="t('unit_default')"></option>
+            <template x-for="u in strategyUnits" :key="u.id">
+              <option :value="u.id" x-text="u.name"></option>
+            </template>
+          </select>
+        </div>
+      </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto">
+      <!-- No offer selected -->
+      <div x-show="!offerId" class="flex flex-col items-center justify-center h-full">
+        <div class="w-16 h-16 bg-accent/10 rounded-2xl flex items-center justify-center mb-4 text-3xl">💡</div>
+        <p class="text-gray-600 text-sm mb-1 font-medium" x-text="t('empty_title')"></p>
+        <p class="text-gray-400 text-sm" x-text="t('empty_hint')"></p>
+      </div>
+
+      <!-- Has offer -->
+      <div x-show="offerId" class="p-6">
+        <div class="flex gap-5">
+
+          <!-- Left: Context Panel -->
+          <div class="w-72 shrink-0 flex flex-col gap-4">
+            <div class="bg-white rounded-xl border p-5 sticky top-0">
+              <h3 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <span x-text="t('context_title')"></span>
+                <span x-show="loadingCtx" class="text-xs text-gray-400 font-normal" x-text="t('loading')"></span>
+              </h3>
+
+              <div x-show="!context && !loadingCtx" class="text-sm text-gray-400 text-center py-4" x-text="t('select_offer_ctx')"></div>
+
+              <div x-show="context" class="space-y-3">
+                <div>
+                  <div class="text-xs text-gray-400 mb-0.5" x-text="t('ctx_offer')"></div>
+                  <div class="text-sm font-medium text-gray-800" x-text="context?.offer_name || '-'"></div>
+                </div>
+                <div x-show="context?.unit_name">
+                  <div class="text-xs text-gray-400 mb-0.5" x-text="t('ctx_unit')"></div>
+                  <div class="text-sm font-medium text-gray-800" x-text="context?.unit_name"></div>
+                </div>
+                <template x-if="context?.unit_name">
+                  <div class="grid grid-cols-2 gap-2 pt-1">
+                    <div x-show="context?.audience_segment">
+                      <div class="text-xs text-gray-400" x-text="t('ctx_audience')"></div>
+                      <div class="text-xs text-gray-700 mt-0.5" x-text="context?.audience_segment"></div>
+                    </div>
+                    <div x-show="context?.scenario">
+                      <div class="text-xs text-gray-400" x-text="t('ctx_scenario')"></div>
+                      <div class="text-xs text-gray-700 mt-0.5" x-text="context?.scenario"></div>
+                    </div>
+                    <div x-show="context?.channel">
+                      <div class="text-xs text-gray-400" x-text="t('ctx_channel')"></div>
+                      <div class="text-xs text-gray-700 mt-0.5" x-text="context?.channel"></div>
+                    </div>
+                    <div x-show="context?.marketing_objective">
+                      <div class="text-xs text-gray-400" x-text="t('ctx_objective')"></div>
+                      <div class="text-xs text-gray-700 mt-0.5" x-text="({seeding:t('mo_seeding'),trust_building:t('mo_trust_building'),lead_generation:t('mo_lead_generation'),conversion:t('mo_conversion'),retention:t('mo_retention')}[context?.marketing_objective] || context?.marketing_objective)"></div>
+                    </div>
+                  </div>
+                </template>
+                <div class="pt-2 border-t border-gray-50 space-y-2">
+                  <div class="flex items-center justify-between text-xs">
+                    <span class="text-gray-500" x-text="t('ctx_knowledge')"></span>
+                    <span class="text-gray-700" x-text="context?.knowledge_count ?? 0"></span>
+                  </div>
+                  <div class="flex items-center justify-between text-xs" x-show="context?.unit_name">
+                    <span class="text-gray-500" x-text="t('ctx_linked_knowledge')"></span>
+                    <span :class="(context?.linked_knowledge_count ?? 0) > 0 ? 'text-green-600 font-medium' : 'text-orange-500'" x-text="context?.linked_knowledge_count ?? 0"></span>
+                  </div>
+                  <div class="flex items-center justify-between text-xs">
+                    <span class="text-gray-500" x-text="t('ctx_assets')"></span>
+                    <span class="text-gray-700" x-text="context?.asset_count ?? 0"></span>
+                  </div>
+                  <div class="flex items-center justify-between text-xs" x-show="context?.unit_name">
+                    <span class="text-gray-500" x-text="t('ctx_linked_assets')"></span>
+                    <span :class="(context?.linked_asset_count ?? 0) > 0 ? 'text-green-600 font-medium' : 'text-gray-400'" x-text="context?.linked_asset_count ?? 0"></span>
+                  </div>
+                </div>
+                <div class="pt-2 border-t border-gray-50 flex items-center gap-2">
+                  <div :class="context?.is_ready ? 'bg-green-500' : 'bg-orange-400'" class="w-2 h-2 rounded-full shrink-0"></div>
+                  <span class="text-xs" :class="context?.is_ready ? 'text-green-600' : 'text-orange-500'"
+                        x-text="context?.is_ready ? t('ctx_ready') : t('ctx_suggest_link')"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Generate + Results + History -->
+          <div class="flex-1 min-w-0 flex flex-col gap-5">
+
+            <!-- Generate Card -->
+            <div class="bg-white rounded-xl border p-6">
+              <div class="flex items-end gap-5 flex-wrap">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('channel_label')"></label>
+                  <select x-model="form.channel"
+                          class="border border-gray-300 rounded-lg px-3 py-2 text-sm w-36 focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+                    <option value="" x-text="t('ch_general')"></option>
+                    <option value="douyin" x-text="t('ch_douyin')"></option>
+                    <option value="xiaohongshu" x-text="t('ch_xiaohongshu')"></option>
+                    <option value="kuaishou" x-text="t('ch_kuaishou')"></option>
+                    <option value="video_account" x-text="t('ch_video_account')"></option>
+                    <option value="bilibili" x-text="t('ch_bilibili')"></option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('count_label')"></label>
+                  <div class="flex items-center gap-3">
+                    <input x-model.number="form.count" type="range" min="1" max="10" class="w-24 accent-accent">
+                    <span class="text-sm text-gray-600 tabular-nums w-4 text-center" x-text="form.count"></span>
+                  </div>
+                </div>
+                <button @click="openTopicPicker()" :disabled="generating || !offerId"
+                        class="bg-gradient-to-r from-purple-600 to-accent text-white px-6 py-2 rounded-lg text-[13px] font-medium hover:opacity-90 disabled:opacity-50 transition flex items-center gap-2 ml-auto shrink-0">
+                  <svg x-show="generating" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                  <svg x-show="!generating" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                  <span x-text="generating ? t('generating') : t('generate_btn')"></span>
+                </button>
+              </div>
+              <!-- Progress bar -->
+              <div x-show="generating" x-cloak class="mt-4 pt-4 border-t border-gray-100">
+                <div class="flex items-center justify-between mb-1.5">
+                  <span class="text-xs text-gray-500" x-text="genStep"></span>
+                  <span class="text-xs text-gray-400 tabular-nums" x-text="Math.round(genProgress) + '%'"></span>
+                </div>
+                <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div class="h-full rounded-full bg-gradient-to-r from-purple-500 to-accent transition-all duration-300"
+                       :style="'width:' + genProgress + '%'"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- New Plans (just generated) -->
+            <div x-show="newPlans.length > 0" x-cloak>
+              <!-- Thinking (collapsible) -->
+              <template x-if="genThinking">
+                <details class="mb-4 bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
+                  <summary class="px-4 py-2.5 text-xs font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-100 transition-colors flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                    <span x-text="t('ai_thinking')"></span>
+                  </summary>
+                  <div class="px-4 py-3 text-xs text-gray-500 leading-relaxed whitespace-pre-wrap border-t border-gray-200 max-h-64 overflow-y-auto" x-text="genThinking"></div>
+                </details>
+              </template>
+
+              <h3 class="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-3" x-text="t('new_generated')"></h3>
+              <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <template x-for="(p, i) in newPlans" :key="'n'+i">
+                  <div class="bg-white rounded-xl border p-5 hover:shadow-md transition-shadow">
+                    <div class="flex items-start justify-between mb-2">
+                      <h4 class="text-[15px] font-semibold text-gray-800 leading-snug flex-1" x-text="p.title"></h4>
+                      <span class="text-[11px] px-2 py-0.5 rounded-full font-medium shrink-0 ml-2"
+                            :class="{'bg-pink-50 text-pink-600': p.channel==='douyin', 'bg-red-50 text-red-600': p.channel==='xiaohongshu', 'bg-orange-50 text-orange-600': p.channel==='kuaishou', 'bg-green-50 text-green-600': p.channel==='video_account', 'bg-purple-50 text-purple-600': p.channel==='bilibili', 'bg-gray-50 text-gray-500': !p.channel || p.channel==='general'}"
+                            x-text="({douyin:t('ch_douyin'),xiaohongshu:t('ch_xiaohongshu'),kuaishou:t('ch_kuaishou'),video_account:t('ch_video_account'),bilibili:t('ch_bilibili')}[p.channel] || t('ch_general'))"></span>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 mb-3 leading-relaxed">
+                      <span class="text-gray-400 text-xs" x-text="t('hook_label')"></span><br>
+                      <span x-text="p.hook"></span>
+                    </div>
+                    <div x-show="p.key_points_json?.length" class="flex flex-wrap gap-1.5 mb-3">
+                      <template x-for="kp in (p.key_points_json || [])">
+                        <span class="bg-blue-50 text-blue-600 text-[11px] px-2 py-0.5 rounded-full" x-text="kp"></span>
+                      </template>
+                    </div>
+                    <div class="flex items-center justify-between pt-2 border-t border-gray-50">
+                      <span class="text-[11px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-medium" x-text="p.angle || t('general_angle')"></span>
+                      <span x-show="(p.score_conversion||0) >= 0.78" class="text-[11px] text-orange-500 flex items-center gap-0.5 font-medium">
+                        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clip-rule="evenodd"/></svg>
+                        <span x-text="t('high_conversion')"></span>
+                      </span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+              <div class="mt-3 text-xs text-gray-400 text-center flex items-center justify-center gap-1">
+                <svg class="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span x-text="t('auto_saved')"></span>
+              </div>
+            </div>
+
+            <!-- History -->
+            <div>
+              <h3 class="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                <span x-text="t('history_title')"></span> <span class="font-normal normal-case" x-text="'(' + historyTotal + ')'"></span>
+              </h3>
+              <div x-show="historyPlans.length === 0 && !loadingHistory" class="text-center py-16 bg-white rounded-xl border border-dashed border-gray-200 text-gray-400 text-sm">
+                <span x-text="t('no_topics')"></span>
+              </div>
+              <div class="space-y-2">
+                <template x-for="p in historyPlans" :key="p.id">
+                  <div class="bg-white rounded-lg border border-gray-100 p-4 hover:shadow-sm transition-shadow">
+                    <div class="flex items-start justify-between">
+                      <div class="flex-1 min-w-0">
+                        <h4 class="text-sm font-medium text-gray-800" x-text="p.title"></h4>
+                        <div class="flex items-center gap-2 mt-1 text-[11px] text-gray-400">
+                          <span x-show="p.angle" class="bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full" x-text="p.angle"></span>
+                          <span x-text="({douyin:t('ch_douyin'),xiaohongshu:t('ch_xiaohongshu'),kuaishou:t('ch_kuaishou'),video_account:t('ch_video_account'),bilibili:t('ch_bilibili')}[p.channel] || t('ch_general'))"></span>
+                          <span x-show="p.strategy_unit_id" class="bg-green-50 text-green-600 px-1.5 py-0.5 rounded-full" x-text="t('with_unit')"></span>
+                        </div>
+                        <div x-show="p.hook" class="text-[13px] text-gray-500 mt-1.5 line-clamp-1" x-text="p.hook"></div>
+                      </div>
+                      <span class="text-[11px] text-gray-300 shrink-0 ml-3 tabular-nums" x-text="p.created_at?.slice(0,10)"></span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+              <div x-show="historyTotal > historyPlans.length" class="text-center mt-4">
+                <button @click="historyPage++; fetchHistory(true)" class="text-sm text-accent hover:underline" x-text="t('load_more')"></button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="topic-picker-mount"></div>
+
+  <script>
+    const API = '/api/v1';
+
+    function topicStudio() {
+      const params = new URLSearchParams(location.search);
+      return {
+        offers: [],
+        offerId: params.get('offer_id') || '',
+        strategyUnits: [],
+        strategyUnitId: params.get('strategy_unit_id') || '',
+
+        // LLM model selector
+        llmConfigs: [],
+        configId: '',
+
+        // Context panel
+        context: null,
+        loadingCtx: false,
+
+        // Generate form
+        form: { channel: '', count: 5 },
+        generating: false,
+        genProgress: 0,
+        genStep: '',
+
+        // Results
+        genThinking: null,
+        newPlans: [],
+
+        // History
+        historyPlans: [],
+        historyTotal: 0,
+        historyPage: 1,
+        loadingHistory: false,
+
+        async init() {
+          document.title = t('page_title') + ' - OpenLucid';
+          try {
+            const [res, llmRes] = await Promise.all([
+              fetch(`${API}/offers?page_size=100`),
+              fetch(`${API}/settings/llm`).catch(() => null),
+            ]);
+            if (res.ok) this.offers = (await res.json()).items || [];
+            if (llmRes?.ok) this.llmConfigs = await llmRes.json();
+          } catch(e) { console.error('Failed to load offers', e); }
+
+          // Restore last offer if no URL param
+          if (!this.offerId) {
+            this.offerId = localStorage.getItem('od_last_topic_offer') || '';
+          }
+          if (this.offerId && !this.offers.find(o => o.id === this.offerId)) {
+            this.offerId = '';
+          }
+
+          if (this.offerId) {
+            localStorage.setItem('od_last_topic_offer', this.offerId);
+            const name = this.offers.find(o => o.id === this.offerId)?.name || '';
+            document.title = `${t('page_title')} · ${name} - OpenLucid`;
+            await Promise.all([
+              this.loadStrategyUnits(),
+              this.fetchContext(),
+              this.fetchHistory(false),
+            ]);
+          }
+        },
+
+        async onOfferChange() {
+          localStorage.setItem('od_last_topic_offer', this.offerId);
+          this.newPlans = [];
+          this.genThinking = null;
+          this.historyPlans = [];
+          this.historyPage = 1;
+          this.strategyUnitId = '';
+          this.strategyUnits = [];
+          this.context = null;
+
+          if (this.offerId) {
+            history.replaceState(null, '', `?offer_id=${this.offerId}`);
+            const name = this.offers.find(o => o.id === this.offerId)?.name || '';
+            document.title = `${t('page_title')} · ${name} - OpenLucid`;
+            await Promise.all([
+              this.loadStrategyUnits(),
+              this.fetchContext(),
+              this.fetchHistory(false),
+            ]);
+          } else {
+            history.replaceState(null, '', location.pathname);
+            document.title = t('page_title') + ' - OpenLucid';
+          }
+        },
+
+        async loadStrategyUnits() {
+          const res = await fetch(`${API}/strategy-units?offer_id=${this.offerId}&page_size=50`);
+          if (!res.ok) return;
+          const data = await res.json();
+          this.strategyUnits = data.items;
+        },
+
+        async onUnitChange() {
+          await this.fetchContext();
+          if (this.offerId) {
+            const url = this.strategyUnitId
+              ? `?offer_id=${this.offerId}&strategy_unit_id=${this.strategyUnitId}`
+              : `?offer_id=${this.offerId}`;
+            history.replaceState(null, '', url);
+          }
+        },
+
+        async fetchContext() {
+          if (!this.offerId) return;
+          this.loadingCtx = true;
+          try {
+            let url = `${API}/apps/topic-studio/context-preview?offer_id=${this.offerId}`;
+            if (this.strategyUnitId) url += `&strategy_unit_id=${this.strategyUnitId}`;
+            const res = await fetch(url);
+            if (res.ok) this.context = await res.json();
+          } catch(e) { console.error(e); }
+          finally { this.loadingCtx = false; }
+        },
+
+        openTopicPicker() {
+          if (!this.offerId) return;
+          window.dispatchEvent(new CustomEvent('open-topic-picker', { detail: { offerId: this.offerId } }));
+        },
+
+        onTopicPickerSelect(unitId) {
+          this.strategyUnitId = unitId || '';
+          this.generate();
+        },
+
+        async generate() {
+          this.generating = true;
+          this.genProgress = 0;
+          const steps = [
+            [10,  t('step_analyzing')],
+            [28,  t('step_reading_kb')],
+            [50,  t('step_planning')],
+            [72,  t('step_optimizing')],
+            [88,  t('step_finishing')],
+          ];
+          let si = 0;
+          const timer = setInterval(() => {
+            if (si < steps.length && this.genProgress >= (steps[si - 1]?.[0] ?? 0)) {
+              this.genStep = steps[si][1];
+              this.genProgress = steps[si][0];
+              si++;
+            } else if (this.genProgress < 88) {
+              this.genProgress = Math.min(this.genProgress + 0.5, 88);
+            }
+          }, 300);
+
+          try {
+            const body = {
+              offer_id: this.offerId,
+              count: this.form.count,
+              channel: this.form.channel || 'general',
+              strategy_unit_id: this.strategyUnitId || undefined,
+              config_id: this.configId || undefined,
+              language: getApiLang(),
+            };
+            const res = await fetch(`${API}/apps/topic-studio/run`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            if (res.ok) {
+              clearInterval(timer);
+              this.genProgress = 100;
+              this.genStep = t('done');
+              await new Promise(r => setTimeout(r, 400));
+              const resData = await res.json();
+              this.newPlans = resData.plans;
+              this.genThinking = resData.thinking || null;
+              this.historyPage = 1;
+              await this.fetchHistory(false);
+            } else {
+              const err = await res.json().catch(() => ({}));
+              alert(t('generate_failed') + (err.detail || 'Unknown error'));
+            }
+          } catch { alert(t('generate_failed_retry')); }
+
+          clearInterval(timer);
+          this.generating = false;
+          this.genProgress = 0;
+          this.genStep = '';
+        },
+
+        async fetchHistory(append) {
+          if (!this.offerId) return;
+          this.loadingHistory = true;
+          try {
+            let url = `${API}/topic-plans?offer_id=${this.offerId}&page=${this.historyPage}&page_size=20`;
+            if (this.strategyUnitId) url += `&strategy_unit_id=${this.strategyUnitId}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            this.historyPlans = append ? [...this.historyPlans, ...data.items] : data.items;
+            this.historyTotal = data.total;
+          } catch(e) { console.error(e); }
+          finally { this.loadingHistory = false; }
+        },
+      };
+    }
+  </script>
+</body>
+</html>

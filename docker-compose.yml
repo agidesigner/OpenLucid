@@ -1,0 +1,43 @@
+# ─── Development ─── For production, use: cd docker && docker compose up -d
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: openlucid
+      POSTGRES_PASSWORD: openlucid
+      POSTGRES_DB: openlucid
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openlucid"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://openlucid:openlucid@postgres:5432/openlucid
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./uploads:/app/uploads
+      - ./app:/app/app
+      - ./alembic:/app/alembic
+      - ./frontend:/app/frontend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    develop:
+      watch:
+        - action: sync
+          path: ./app
+          target: /app/app
+
+volumes:
+  pgdata:
