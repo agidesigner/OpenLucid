@@ -32,6 +32,7 @@ class TopicPlanResponse(BaseModel):
     score_conversion: float | None = None
     score_asset_readiness: float | None = None
     status: str
+    user_rating: int | None = None
     strategy_unit_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime

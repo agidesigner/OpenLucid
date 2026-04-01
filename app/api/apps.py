@@ -84,6 +84,12 @@ async def topic_studio_context_preview(
                 strategy_unit_id, offset=0, limit=1
             )
 
+            # Fall back to offer-level counts when no unit-level links exist
+            if linked_knowledge_count == 0:
+                linked_knowledge_count = knowledge_count
+            if linked_asset_count == 0:
+                linked_asset_count = asset_count
+
     return TopicStudioContextPreview(
         offer_id=offer_id,
         offer_name=offer.name,

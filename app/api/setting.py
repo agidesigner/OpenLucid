@@ -142,6 +142,51 @@ async def delete_mcp_token(token_id: uuid.UUID, db: AsyncSession = Depends(get_d
     await db.commit()
 
 
+# ── Version check ──────────────────────────────────────────────────
+
+
+@router.get("/version")
+async def check_version():
+    """Return current version and check GitHub for latest."""
+    import re
+    import httpx
+    from app.config import VERSION
+
+    REPO = "agidesigner/OpenLucid"
+    result = {"current": VERSION, "latest": None, "update_available": False, "release_url": None, "release_notes": None}
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            # Try releases first (preferred — has release notes)
+            resp = await client.get(
+                f"https://api.github.com/repos/{REPO}/releases/latest",
+                headers={"Accept": "application/vnd.github+json"},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                latest_tag = data.get("tag_name", "").lstrip("v")
+                result["latest"] = latest_tag
+                result["update_available"] = latest_tag != VERSION
+                result["release_url"] = data.get("html_url")
+                result["release_notes"] = data.get("body", "")[:500]
+            else:
+                # No releases — read VERSION from config.py on main branch
+                resp2 = await client.get(
+                    f"https://raw.githubusercontent.com/{REPO}/main/app/config.py",
+                )
+                if resp2.status_code == 200:
+                    match = re.search(r'VERSION\s*=\s*["\']([^"\']+)', resp2.text)
+                    if match:
+                        remote_version = match.group(1)
+                        result["latest"] = remote_version
+                        result["update_available"] = remote_version != VERSION
+                        result["release_url"] = f"https://github.com/{REPO}"
+    except Exception:
+        pass  # Network error — silently return current version only
+
+    return result
+
+
 @router.get("/logs")
 async def get_logs(n: int = Query(100, le=200)):
     from app.libs.log_buffer import get_log_handler

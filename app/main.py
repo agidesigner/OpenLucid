@@ -73,6 +73,7 @@ async def _ensure_schema() -> None:
         ("assets", "hook_score",   "FLOAT"),
         ("assets", "reuse_score",  "FLOAT"),
         ("assets", "file_hash",    "VARCHAR(64)"),
+        ("topic_plans", "user_rating", "INTEGER"),
     ]
 
     added = []

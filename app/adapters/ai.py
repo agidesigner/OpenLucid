@@ -14,6 +14,7 @@ from app.adapters.prompt_builder import (
     format_offer_for_tagging,
     format_offer_summary,
     format_strategy_focus,
+    rank_knowledge_for_strategy,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,9 @@ class AIAdapter(ABC):
         channel: str | None = None,
         language: str = "zh-CN",
         strategy_unit_context: dict[str, Any] | None = None,
+        existing_titles: list[str] | None = None,
+        liked_titles: list[dict[str, str]] | None = None,
+        disliked_titles: list[dict[str, str]] | None = None,
     ) -> list[dict[str, Any]]:
         """Generate topic plan candidates. Each dict should contain:
         title, angle, hook, key_points, target_audience, target_scenario,
@@ -116,6 +120,9 @@ class StubAIAdapter(AIAdapter):
         channel: str | None = None,
         language: str = "zh-CN",
         strategy_unit_context: dict[str, Any] | None = None,
+        existing_titles: list[str] | None = None,
+        liked_titles: list[dict[str, str]] | None = None,
+        disliked_titles: list[dict[str, str]] | None = None,
     ) -> list[dict[str, Any]]:
         offer = offer_context.get("offer", {})
         offer_name = offer.get("name", "Product")
@@ -375,6 +382,9 @@ class OpenAICompatibleAdapter(AIAdapter):
         channel: str | None = None,
         language: str = "zh-CN",
         strategy_unit_context: dict[str, Any] | None = None,
+        existing_titles: list[str] | None = None,
+        liked_titles: list[dict[str, str]] | None = None,
+        disliked_titles: list[dict[str, str]] | None = None,
     ) -> list[dict[str, Any]]:
         offer = offer_context.get("offer", {})
         offer_name = offer.get("name", "商品")
@@ -404,6 +414,9 @@ Requirements:
 3. key_points are production/shooting notes
 4. Stay strictly aligned with the provided target audience and marketing objectives
 5. Provide score_relevance (relevance to the product, 0-1) and score_conversion (estimated conversion potential, 0-1)
+6. If existing topics are provided below, you MUST avoid repeating similar titles or angles — find fresh perspectives
+7. If liked topics (👍) are provided, learn from their style, angle, and tone — generate more topics like them
+8. If disliked topics (👎) are provided, avoid their style, angle, and approach
 
 Return a strict JSON array. Each element:
 {{
@@ -425,6 +438,14 @@ Return JSON array only, no other text."""
 
         # Use strategy unit's linked knowledge items if provided, else all offer knowledge
         ki_list = su.get("knowledge_items") or knowledge_items
+        # Rank and filter knowledge by relevance to strategy focus
+        if su and ki_list:
+            ki_list = rank_knowledge_for_strategy(
+                ki_list,
+                marketing_objective=su.get("marketing_objective"),
+                audience_segment=focused_audience,
+                scenario=focused_scenario,
+            )
         knowledge_text = format_knowledge_flat(ki_list, language=language)
 
         na = "N/A" if is_en else "暂无"
@@ -434,7 +455,7 @@ Return JSON array only, no other text."""
 {"Scenarios: " if is_en else "适用场景："}{', '.join(scenarios) if scenarios else na}
 {channel_desc}{strategy_focus}
 {knowledge_text}
-
+{self._format_existing_titles(existing_titles, is_en)}{self._format_rated_titles(liked_titles, disliked_titles, is_en)}
 {"Generate" if is_en else "请生成"} {count} {"content topic plans that closely match the strategy focus above." if is_en else "个高度契合以上策略聚焦的内容选题方案。"}"""
 
         logger.info(
@@ -459,6 +480,39 @@ Return JSON array only, no other text."""
                 plan["channel"] = effective_channel or "general"
 
         return plans[:count]
+
+    @staticmethod
+    def _format_existing_titles(titles: list[str] | None, is_en: bool) -> str:
+        if not titles:
+            return ""
+        capped = titles[:50]
+        header = "\nExisting topics (DO NOT repeat these):" if is_en else "\n已有选题（不要重复以下主题）："
+        items = "\n".join(f"- {t}" for t in capped)
+        return f"{header}\n{items}"
+
+    @staticmethod
+    def _format_rated_titles(
+        liked: list[dict[str, str]] | None,
+        disliked: list[dict[str, str]] | None,
+        is_en: bool,
+    ) -> str:
+        """Format liked/disliked topics with title + angle for richer signal."""
+        parts: list[str] = []
+        if liked:
+            header = "\n👍 Liked topics (generate more like these):" if is_en else "\n👍 用户喜欢的选题风格（多生成类似的）："
+            items = "\n".join(
+                f"- {t['title']}" + (f" [{t['angle']}]" if t.get('angle') else "")
+                for t in liked[:20]
+            )
+            parts.append(f"{header}\n{items}")
+        if disliked:
+            header = "\n👎 Disliked topics (avoid this style):" if is_en else "\n👎 用户不喜欢的选题风格（避免类似的）："
+            items = "\n".join(
+                f"- {t['title']}" + (f" [{t['angle']}]" if t.get('angle') else "")
+                for t in disliked[:20]
+            )
+            parts.append(f"{header}\n{items}")
+        return "".join(parts)
 
     def _build_kb_qa_prompt(
         self,

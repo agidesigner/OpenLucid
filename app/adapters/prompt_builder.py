@@ -6,6 +6,7 @@ building blocks, ensuring consistent formatting and easy updates.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 # ── Shared label maps ───────────────────────────────────────────────
@@ -135,6 +136,94 @@ def format_knowledge_flat(
     ]
     header = "\nKnowledge base:" if is_en else "\n知识库："
     return header + "\n" + "\n".join(lines)
+
+
+# ── Knowledge ranking for strategy focus ─────────────────────────────
+
+# Weight map: marketing_objective → knowledge_type → weight (0.0–1.0)
+# Higher weight = more relevant to the objective
+_OBJECTIVE_TYPE_WEIGHTS: dict[str, dict[str, float]] = {
+    "awareness":      {"selling_point": 1.0, "brand": 0.9, "scenario": 0.7, "audience": 0.6, "proof": 0.3, "faq": 0.2, "objection": 0.1, "general": 0.1},
+    "conversion":     {"proof": 1.0, "objection": 0.9, "selling_point": 0.8, "faq": 0.7, "scenario": 0.5, "audience": 0.4, "brand": 0.2, "general": 0.1},
+    "lead_generation":{"selling_point": 0.9, "scenario": 0.8, "audience": 0.8, "proof": 0.7, "faq": 0.5, "objection": 0.4, "brand": 0.3, "general": 0.1},
+    "education":      {"selling_point": 1.0, "faq": 0.9, "scenario": 0.7, "proof": 0.5, "audience": 0.4, "brand": 0.3, "objection": 0.3, "general": 0.2},
+    "trust_building": {"proof": 1.0, "brand": 0.9, "faq": 0.7, "objection": 0.6, "selling_point": 0.4, "audience": 0.3, "scenario": 0.3, "general": 0.1},
+    "retention":      {"scenario": 0.9, "faq": 0.8, "selling_point": 0.7, "audience": 0.6, "proof": 0.5, "brand": 0.4, "objection": 0.3, "general": 0.2},
+    "launch":         {"selling_point": 1.0, "brand": 0.8, "scenario": 0.7, "audience": 0.6, "proof": 0.5, "faq": 0.4, "objection": 0.3, "general": 0.2},
+    "branding":       {"brand": 1.0, "proof": 0.8, "selling_point": 0.6, "audience": 0.5, "scenario": 0.4, "faq": 0.2, "objection": 0.2, "general": 0.1},
+}
+
+# Default weights when objective is unknown or missing
+_DEFAULT_TYPE_WEIGHTS: dict[str, float] = {
+    "selling_point": 0.8, "audience": 0.6, "scenario": 0.6,
+    "proof": 0.5, "faq": 0.5, "objection": 0.4,
+    "brand": 0.4, "general": 0.2,
+}
+
+_CJK_WORD_RE = re.compile(r"[\u4e00-\u9fff]+|[a-zA-Z]+")
+
+
+def _tokenize(text: str) -> set[str]:
+    """Simple character n-gram + word tokenizer for Chinese/English text."""
+    if not text:
+        return set()
+    tokens: set[str] = set()
+    # Extract CJK character bigrams and English words
+    for m in _CJK_WORD_RE.finditer(text.lower()):
+        word = m.group()
+        tokens.add(word)
+        # Add bigrams for CJK (poor-man's segmentation)
+        if ord(word[0]) >= 0x4E00:
+            for i in range(len(word) - 1):
+                tokens.add(word[i : i + 2])
+    return tokens
+
+
+def rank_knowledge_for_strategy(
+    knowledge_items: list[dict[str, Any]],
+    *,
+    marketing_objective: str | None = None,
+    audience_segment: str | None = None,
+    scenario: str | None = None,
+    max_items: int = 10,
+) -> list[dict[str, Any]]:
+    """Rank and filter knowledge items by relevance to a strategy unit.
+
+    Scoring:
+    - Base score (0-1): knowledge_type weight based on marketing_objective
+    - Text bonus (0-0.5): token overlap between item content and
+      audience_segment / scenario text
+    """
+    if not knowledge_items:
+        return []
+    if len(knowledge_items) <= max_items and not marketing_objective:
+        return knowledge_items
+
+    type_weights = _OBJECTIVE_TYPE_WEIGHTS.get(
+        marketing_objective or "", _DEFAULT_TYPE_WEIGHTS
+    )
+
+    # Build context token set from audience + scenario
+    context_tokens = _tokenize(audience_segment or "") | _tokenize(scenario or "")
+
+    scored: list[tuple[float, int, dict]] = []
+    for idx, ki in enumerate(knowledge_items):
+        ktype = ki.get("knowledge_type", "general")
+        base_score = type_weights.get(ktype, 0.2)
+
+        # Text relevance bonus
+        text_bonus = 0.0
+        if context_tokens:
+            item_text = f"{ki.get('title', '')} {ki.get('content_raw', '')}"
+            item_tokens = _tokenize(item_text)
+            if item_tokens:
+                overlap = len(context_tokens & item_tokens)
+                text_bonus = min(overlap / max(len(context_tokens), 1) * 0.5, 0.5)
+
+        scored.append((base_score + text_bonus, -idx, ki))  # -idx for stable sort
+
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [item for _, _, item in scored[:max_items]]
 
 
 # ── Strategy unit focus block ────────────────────────────────────────

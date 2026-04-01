@@ -1029,11 +1029,14 @@
             <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('unit_objective')"></label>
             <select x-model="unitForm.marketing_objective" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none bg-white">
               <option value="" x-text="t('no_option')"></option>
-              <option value="seeding" x-text="t('mo_seeding')"></option>
+              <option value="awareness" x-text="t('mo_awareness')"></option>
+              <option value="education" x-text="t('mo_education')"></option>
               <option value="trust_building" x-text="t('mo_trust_building')"></option>
               <option value="lead_generation" x-text="t('mo_lead_generation')"></option>
               <option value="conversion" x-text="t('mo_conversion')"></option>
               <option value="retention" x-text="t('mo_retention')"></option>
+              <option value="launch" x-text="t('mo_launch')"></option>
+              <option value="branding" x-text="t('mo_branding')"></option>
             </select>
           </div>
           <div>
@@ -1628,15 +1631,22 @@
             notes: this.unitForm.notes || null,
           };
           try {
+            let res;
             if (this.editingUnit) {
-              await fetch(`${API}/strategy-units/${this.editingUnit.id}`, {
+              res = await fetch(`${API}/strategy-units/${this.editingUnit.id}`, {
                 method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
               });
             } else {
-              await fetch(`${API}/strategy-units`, {
+              res = await fetch(`${API}/strategy-units`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ...body, merchant_id: this.offer.merchant_id, offer_id: this.offerId }),
               });
+            }
+            if (!res.ok) {
+              const err = await res.json().catch(() => null);
+              const msg = err?.detail;
+              alert(typeof msg === 'string' ? msg : Array.isArray(msg) ? msg.map(e => (e.loc||[]).join('.')+': '+e.msg).join('\n') : t('save_failed'));
+              this.savingUnit = false; return;
             }
             this.showUnitForm = false;
             await this.fetchStrategyUnits();
@@ -1661,7 +1671,7 @@
         },
 
         unitObjectiveLabel(v) {
-          return { seeding: t('mo_seeding'), conversion: t('mo_conversion'), lead_generation: t('mo_lead_generation'), trust_building: t('mo_trust_building'), retention: t('mo_retention') }[v] || v;
+          return { awareness: t('mo_awareness'), education: t('mo_education'), trust_building: t('mo_trust_building'), lead_generation: t('mo_lead_generation'), conversion: t('mo_conversion'), retention: t('mo_retention'), launch: t('mo_launch'), branding: t('mo_branding') }[v] || v;
         },
         unitStageLabel(v) {
           return { exploring: t('ss_exploring'), rising: t('ss_rising'), stable: t('ss_stable'), declining: t('ss_declining') }[v] || v;

@@ -26,4 +26,5 @@ class TopicPlan(BaseModel):
     score_conversion: Mapped[float | None] = mapped_column(Float, nullable=True)
     score_asset_readiness: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
+    user_rating: Mapped[int | None] = mapped_column(nullable=True)  # 1=like, -1=dislike, NULL=unrated
     strategy_unit_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)

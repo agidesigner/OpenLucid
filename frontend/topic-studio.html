@@ -159,7 +159,7 @@
                     </div>
                     <div x-show="context?.marketing_objective">
                       <div class="text-xs text-gray-400" x-text="t('ctx_objective')"></div>
-                      <div class="text-xs text-gray-700 mt-0.5" x-text="({seeding:t('mo_seeding'),trust_building:t('mo_trust_building'),lead_generation:t('mo_lead_generation'),conversion:t('mo_conversion'),retention:t('mo_retention')}[context?.marketing_objective] || context?.marketing_objective)"></div>
+                      <div class="text-xs text-gray-700 mt-0.5" x-text="({awareness:t('mo_awareness'),education:t('mo_education'),trust_building:t('mo_trust_building'),lead_generation:t('mo_lead_generation'),conversion:t('mo_conversion'),retention:t('mo_retention'),launch:t('mo_launch'),branding:t('mo_branding')}[context?.marketing_objective] || context?.marketing_objective)"></div>
                     </div>
                   </div>
                 </template>
@@ -196,18 +196,6 @@
             <!-- Generate Card -->
             <div class="bg-white rounded-xl border p-6">
               <div class="flex items-end gap-5 flex-wrap">
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('channel_label')"></label>
-                  <select x-model="form.channel"
-                          class="border border-gray-300 rounded-lg px-3 py-2 text-sm w-36 focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
-                    <option value="" x-text="t('ch_general')"></option>
-                    <option value="douyin" x-text="t('ch_douyin')"></option>
-                    <option value="xiaohongshu" x-text="t('ch_xiaohongshu')"></option>
-                    <option value="kuaishou" x-text="t('ch_kuaishou')"></option>
-                    <option value="video_account" x-text="t('ch_video_account')"></option>
-                    <option value="bilibili" x-text="t('ch_bilibili')"></option>
-                  </select>
-                </div>
                 <div>
                   <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('count_label')"></label>
                   <div class="flex items-center gap-3">
@@ -269,10 +257,18 @@
                     </div>
                     <div class="flex items-center justify-between pt-2 border-t border-gray-50">
                       <span class="text-[11px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-medium" x-text="p.angle || t('general_angle')"></span>
-                      <span x-show="(p.score_conversion||0) >= 0.78" class="text-[11px] text-orange-500 flex items-center gap-0.5 font-medium">
-                        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clip-rule="evenodd"/></svg>
-                        <span x-text="t('high_conversion')"></span>
-                      </span>
+                      <div class="flex items-center gap-1">
+                        <span x-show="(p.score_conversion||0) >= 0.78" class="text-[11px] text-orange-500 flex items-center gap-0.5 font-medium mr-1">
+                          <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clip-rule="evenodd"/></svg>
+                          <span x-text="t('high_conversion')"></span>
+                        </span>
+                        <button @click="rateTopic(p, 1)" class="p-1 rounded-md transition-colors" :class="p.user_rating === 1 ? 'text-green-600 bg-green-50' : 'text-gray-300 hover:text-green-500 hover:bg-green-50'" :title="p.user_rating === 1 ? t('rate_liked') : ''">
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14z M4 21h-1a2 2 0 01-2-2v-7a2 2 0 012-2h1"/></svg>
+                        </button>
+                        <button @click="rateTopic(p, -1)" class="p-1 rounded-md transition-colors" :class="p.user_rating === -1 ? 'text-red-500 bg-red-50' : 'text-gray-300 hover:text-red-400 hover:bg-red-50'" :title="p.user_rating === -1 ? t('rate_disliked') : ''">
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-2 1.7l-1.38 9a2 2 0 002 2.3H10z M20 2h1a2 2 0 012 2v7a2 2 0 01-2 2h-1"/></svg>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </template>
@@ -304,7 +300,15 @@
                         </div>
                         <div x-show="p.hook" class="text-[13px] text-gray-500 mt-1.5 line-clamp-1" x-text="p.hook"></div>
                       </div>
-                      <span class="text-[11px] text-gray-300 shrink-0 ml-3 tabular-nums" x-text="p.created_at?.slice(0,10)"></span>
+                      <div class="flex items-center gap-1 shrink-0 ml-3">
+                        <button @click="rateTopic(p, 1)" class="p-1 rounded-md transition-colors" :class="p.user_rating === 1 ? 'text-green-600 bg-green-50' : 'text-gray-300 hover:text-green-500 hover:bg-green-50'" :title="p.user_rating === 1 ? t('rate_liked') : ''">
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14z M4 21h-1a2 2 0 01-2-2v-7a2 2 0 012-2h1"/></svg>
+                        </button>
+                        <button @click="rateTopic(p, -1)" class="p-1 rounded-md transition-colors" :class="p.user_rating === -1 ? 'text-red-500 bg-red-50' : 'text-gray-300 hover:text-red-400 hover:bg-red-50'" :title="p.user_rating === -1 ? t('rate_disliked') : ''">
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-2 1.7l-1.38 9a2 2 0 002 2.3H10z M20 2h1a2 2 0 012 2v7a2 2 0 01-2 2h-1"/></svg>
+                        </button>
+                        <span class="text-[11px] text-gray-300 tabular-nums" x-text="p.created_at?.slice(0,10)"></span>
+                      </div>
                     </div>
                   </div>
                 </template>
@@ -329,9 +333,9 @@
       const params = new URLSearchParams(location.search);
       return {
         offers: [],
-        offerId: params.get('offer_id') || '',
+        offerId: '',
         strategyUnits: [],
-        strategyUnitId: params.get('strategy_unit_id') || '',
+        strategyUnitId: '',
 
         // LLM model selector
         llmConfigs: [],
@@ -342,7 +346,7 @@
         loadingCtx: false,
 
         // Generate form
-        form: { channel: '', count: 5 },
+        form: { count: 5 },
         generating: false,
         genProgress: 0,
         genStep: '',
@@ -359,6 +363,9 @@
 
         async init() {
           document.title = t('page_title') + ' - OpenLucid';
+          const urlOfferId = params.get('offer_id') || '';
+          const urlUnitId = params.get('strategy_unit_id') || '';
+
           try {
             const [res, llmRes] = await Promise.all([
               fetch(`${API}/offers?page_size=100`),
@@ -368,20 +375,27 @@
             if (llmRes?.ok) this.llmConfigs = await llmRes.json();
           } catch(e) { console.error('Failed to load offers', e); }
 
-          // Restore last offer if no URL param
-          if (!this.offerId) {
-            this.offerId = localStorage.getItem('od_last_topic_offer') || '';
-          }
-          if (this.offerId && !this.offers.find(o => o.id === this.offerId)) {
-            this.offerId = '';
+          // Determine which offer to select
+          let targetOffer = urlOfferId || localStorage.getItem('od_last_topic_offer') || '';
+          if (targetOffer && !this.offers.find(o => o.id === targetOffer)) {
+            targetOffer = '';
           }
 
-          if (this.offerId) {
-            localStorage.setItem('od_last_topic_offer', this.offerId);
-            const name = this.offers.find(o => o.id === this.offerId)?.name || '';
+          if (targetOffer) {
+            // Wait for offer options to render, then set value
+            await this.$nextTick();
+            this.offerId = targetOffer;
+            localStorage.setItem('od_last_topic_offer', targetOffer);
+            const name = this.offers.find(o => o.id === targetOffer)?.name || '';
             document.title = `${t('page_title')} · ${name} - OpenLucid`;
+
+            await this.loadStrategyUnits();
+            // Wait for strategy unit options to render, then set value
+            if (urlUnitId && this.strategyUnits.find(u => u.id === urlUnitId)) {
+              await this.$nextTick();
+              this.strategyUnitId = urlUnitId;
+            }
             await Promise.all([
-              this.loadStrategyUnits(),
               this.fetchContext(),
               this.fetchHistory(false),
             ]);
@@ -452,6 +466,19 @@
           this.generate();
         },
 
+        async rateTopic(plan, rating) {
+          // Toggle: if already rated the same, clear it
+          const newRating = plan.user_rating === rating ? null : rating;
+          try {
+            const res = await fetch(`${API}/topic-plans/${plan.id}/rating`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ rating: newRating }),
+            });
+            if (res.ok) plan.user_rating = newRating;
+          } catch(e) { console.error('Rating failed', e); }
+        },
+
         async generate() {
           this.generating = true;
           this.genProgress = 0;
@@ -477,7 +504,7 @@
             const body = {
               offer_id: this.offerId,
               count: this.form.count,
-              channel: this.form.channel || 'general',
+              channel: this.context?.channel || 'general',
               strategy_unit_id: this.strategyUnitId || undefined,
               config_id: this.configId || undefined,
               language: getApiLang(),

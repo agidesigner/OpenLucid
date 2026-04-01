@@ -75,13 +75,36 @@ class TopicPlanService:
                          strategy_unit_context.get("audience_segment", "?"),
                          strategy_unit_context.get("scenario", "?"))
 
-        # 3. Generate plans via AI adapter
+        # 3. Fetch existing topic titles for dedup (same language only)
+        existing_plans, _ = await self.repo.list(
+            offer_id=request.offer_id,
+            strategy_unit_id=request.strategy_unit_id,
+            language=request.language,
+            offset=0,
+            limit=50,
+        )
+        existing_titles = [p.title for p in existing_plans if p.title]
+
+        # Liked/disliked topics across the entire offer, all languages
+        # (style preference is language-agnostic)
+        liked_plans = await self.repo.list_rated(request.offer_id, rating=1, limit=20)
+        liked_topics = [{"title": p.title, "angle": p.angle} for p in liked_plans if p.title]
+        disliked_plans = await self.repo.list_rated(request.offer_id, rating=-1, limit=20)
+        disliked_topics = [{"title": p.title, "angle": p.angle} for p in disliked_plans if p.title]
+
+        logger.info("Topic Studio: dedup=%d existing (%s), %d liked, %d disliked",
+                     len(existing_titles), request.language, len(liked_topics), len(disliked_topics))
+
+        # 4. Generate plans via AI adapter
         raw_plans = await self.ai.generate_topic_plans(
             offer_context=context_dict,
             count=request.count,
             channel=request.channel,
             language=request.language,
             strategy_unit_context=strategy_unit_context,
+            existing_titles=existing_titles or None,
+            liked_titles=liked_topics or None,
+            disliked_titles=disliked_topics or None,
         )
 
         logger.info("Topic Studio: generated %d plans", len(raw_plans))
