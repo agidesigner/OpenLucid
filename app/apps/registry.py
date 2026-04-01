@@ -24,6 +24,18 @@ class AppDefinition:
     required_model_types: list[str] = field(default_factory=lambda: ["text_llm"])
     is_builtin: bool = True
     version: str = "1.0.0"
+    name_en: str = ""
+    description_en: str = ""
+
+    def localized(self, lang: str) -> AppDefinition:
+        """Return a shallow copy with name/description resolved to the given language."""
+        if lang == "en" and self.name_en:
+            import copy
+            out = copy.copy(self)
+            out.name = self.name_en
+            out.description = self.description_en or self.description
+            return out
+        return self
 
 
 class AppRegistry:
@@ -103,6 +115,8 @@ def _parse_app_markdown(path: Path) -> AppDefinition | None:
         required_model_types=_as_list(frontmatter.get("required_model_types", ["text_llm"])),
         is_builtin=frontmatter.get("is_builtin", True),
         version=frontmatter.get("version", "1.0.0"),
+        name_en=frontmatter.get("name_en", ""),
+        description_en=frontmatter.get("description_en", ""),
     )
 
 

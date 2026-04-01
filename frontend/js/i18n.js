@@ -703,7 +703,7 @@ window.I18N = {
   // ── apps ──
   apps: {
     en: {
-      page_title: 'App Center',
+      page_title: 'Apps',
       unpin: 'Unpin',
       pin_to_nav: 'Pin to Navigation',
       open: 'Open',

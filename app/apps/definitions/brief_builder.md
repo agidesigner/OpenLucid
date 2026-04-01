@@ -1,8 +1,10 @@
 ---
 app_id: brief_builder
 name: 内容 Brief
+name_en: Content Brief
 slug: brief-builder
 description: 生成结构化创作简报
+description_en: Generate structured creative briefs
 icon: "🔒"
 category: content_creation
 task_type: brief_generation

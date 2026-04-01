@@ -148,7 +148,7 @@
           document.title = t('page_title') + ' - OpenLucid';
           this.pinnedApps = getPinnedApps();
           try {
-            const res = await fetch('/api/v1/apps');
+            const res = await fetch(`/api/v1/apps?lang=${window._odLang}`);
             if (res.ok) this.apps = await res.json();
           } catch(e) {
             console.error(e);

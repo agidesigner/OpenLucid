@@ -298,7 +298,7 @@
           // Load offers and styles in parallel
           const [offersRes, stylesRes, llmRes] = await Promise.all([
             fetch(`${API}/offers?page_size=100`).catch(() => null),
-            fetch(`${API}/apps/kb-qa/styles`).catch(() => null),
+            fetch(`${API}/apps/kb-qa/styles?lang=${window._odLang}`).catch(() => null),
             fetch(`${API}/settings/llm`).catch(() => null),
           ]);
 
@@ -348,7 +348,7 @@
               this.contextData = await res.json();
             }
             // Fetch knowledge items to get type breakdown
-            const kRes = await fetch(`${API}/knowledge?scope_type=offer&scope_id=${this.offerId}&page_size=500`);
+            const kRes = await fetch(`${API}/knowledge?scope_type=offer&scope_id=${this.offerId}&page_size=100`);
             if (kRes.ok) {
               const data = await kRes.json();
               const byType = {};

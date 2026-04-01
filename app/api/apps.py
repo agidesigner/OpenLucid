@@ -134,13 +134,14 @@ async def topic_studio_run(
 
 
 @router.get("/kb-qa/styles", response_model=list[KBQAStyleResponse])
-async def kb_qa_styles():
+async def kb_qa_styles(lang: str = Query("zh", pattern="^(zh|en)$")):
     return [
         KBQAStyleResponse(
-            style_id=s.style_id, name=s.name,
-            description=s.description, icon=s.icon,
+            style_id=s.style_id, name=ls.name,
+            description=ls.description, icon=s.icon,
         )
         for s in STYLE_TEMPLATES.values()
+        for ls in [s.localized(lang)]
     ]
 
 
@@ -170,13 +171,13 @@ async def kb_qa_ask_stream(
 
 
 @router.get("", response_model=list[AppDefinitionResponse])
-async def list_apps():
-    return AppRegistry.list_apps()
+async def list_apps(lang: str = Query("zh", pattern="^(zh|en)$")):
+    return [app.localized(lang) for app in AppRegistry.list_apps()]
 
 
 @router.get("/{app_id}", response_model=AppDefinitionResponse)
-async def get_app(app_id: str):
+async def get_app(app_id: str, lang: str = Query("zh", pattern="^(zh|en)$")):
     definition = AppRegistry.get_app(app_id)
     if not definition:
         raise HTTPException(status_code=404, detail="App not found")
-    return definition
+    return definition.localized(lang)
