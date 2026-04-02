@@ -34,14 +34,12 @@ KNOWLEDGE_TYPE_LABELS_EN: dict[str, str] = {
 }
 
 OBJECTIVE_LABELS_ZH: dict[str, str] = {
-    "awareness": "品牌曝光",
-    "conversion": "促进转化",
-    "lead_generation": "线索获取",
-    "education": "产品教育",
-    "trust_building": "建立信任",
-    "retention": "用户留存",
-    "launch": "新品上市",
-    "branding": "品牌塑造",
+    "reach_growth": "涨粉",
+    "lead_generation": "拿线索",
+    "conversion": "卖货转化",
+    "education": "知识分享",
+    "traffic_redirect": "引流直播间",
+    "other": "其他",
 }
 
 # ── Reusable formatting instructions ────────────────────────────────
@@ -143,14 +141,12 @@ def format_knowledge_flat(
 # Weight map: marketing_objective → knowledge_type → weight (0.0–1.0)
 # Higher weight = more relevant to the objective
 _OBJECTIVE_TYPE_WEIGHTS: dict[str, dict[str, float]] = {
-    "awareness":      {"selling_point": 1.0, "brand": 0.9, "scenario": 0.7, "audience": 0.6, "proof": 0.3, "faq": 0.2, "objection": 0.1, "general": 0.1},
-    "conversion":     {"proof": 1.0, "objection": 0.9, "selling_point": 0.8, "faq": 0.7, "scenario": 0.5, "audience": 0.4, "brand": 0.2, "general": 0.1},
-    "lead_generation":{"selling_point": 0.9, "scenario": 0.8, "audience": 0.8, "proof": 0.7, "faq": 0.5, "objection": 0.4, "brand": 0.3, "general": 0.1},
-    "education":      {"selling_point": 1.0, "faq": 0.9, "scenario": 0.7, "proof": 0.5, "audience": 0.4, "brand": 0.3, "objection": 0.3, "general": 0.2},
-    "trust_building": {"proof": 1.0, "brand": 0.9, "faq": 0.7, "objection": 0.6, "selling_point": 0.4, "audience": 0.3, "scenario": 0.3, "general": 0.1},
-    "retention":      {"scenario": 0.9, "faq": 0.8, "selling_point": 0.7, "audience": 0.6, "proof": 0.5, "brand": 0.4, "objection": 0.3, "general": 0.2},
-    "launch":         {"selling_point": 1.0, "brand": 0.8, "scenario": 0.7, "audience": 0.6, "proof": 0.5, "faq": 0.4, "objection": 0.3, "general": 0.2},
-    "branding":       {"brand": 1.0, "proof": 0.8, "selling_point": 0.6, "audience": 0.5, "scenario": 0.4, "faq": 0.2, "objection": 0.2, "general": 0.1},
+    "reach_growth":      {"selling_point": 1.0, "brand": 0.9, "scenario": 0.7, "audience": 0.6, "proof": 0.4, "faq": 0.2, "objection": 0.1, "general": 0.1},
+    "lead_generation":   {"selling_point": 0.9, "scenario": 0.8, "audience": 0.8, "proof": 0.7, "faq": 0.5, "objection": 0.4, "brand": 0.3, "general": 0.1},
+    "conversion":        {"proof": 1.0, "objection": 0.9, "selling_point": 0.8, "faq": 0.7, "scenario": 0.5, "audience": 0.4, "brand": 0.2, "general": 0.1},
+    "education":         {"selling_point": 1.0, "faq": 0.9, "scenario": 0.7, "proof": 0.5, "audience": 0.4, "brand": 0.3, "objection": 0.3, "general": 0.2},
+    "traffic_redirect":  {"scenario": 0.9, "selling_point": 0.8, "audience": 0.7, "proof": 0.6, "faq": 0.4, "brand": 0.3, "objection": 0.2, "general": 0.1},
+    "other":             {"selling_point": 0.8, "audience": 0.6, "scenario": 0.6, "proof": 0.5, "faq": 0.5, "objection": 0.4, "brand": 0.4, "general": 0.2},
 }
 
 # Default weights when objective is unknown or missing
@@ -229,14 +225,12 @@ def rank_knowledge_for_strategy(
 # ── Strategy unit focus block ────────────────────────────────────────
 
 OBJECTIVE_LABELS_EN: dict[str, str] = {
-    "awareness": "Brand Awareness",
-    "conversion": "Conversion",
+    "reach_growth": "Audience Growth",
     "lead_generation": "Lead Generation",
-    "education": "Product Education",
-    "trust_building": "Trust Building",
-    "retention": "User Retention",
-    "launch": "Product Launch",
-    "branding": "Branding",
+    "conversion": "Conversion",
+    "education": "Education",
+    "traffic_redirect": "Drive Traffic",
+    "other": "Other",
 }
 
 

@@ -104,14 +104,12 @@ class TagSource(str, Enum):
 
 
 class MarketingObjective(str, Enum):
-    AWARENESS = "awareness"
-    CONVERSION = "conversion"
+    REACH_GROWTH = "reach_growth"
     LEAD_GENERATION = "lead_generation"
+    CONVERSION = "conversion"
     EDUCATION = "education"
-    TRUST_BUILDING = "trust_building"
-    RETENTION = "retention"
-    LAUNCH = "launch"
-    BRANDING = "branding"
+    TRAFFIC_REDIRECT = "traffic_redirect"
+    OTHER = "other"
 
 
 class StrategyStage(str, Enum):
