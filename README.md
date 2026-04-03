@@ -83,6 +83,8 @@ Database migrations run automatically on app startup — no manual steps needed.
 
 If `.env.example` has new variables after upgrading, add them to your `.env` manually.
 
+> **Warning:** Never use `docker compose down -v` — the `-v` flag deletes all data. If the app fails to start after upgrading, check logs first: `docker compose logs app`.
+
 ## Configuration
 
 All settings are managed in `docker/.env` (template: `docker/.env.example`):

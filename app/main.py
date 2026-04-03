@@ -41,8 +41,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         stdout, _ = await proc.communicate()
         output = stdout.decode().strip() if stdout else ""
         if proc.returncode != 0:
-            logger.error("alembic upgrade head failed:\n%s", output)
-            raise RuntimeError("Database migration failed")
+            logger.error("alembic upgrade head failed (app will continue):\n%s", output)
         if output:
             logger.info("alembic upgrade head:\n%s", output)
     except FileNotFoundError:

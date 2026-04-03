@@ -83,6 +83,8 @@ docker compose up -d --build
 
 如果升级后 `.env.example` 有新增变量，请手动添加到你的 `.env` 中。
 
+> **警告：** 切勿使用 `docker compose down -v` — `-v` 参数会删除所有数据。升级后如果页面无法访问，请先查看日志：`docker compose logs app`。
+
 ## 配置说明
 
 所有配置项在 `docker/.env` 中管理，模板见 `docker/.env.example`：
