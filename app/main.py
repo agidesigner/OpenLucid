@@ -220,6 +220,10 @@ async def auth_middleware(request: Request, call_next):
     if path in PUBLIC:
         return await call_next(request)
 
+    # Asset files are public (single-user self-hosted; no multi-tenant risk)
+    if "/assets/" in path and path.endswith(("/file", "/thumbnail")):
+        return await call_next(request)
+
     # Allow bypass in test/dev mode
     if settings.DISABLE_AUTH:
         return await call_next(request)
