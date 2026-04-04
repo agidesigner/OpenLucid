@@ -145,9 +145,9 @@ class CoverageService:
                 score += 5
             if r[2] and (isinstance(r[2], dict) and r[2].get("points")):
                 score += 5
-            if r[3] and (isinstance(r[3], dict) and r[3].get("segments")):
+            if r[3] and (isinstance(r[3], dict) and r[3].get("items")):
                 score += 5
-            if r[4] and (isinstance(r[4], dict) and r[4].get("scenarios")):
+            if r[4] and (isinstance(r[4], dict) and r[4].get("items")):
                 score += 5
             profile_data[r[0]] = score
 
