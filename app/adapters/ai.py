@@ -338,11 +338,11 @@ class OpenAICompatibleAdapter(AIAdapter):
         """Extract JSON from model response, handling think tags and code blocks."""
         import re
 
-        text = text.strip()
+        original = text.strip()
 
-        # Remove <think>...</think> blocks (including unclosed tags from truncated responses)
-        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-        # Handle unclosed <think> tag (model response truncated or </think> missing)
+        # Remove <think>...</think> blocks
+        text = re.sub(r"<think>.*?</think>", "", original, flags=re.DOTALL).strip()
+        # Handle unclosed <think> tag (response truncated before </think>)
         if "<think>" in text:
             text = re.sub(r"<think>.*", "", text, flags=re.DOTALL).strip()
 
@@ -363,9 +363,23 @@ class OpenAICompatibleAdapter(AIAdapter):
         # Try to find JSON array or object in the text
         match = re.search(r"(\[[\s\S]*\]|\{[\s\S]*\})", text)
         if match:
-            return json.loads(match.group(1))
+            try:
+                return json.loads(match.group(1))
+            except json.JSONDecodeError:
+                pass
 
-        raise ValueError(f"No valid JSON found in response")
+        # Last resort: if text was empty after stripping think tags,
+        # the model may have put JSON inside the think block or the
+        # response was truncated. Try to find JSON in the original text.
+        if not text and original:
+            match = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", original)
+            if match:
+                try:
+                    return json.loads(match.group(1))
+                except json.JSONDecodeError:
+                    pass
+
+        raise ValueError(f"No valid JSON found in response ({len(original)} chars)")
 
     async def summarize_offer_context(self, offer_data: dict[str, Any]) -> dict[str, Any]:
         system = "You are an expert content marketing analyst. Analyze the given product/service information and extract key selling points and marketing opportunities. Respond in the same language as the input data."
@@ -477,9 +491,8 @@ Return JSON array only, no other text."""
         try:
             plans = self._parse_json_response(clean_result)
         except (json.JSONDecodeError, ValueError):
-            logger.error("Failed to parse LLM response as JSON: %s", clean_result[:500])
-            stub = StubAIAdapter()
-            return await stub.generate_topic_plans(offer_context, count, channel, language, strategy_unit_context)
+            logger.error("Failed to parse LLM topic plans response as JSON: %s", clean_result[:500])
+            raise ValueError(f"LLM returned unparseable topic plans for offer '{offer_name}'")
 
         for plan in plans:
             if not plan.get("channel"):
@@ -741,7 +754,8 @@ Rules:
 - confidence: your certainty about the inference (0-1)
 - If existing knowledge entries are provided, fill in missing dimensions without repeating them
 - IMPORTANT: Write all title and content_raw values in the SAME language as the input material. Do NOT translate.
-- Return JSON only, no other text"""
+- Return JSON only, no other text
+- Do NOT include any thinking or reasoning process in your response. Output the JSON directly."""
 
         user = format_offer_summary(offer_data, language="en") + existing_text
 
@@ -755,8 +769,7 @@ Rules:
             parsed = self._parse_json_response(result)
         except (json.JSONDecodeError, ValueError):
             logger.error("Failed to parse infer-knowledge response: %s", result[:500])
-            stub = StubAIAdapter()
-            return await stub.infer_knowledge(offer_data, language, user_hint)
+            raise ValueError(f"LLM returned unparseable response for offer '{offer_name}'")
 
         # Ensure all expected keys exist
         for key in ("selling_point", "audience", "scenario", "faq", "objection"):

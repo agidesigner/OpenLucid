@@ -16,24 +16,35 @@ from mcp.server.transport_security import TransportSecuritySettings
 from app.config import settings
 from app.database import async_session_factory
 
+
+def _build_transport_security() -> TransportSecuritySettings:
+    """Build transport security from MCP_ALLOWED_HOSTS env var.
+    Default: localhost only. Set MCP_ALLOWED_HOSTS=*.example.com to add domains."""
+    import os
+    hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*", "127.0.0.1", "localhost", "[::1]"]
+    origins = [
+        "http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*",
+        "http://127.0.0.1", "http://localhost", "http://[::1]",
+    ]
+    extra = os.environ.get("MCP_ALLOWED_HOSTS", "").strip()
+    if extra:
+        for domain in extra.split(","):
+            d = domain.strip()
+            if d:
+                hosts.extend([f"{d}:*", d])
+                origins.extend([f"https://{d}:*", f"https://{d}", f"http://{d}:*", f"http://{d}"])
+    return TransportSecuritySettings(allowed_hosts=hosts, allowed_origins=origins)
+
+
 mcp = FastMCP(
     "OpenLucid",
-    transport_security=TransportSecuritySettings(
-        # Allow connections from localhost with or without explicit port
-        allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*", "127.0.0.1", "localhost", "[::1]"],
-        allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*",
-                         "http://127.0.0.1", "http://localhost", "http://[::1]"],
-    ),
+    transport_security=_build_transport_security(),
     instructions=(
-        "OpenLucid is an AI Director Platform for merchants. "
-        "Use these tools to manage merchants, offers, knowledge, assets, brand kits, generate topic plans, "
-        "and manage strategy units. A StrategyUnit represents a specific audience × scenario × "
-        "objective × channel combination under an offer — the core unit of content production strategy. "
-        "Knowledge Base is the offer-level total cognition layer (stable facts). Strategy Units reference "
-        "knowledge items and assets via link tables (many-to-many) with role, priority, and note metadata. "
-        "Brand Kit (品牌规范) defines style profiles, persona, visual guidelines for a merchant or offer scope. "
-        "Start by listing merchants, then browse their offers, knowledge, brand kits, and assets. "
-        "Use list_apps to discover available AI apps (KB Q&A, Script Writer, Topic Studio) and run_app to invoke them."
+        "OpenLucid — AI content platform for merchants. "
+        "Data model: Merchant → Offer → Knowledge / Assets / BrandKit / StrategyUnit.\n"
+        "Workflow: get_merchant_overview → get_offer_context_summary → run_app (kb_qa/script_writer/topic_studio).\n"
+        "Use prompts 'onboard_merchant' or 'content_brief' for guided workflows. "
+        "Attach merchant:// or offer:// resources for persistent context."
     ),
 )
 
@@ -101,18 +112,6 @@ async def list_merchants(page: int = 1, page_size: int = 20) -> str:
         return json.dumps({"total": total, "page": page, "items": serialized_items}, ensure_ascii=False, indent=2, default=str)
 
 
-@mcp.tool()
-async def get_merchant(merchant_id: str) -> str:
-    """Get a single merchant by ID, including brand/tone/compliance profiles."""
-    from app.application.merchant_service import MerchantService
-    from app.schemas.merchant import MerchantResponse
-
-    async with _session_factory() as session:
-        svc = MerchantService(session)
-        merchant = await svc.get(uuid.UUID(merchant_id))
-        return _serialize(merchant, MerchantResponse)
-
-
 # ── Offer Tools ─────────────────────────────────────────────────
 
 
@@ -167,18 +166,6 @@ async def list_offers(
         items, total = await svc.list(merchant_id=mid, page=page, page_size=page_size)
         serialized_items = [OfferResponse.model_validate(i, from_attributes=True).model_dump(mode="json") for i in items]
         return json.dumps({"total": total, "page": page, "items": serialized_items}, ensure_ascii=False, indent=2, default=str)
-
-
-@mcp.tool()
-async def get_offer(offer_id: str) -> str:
-    """Get a single offer by ID, including description, positioning, selling points, audiences, scenarios."""
-    from app.application.offer_service import OfferService
-    from app.schemas.offer import OfferResponse
-
-    async with _session_factory() as session:
-        svc = OfferService(session)
-        offer = await svc.get(uuid.UUID(offer_id))
-        return _serialize(offer, OfferResponse)
 
 
 @mcp.tool()
@@ -294,19 +281,6 @@ async def search_assets(
         return json.dumps({"total": total, "page": page, "items": serialized_items}, ensure_ascii=False, indent=2, default=str)
 
 
-@mcp.tool()
-async def list_asset_slices(asset_id: str) -> str:
-    """List all parsed slices/segments for an asset."""
-    from app.adapters.storage import LocalStorageAdapter
-    from app.application.asset_service import AssetService
-
-    async with _session_factory() as session:
-        storage = LocalStorageAdapter()
-        svc = AssetService(session, storage)
-        slices = await svc.get_slices(uuid.UUID(asset_id))
-        return _serialize(slices)
-
-
 # ── Context & Topic Tools ──────────────────────────────────────
 
 
@@ -320,33 +294,6 @@ async def get_offer_context_summary(offer_id: str) -> str:
         svc = ContextService(session)
         ctx = await svc.get_offer_context(uuid.UUID(offer_id))
         return _serialize(ctx)
-
-
-@mcp.tool()
-async def generate_topic_plans(
-    offer_id: str,
-    count: int = 5,
-    channel: str = "general",
-    language: str = "zh-CN",
-) -> str:
-    """Generate structured topic/content plans for an offer based on its knowledge and assets.
-    Plans include title, angle, hook, key points, target audience, and relevance scores.
-    channel: douyin | xiaohongshu | kuaishou | video_account | general."""
-    from app.application.topic_plan_service import TopicPlanService
-    from app.schemas.topic_plan import TopicPlanGenerateRequest, TopicPlanResponse
-
-    async with _session_factory() as session:
-        svc = TopicPlanService(session)
-        request = TopicPlanGenerateRequest(
-            offer_id=uuid.UUID(offer_id),
-            count=count,
-            channel=channel,
-            language=language,
-        )
-        plans = await svc.generate(request)
-        await session.commit()
-        serialized = [TopicPlanResponse.model_validate(p, from_attributes=True).model_dump(mode="json") for p in plans]
-        return json.dumps(serialized, ensure_ascii=False, indent=2, default=str)
 
 
 # ── Strategy Unit Tools ───────────────────────────────────────
@@ -612,11 +559,129 @@ async def run_app(
             plans, thinking = await svc.generate(req)
             await session.commit()
             serialized = [TopicPlanResponse.model_validate(p, from_attributes=True).model_dump(mode="json") for p in plans]
-            return json.dumps(serialized, ensure_ascii=False, indent=2, default=str)
+            result = {"plans": serialized, "thinking": thinking}
+            return json.dumps(result, ensure_ascii=False, indent=2, default=str)
 
     else:
         available = ["kb_qa", "script_writer", "topic_studio"]
         return json.dumps({"error": f"Unknown app_id '{app_id}'. Available: {available}"})
+
+
+# ── Composite Tools ────────────────────────────────────────────
+
+
+@mcp.tool()
+async def get_merchant_overview(merchant_id: str) -> str:
+    """Get a complete overview of a merchant in one call:
+    basic info, all offers, brand kits, and knowledge/asset counts.
+    Use this as the first call to understand an enterprise before diving deeper."""
+    from app.adapters.storage import LocalStorageAdapter
+    from app.application.asset_service import AssetService
+    from app.application.brandkit_service import BrandKitService
+    from app.application.knowledge_service import KnowledgeService
+    from app.application.merchant_service import MerchantService
+    from app.application.offer_service import OfferService
+    from app.schemas.brandkit import BrandKitResponse
+    from app.schemas.merchant import MerchantResponse
+    from app.schemas.offer import OfferResponse
+
+    mid = uuid.UUID(merchant_id)
+    async with _session_factory() as session:
+        merchant_svc = MerchantService(session)
+        merchant = await merchant_svc.get(mid)
+        merchant_data = MerchantResponse.model_validate(merchant, from_attributes=True).model_dump(mode="json")
+
+        offer_svc = OfferService(session)
+        offers, offer_total = await offer_svc.list(merchant_id=mid, page=1, page_size=100)
+        offers_data = [OfferResponse.model_validate(o, from_attributes=True).model_dump(mode="json") for o in offers]
+
+        bk_svc = BrandKitService(session)
+        brandkits, bk_total = await bk_svc.list(scope_type="merchant", scope_id=mid, page=1, page_size=100)
+        brandkits_data = [BrandKitResponse.model_validate(b, from_attributes=True).model_dump(mode="json") for b in brandkits]
+
+        knowledge_svc = KnowledgeService(session)
+        _, knowledge_total = await knowledge_svc.list(scope_type="merchant", scope_id=mid, page=1, page_size=1)
+
+        storage = LocalStorageAdapter()
+        asset_svc = AssetService(session, storage)
+        _, asset_total = await asset_svc.list(scope_type="merchant", scope_id=mid, page=1, page_size=1)
+
+        # Also count knowledge/assets per offer
+        for od in offers_data:
+            oid = uuid.UUID(od["id"])
+            _, ok_total = await knowledge_svc.list(scope_type="offer", scope_id=oid, page=1, page_size=1)
+            _, oa_total = await asset_svc.list(scope_type="offer", scope_id=oid, page=1, page_size=1)
+            od["knowledge_count"] = ok_total
+            od["asset_count"] = oa_total
+
+        overview = {
+            "merchant": merchant_data,
+            "offers": {"total": offer_total, "items": offers_data},
+            "brand_kits": {"total": bk_total, "items": brandkits_data},
+            "merchant_knowledge_count": knowledge_total,
+            "merchant_asset_count": asset_total,
+        }
+        return json.dumps(overview, ensure_ascii=False, indent=2, default=str)
+
+
+# ── Resources ─────────────────────────────────────────────────
+
+
+@mcp.resource("merchant://{merchant_id}/profile")
+async def merchant_profile_resource(merchant_id: str) -> str:
+    """Merchant profile including basic info, brand positioning, and compliance notes."""
+    from app.application.merchant_service import MerchantService
+    from app.schemas.merchant import MerchantResponse
+
+    async with _session_factory() as session:
+        svc = MerchantService(session)
+        merchant = await svc.get(uuid.UUID(merchant_id))
+        return _serialize(merchant, MerchantResponse)
+
+
+@mcp.resource("offer://{offer_id}/context")
+async def offer_context_resource(offer_id: str) -> str:
+    """Full offer context: merchant info, knowledge, assets, selling points, audiences.
+    Attach this resource to give an agent comprehensive product context."""
+    from app.application.context_service import ContextService
+
+    async with _session_factory() as session:
+        svc = ContextService(session)
+        ctx = await svc.get_offer_context(uuid.UUID(offer_id))
+        return _serialize(ctx)
+
+
+# ── Prompts ───────────────────────────────────────────────────
+
+
+@mcp.prompt()
+async def onboard_merchant(merchant_id: str) -> str:
+    """Help me quickly understand a merchant's products and marketing strategy.
+    Guides the agent through: merchant overview → offers → knowledge → brand kit."""
+    return (
+        f"I want to understand the merchant with ID {merchant_id}. "
+        "Please follow these steps:\n"
+        "1. Call get_merchant_overview to get the full picture of this enterprise.\n"
+        "2. For each offer, summarize: what it is, who it targets, key selling points.\n"
+        "3. Highlight any brand kit guidelines (tone, visual dos/don'ts).\n"
+        "4. Identify gaps: offers without knowledge items, missing brand kits, etc.\n"
+        "5. Give me a concise briefing I can act on."
+    )
+
+
+@mcp.prompt()
+async def content_brief(offer_id: str, channel: str = "general", language: str = "zh-CN") -> str:
+    """Generate a content planning brief for a specific offer.
+    Combines offer context with topic generation to produce an actionable brief."""
+    return (
+        f"I need a content brief for offer ID {offer_id} targeting the '{channel}' channel "
+        f"in {language}. Please:\n"
+        "1. First attach or read the offer://{offer_id}/context resource to understand the product.\n"
+        "2. Summarize the offer's positioning, audiences, and key selling points.\n"
+        "3. Call generate_topic_plans to get 5 topic ideas for this offer and channel.\n"
+        "4. For each topic, explain why it fits the target audience and channel.\n"
+        "5. Recommend which topic to prioritize and outline next steps."
+    )
 
 
 if __name__ == "__main__":

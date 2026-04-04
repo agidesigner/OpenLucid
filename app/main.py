@@ -31,6 +31,29 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     logger = logging.getLogger(__name__)
     os.makedirs(settings.STORAGE_BASE_PATH, exist_ok=True)
 
+    # 0. Verify database connectivity early — surface credential mismatches
+    #    loudly instead of letting every request silently 500.
+    try:
+        from sqlalchemy import text
+        from app.database import async_session_factory
+        async with async_session_factory() as session:
+            await session.execute(text("SELECT 1"))
+        logger.info("Database connection verified")
+    except Exception as e:
+        logger.error(
+            "═══ DATABASE CONNECTION FAILED ═══\n"
+            "  %s\n"
+            "  DATABASE_URL starts with: %s…\n"
+            "  \n"
+            "  Common fix: check that DB_USER / DB_PASSWORD in your .env\n"
+            "  match the credentials the PostgreSQL volume was created with.\n"
+            "  If you renamed the project (OpenInsight → OpenLucid), your\n"
+            "  .env may still have the old credentials while the DB volume\n"
+            "  uses the new defaults. Update .env or recreate the DB volume.\n"
+            "═══════════════════════════════════",
+            e, settings.DATABASE_URL[:40],
+        )
+
     # 1. Run alembic migrations
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -145,7 +168,7 @@ async def _startup_recovery() -> None:
         logger.warning("Startup recovery encountered an error: %s", e, exc_info=True)
 
 
-app = FastAPI(
+_fastapi_app = FastAPI(
     title="OpenLucid",
     description="Marketing world model — structure your data so AI can find it, understand it, and put it to work.",
     version=VERSION,
@@ -155,7 +178,7 @@ app = FastAPI(
 _cors_origins = ["*"] if settings.CORS_ORIGINS.strip() == "*" else [
     o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()
 ]
-app.add_middleware(
+_fastapi_app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_credentials=True,
@@ -167,7 +190,7 @@ app.add_middleware(
 MAX_BODY_SIZE = 300 * 1024 * 1024  # 300 MB
 
 
-@app.middleware("http")
+@_fastapi_app.middleware("http")
 async def limit_body_size(request: Request, call_next):
     """Reject requests whose Content-Length exceeds 300 MB."""
     cl = request.headers.get("content-length")
@@ -176,31 +199,9 @@ async def limit_body_size(request: Request, call_next):
     return await call_next(request)
 
 
-@app.middleware("http")
+@_fastapi_app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
-
-    # MCP token auth: required only when tokens exist
-    if path.startswith("/mcp/"):
-        import hashlib
-        from sqlalchemy import select, func
-        from app.database import async_session_factory
-        from app.models.mcp_token import McpToken
-
-        async with async_session_factory() as session:
-            count = await session.scalar(select(func.count()).select_from(McpToken))
-            if count and count > 0:
-                auth_header = request.headers.get("authorization", "")
-                if not auth_header.startswith("Bearer "):
-                    return JSONResponse({"detail": "MCP token required"}, status_code=401)
-                raw_token = auth_header[7:]
-                token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-                match = await session.scalar(
-                    select(McpToken).where(McpToken.token_hash == token_hash)
-                )
-                if not match:
-                    return JSONResponse({"detail": "Invalid MCP token"}, status_code=401)
-        return await call_next(request)
 
     # Only protect /api/* routes
     if not path.startswith("/api/"):
@@ -235,12 +236,110 @@ async def auth_middleware(request: Request, call_next):
     return await call_next(request)
 
 
-register_exception_handlers(app)
+register_exception_handlers(_fastapi_app)
 
-app.include_router(health_router)
-app.include_router(api_router, prefix="/api/v1")
+_fastapi_app.include_router(health_router)
+_fastapi_app.include_router(api_router, prefix="/api/v1")
+
+_fastapi_app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+
+
+# ── MCP: completely isolated from FastAPI middleware chain ─────────
+#
+# BaseHTTPMiddleware wraps ALL response bodies in a streaming pipeline
+# that breaks SSE (causes AssertionError + ClosedResourceError).
+# Mounting MCP inside FastAPI means it goes through that pipeline.
+#
+# Solution: top-level ASGI dispatcher routes /mcp/* to the MCP app
+# BEFORE FastAPI's middleware stack ever sees the request.
 
 from app.mcp_server import mcp as mcp_server
-app.mount("/mcp", mcp_server.sse_app())
 
-app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+_mcp_sse_app = mcp_server.sse_app()
+
+
+async def _asgi_json_response(send, status: int, body: dict):
+    """Send a JSON error response via raw ASGI."""
+    import json as _json
+    payload = _json.dumps(body).encode()
+    await send({
+        "type": "http.response.start",
+        "status": status,
+        "headers": [
+            [b"content-type", b"application/json"],
+            [b"content-length", str(len(payload)).encode()],
+        ],
+    })
+    await send({"type": "http.response.body", "body": payload})
+
+
+async def _mcp_token_check(scope, receive, send) -> bool:
+    """Check MCP token auth. Returns True if request is allowed.
+    Single DB query: look up token directly. If no tokens exist, the table is empty
+    and the query returns None — same as "open access"."""
+    import hashlib
+    from sqlalchemy import select, func
+    from app.database import async_session_factory
+    from app.models.mcp_token import McpToken
+
+    headers = dict(scope.get("headers", []))
+    auth_header = (headers.get(b"authorization", b"")).decode()
+
+    if not auth_header.startswith("Bearer "):
+        # No token provided — check if any tokens are configured
+        async with async_session_factory() as session:
+            count = await session.scalar(select(func.count()).select_from(McpToken))
+            if not count:
+                return True  # No tokens configured — open access
+        await _asgi_json_response(send, 401, {"detail": "MCP token required"})
+        return False
+
+    # Token provided — validate it (single query)
+    raw_token = auth_header[7:]
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    async with async_session_factory() as session:
+        match = await session.scalar(
+            select(McpToken).where(McpToken.token_hash == token_hash)
+        )
+        if not match:
+            await _asgi_json_response(send, 401, {"detail": "Invalid MCP token"})
+            return False
+    return True
+
+
+class _TopLevelDispatcher:
+    """Top-level ASGI app that routes /mcp/* to the MCP SSE app and
+    everything else to FastAPI. MCP never touches BaseHTTPMiddleware.
+
+    Lifespan events are forwarded to FastAPI only (MCP SSE manages its
+    own per-connection lifecycle internally).
+    """
+
+    def __init__(self, fastapi_app, mcp_app):
+        self.fastapi_app = fastapi_app
+        self.mcp_app = mcp_app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "lifespan":
+            # Forward lifespan to FastAPI (DB migrations, startup tasks, etc.)
+            return await self.fastapi_app(scope, receive, send)
+
+        if scope["type"] == "http" and scope.get("path", "").startswith("/mcp/"):
+            # Strip /mcp prefix for the MCP sub-app
+            scope = dict(scope)
+            path = scope["path"][4:]  # /mcp/sse -> /sse
+            scope["path"] = path or "/"
+            scope["root_path"] = scope.get("root_path", "") + "/mcp"
+
+            # Token auth (pure ASGI, no BaseHTTPMiddleware)
+            if not await _mcp_token_check(scope, receive, send):
+                return
+            return await self.mcp_app(scope, receive, send)
+
+        return await self.fastapi_app(scope, receive, send)
+
+
+# This is the ASGI app that uvicorn runs.
+# `/mcp/*` → MCP SSE app (isolated, no BaseHTTPMiddleware)
+# `/*`     → FastAPI app (with full middleware stack)
+app = _TopLevelDispatcher(_fastapi_app, _mcp_sse_app)
