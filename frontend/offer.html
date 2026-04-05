@@ -840,7 +840,7 @@
   <!-- No LLM configured dialog (shared) -->
   <div x-show="showNoLLMDialog" x-cloak
        class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm"
-       @click.self="showNoLLMDialog = false">
+      >
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
       <div class="flex items-start gap-3 mb-4">
         <div class="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
@@ -865,7 +865,7 @@
   </div>
 
   <!-- Manual Add Modal -->
-  <div x-show="showAddManual" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showAddManual = false" x-transition.opacity>
+  <div x-show="showAddManual" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" x-transition.opacity>
     <div class="bg-white rounded-2xl w-full max-w-md shadow-2xl" x-transition.scale.95 @click.stop>
       <div class="px-6 py-4 border-b"><h3 class="font-semibold text-gray-800" x-text="t('manual_add_title')"></h3></div>
       <div class="px-6 py-5 space-y-4">
@@ -900,7 +900,7 @@
   </div>
 
   <!-- Edit Knowledge Modal -->
-  <div x-show="showEditKnowledge" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showEditKnowledge = false" x-transition.opacity>
+  <div x-show="showEditKnowledge" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" x-transition.opacity>
     <div class="bg-white rounded-2xl w-full max-w-md shadow-2xl" x-transition.scale.95 @click.stop>
       <div class="px-6 py-4 border-b"><h3 class="font-semibold text-gray-800" x-text="t('edit_knowledge_title')"></h3></div>
       <div class="px-6 py-5 space-y-4">
@@ -935,7 +935,7 @@
   </div>
 
   <!-- AI智能更新 - 输入补充说明 -->
-  <div x-show="showInferInput" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" @click.self="showInferInput=false" x-transition.opacity>
+  <div x-show="showInferInput" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" x-transition.opacity>
     <div class="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl" x-transition.scale.95 @click.stop>
       <h3 class="text-lg font-semibold mb-1" x-text="t('ai_update_title')"></h3>
       <p class="text-sm text-gray-500 mb-4" x-text="t('ai_update_hint')"></p>
@@ -977,7 +977,7 @@
   </div>
 
   <!-- Strategy Unit Form Modal -->
-  <div x-show="showUnitForm" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showUnitForm = false" x-transition.opacity>
+  <div x-show="showUnitForm" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" x-transition.opacity>
     <div class="bg-white rounded-2xl w-full max-w-lg shadow-2xl" x-transition.scale.95 @click.stop>
       <div class="px-6 py-4 border-b flex items-center justify-between">
         <h3 class="font-semibold text-gray-800" x-text="editingUnit ? t('edit_unit') : t('new_unit')"></h3>

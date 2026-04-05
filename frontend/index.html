@@ -112,68 +112,49 @@
         <button @click="openWizard()" class="bg-accent text-white px-4 py-2 rounded-lg text-sm hover:bg-accent-hover" x-text="t('create_offer')"></button>
       </div>
 
-      <!-- Completeness Summary (company-level) -->
-      <div x-show="!loading && !dbError && scoresLoaded" x-cloak
-           class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 mb-5">
-        <div class="flex items-center gap-5 sm:gap-8">
-          <!-- Ring Gauge -->
-          <div class="relative shrink-0 w-20 h-20 sm:w-24 sm:h-24">
-            <svg class="w-full h-full -rotate-90" viewBox="0 0 96 96">
-              <circle cx="48" cy="48" r="40" fill="none" stroke="#F3F4F6" stroke-width="6"/>
-              <circle cx="48" cy="48" r="40" fill="none"
-                      :stroke="scoreColor(overallScore.total)" stroke-width="6"
-                      stroke-linecap="round"
-                      :stroke-dasharray="ringCircum"
-                      :stroke-dashoffset="ringOffset(overallScore.total)"
-                      class="transition-all duration-1000 ease-out"/>
-            </svg>
-            <div class="absolute inset-0 flex flex-col items-center justify-center">
-              <span class="text-xl sm:text-2xl font-bold tabular-nums" :style="`color:${scoreColor(overallScore.total)}`"
-                    x-text="overallScore.total"></span>
-              <span class="text-[10px] text-gray-400 -mt-0.5" x-text="scoreLabel(overallScore.total)"></span>
-            </div>
+      <!-- Completeness Summary (compact bar) -->
+      <div x-show="!loading && !dbError && scoresLoaded" x-cloak x-data="{ scoreExpanded: false }" class="mb-4">
+        <!-- Main bar (always visible) -->
+        <div class="flex items-center gap-3 px-1 cursor-pointer select-none" @click="scoreExpanded = !scoreExpanded">
+          <span class="text-[11px] text-gray-400 shrink-0" x-text="t('score_title')"></span>
+          <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div class="h-full rounded-full transition-all duration-700 ease-out"
+                 :style="`width:${overallScore.total}%; background:${scoreColor(overallScore.total)}`"></div>
           </div>
-
-          <!-- Dimension Bars -->
-          <div class="flex-1 min-w-0">
-            <h3 class="text-sm font-semibold text-gray-800 mb-2.5" x-text="t('score_title')"></h3>
-            <div class="space-y-2">
-              <template x-for="dim in [
-                {key:'profile', max:20, label:t('score_profile')},
-                {key:'knowledge', max:35, label:t('score_knowledge')},
-                {key:'strategy', max:15, label:t('score_strategy')},
-                {key:'assets', max:15, label:t('score_assets')},
-                {key:'brandkit', max:15, label:t('score_brandkit')}
-              ]" :key="dim.key">
-                <div class="flex items-center gap-2">
-                  <span class="text-[11px] text-gray-500 w-14 sm:w-16 shrink-0 truncate" x-text="dim.label"></span>
-                  <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div class="h-full rounded-full transition-all duration-700 ease-out"
-                         :style="`width:${(overallScore[dim.key]/dim.max)*100}%; background:${scoreColor(overallScore.total)}`"></div>
-                  </div>
-                  <span class="text-[10px] text-gray-400 w-8 text-right tabular-nums shrink-0"
-                        x-text="overallScore[dim.key] + '/' + dim.max"></span>
-                </div>
-              </template>
-            </div>
-          </div>
-
-          <!-- Next Action CTA -->
-          <div x-show="overallScore.next_action !== 'done'" class="hidden sm:flex flex-col items-center gap-1.5 shrink-0 pl-4 border-l border-gray-100">
-            <span class="text-[10px] text-gray-400 uppercase tracking-wider" x-text="t('score_next')"></span>
-            <a :href="'#'" @click.prevent="goNextAction()"
-               class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all bg-accent/10 text-accent hover:bg-accent/20">
-              <span x-text="scoreActionLabel(overallScore.next_action)"></span>
-              <span class="ml-1">&rarr;</span>
-            </a>
-          </div>
+          <span class="text-xs font-semibold tabular-nums shrink-0" :style="`color:${scoreColor(overallScore.total)}`"
+                x-text="overallScore.total"></span>
+          <span class="text-[11px] text-gray-400 shrink-0 hidden sm:inline" x-text="scoreLabel(overallScore.total)"></span>
+          <a x-show="overallScore.next_action !== 'done'" :href="'#'" @click.prevent.stop="goNextAction()"
+             class="text-[11px] text-accent hover:text-accent-hover font-medium shrink-0 hidden sm:inline">
+            <span x-text="scoreActionLabel(overallScore.next_action)"></span> &rarr;
+          </a>
+          <svg class="w-3.5 h-3.5 text-gray-300 shrink-0 transition-transform" :class="scoreExpanded && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
         </div>
-
-        <!-- Mobile next action -->
-        <div x-show="overallScore.next_action !== 'done'" class="sm:hidden mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
-          <span class="text-[11px] text-gray-400" x-text="t('score_next')"></span>
-          <a :href="'#'" @click.prevent="goNextAction()"
-             class="px-3 py-1.5 rounded-lg text-xs font-medium bg-accent/10 text-accent">
+        <!-- Expanded breakdown -->
+        <div x-show="scoreExpanded" x-collapse x-cloak class="bg-white rounded-xl border border-gray-100 shadow-sm mt-2 p-4">
+          <div class="grid grid-cols-1 sm:grid-cols-5 gap-3">
+            <template x-for="dim in [
+              {key:'profile', max:20, label:t('score_profile')},
+              {key:'knowledge', max:35, label:t('score_knowledge')},
+              {key:'strategy', max:15, label:t('score_strategy')},
+              {key:'assets', max:15, label:t('score_assets')},
+              {key:'brandkit', max:15, label:t('score_brandkit')}
+            ]" :key="dim.key">
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-[11px] text-gray-500" x-text="dim.label"></span>
+                  <span class="text-[10px] text-gray-400 tabular-nums" x-text="overallScore[dim.key] + '/' + dim.max"></span>
+                </div>
+                <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div class="h-full rounded-full transition-all duration-500"
+                       :style="`width:${(overallScore[dim.key]/dim.max)*100}%; background:${scoreColor(overallScore.total)}`"></div>
+                </div>
+              </div>
+            </template>
+          </div>
+          <!-- Mobile CTA -->
+          <a x-show="overallScore.next_action !== 'done'" :href="'#'" @click.prevent="goNextAction()"
+             class="sm:hidden inline-block mt-3 text-[11px] text-accent font-medium">
             <span x-text="scoreActionLabel(overallScore.next_action)"></span> &rarr;
           </a>
         </div>
@@ -238,7 +219,7 @@
   <!-- ====== No LLM Dialog ====== -->
   <div x-show="showNoLLMDialog" x-cloak
        class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm"
-       @click.self="showNoLLMDialog = false">
+      >
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
       <div class="flex items-start gap-3 mb-4">
         <div class="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
@@ -263,7 +244,7 @@
   </div>
 
   <!-- ====== Create Wizard Modal ====== -->
-  <div x-show="wizard.open" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="wizard.open = false" x-transition.opacity>
+  <div x-show="wizard.open" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" x-transition.opacity>
     <div class="bg-white rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col" x-transition.scale.95 @click.stop>
 
       <!-- Header -->
@@ -314,11 +295,15 @@
               <label class="block text-sm font-medium text-gray-700 mb-1.5"><span x-text="t('desc_label')"></span> <span class="text-xs text-gray-400 font-normal" x-text="t('desc_hint')"></span></label>
               <div class="space-y-3">
 
-                <!-- Text input -->
+                <!-- Text input (primary) -->
                 <div>
-                  <div class="text-xs text-gray-500 mb-1" x-text="t('text_input')"></div>
-                  <textarea x-model="wizard.descText" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none resize-none"
+                  <div class="flex items-center gap-2 mb-1">
+                    <span class="text-xs text-gray-500" x-text="t('text_input')"></span>
+                    <span class="text-[10px] bg-green-50 text-green-600 px-1.5 py-0.5 rounded font-medium" x-text="t('recommended')"></span>
+                  </div>
+                  <textarea x-model="wizard.descText" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none resize-none"
                             :placeholder="t('text_placeholder')"></textarea>
+                  <p class="text-[11px] text-gray-400 mt-1" x-text="t('paste_tip')"></p>
                 </div>
 
                 <!-- URL import -->
@@ -341,6 +326,7 @@
                     </div>
                     <span x-text="wizard.descUrlText.slice(0, 200) + (wizard.descUrlText.length > 200 ? '...' : '')"></span>
                   </div>
+                  <p x-show="wizard.descUrlText" class="text-[11px] text-amber-500 mt-1" x-text="t('url_quality_hint')"></p>
                 </div>
 
                 <!-- File upload -->
@@ -645,10 +631,6 @@
             next_action: this.companyScore.next_action,
           };
         },
-
-        // SVG ring helpers (radius 40, circumference 251.3)
-        ringCircum: 251.3,
-        ringOffset(score) { return this.ringCircum - (this.ringCircum * score / 100); },
 
         goNextAction() {
           if (!this.offers.length) { this.openWizard(); return; }

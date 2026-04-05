@@ -121,19 +121,42 @@ def _extract_pdf_text(content: bytes) -> str:
     return "\n".join(parts)
 
 
+def _clean_markdown(text: str) -> str:
+    """Strip markdown cruft from Jina Reader output to get clean text."""
+    import re
+    # Remove metadata header (Title:, URL Source:, Published Time:, Markdown Content:)
+    text = re.sub(r"^(Title|URL Source|Published Time|Markdown Content):.*$", "", text, flags=re.MULTILINE)
+    # Remove image references: ![...](...)  or [![...](...)...]
+    text = re.sub(r"!?\[(?:Image \d+[:\s]*)?[^\]]*\]\([^)]*\)", "", text)
+    # Remove remaining markdown links but keep text: [text](url) → text
+    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
+    # Remove markdown headers syntax
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+    # Remove bold/italic markers
+    text = re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", text)
+    # Remove horizontal rules
+    text = re.sub(r"^[-*_]{3,}\s*$", "", text, flags=re.MULTILINE)
+    # Collapse excessive whitespace
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    return text.strip()
+
+
 async def _extract_url_text(url: str) -> str:
     """Extract text from a URL using Jina Reader (handles JS-rendered SPA pages)."""
     import re
     jina_url = f"https://r.jina.ai/{url}"
+    jina_error = None
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=45) as client:
             resp = await client.get(jina_url, headers={"Accept": "text/plain"})
             resp.raise_for_status()
-            text = resp.text.strip()
+            text = _clean_markdown(resp.text)
             if text:
                 return text
-    except Exception:
-        logger.warning("Jina Reader failed for %s, falling back to direct fetch", url)
+    except Exception as e:
+        jina_error = str(e)
+        logger.warning("Jina Reader failed for %s: %s, falling back to direct fetch", url, jina_error)
 
     # Fallback: direct fetch + strip tags
     try:
@@ -143,11 +166,21 @@ async def _extract_url_text(url: str) -> str:
     except Exception as e:
         raise HTTPException(400, f"Unable to access URL: {e}")
 
-    text = resp.content.decode("utf-8", errors="ignore")
-    text = re.sub(r"<script[^>]*>[\s\S]*?</script>", "", text)
+    raw = resp.content.decode("utf-8", errors="ignore")
+    text = re.sub(r"<script[^>]*>[\s\S]*?</script>", "", raw)
     text = re.sub(r"<style[^>]*>[\s\S]*?</style>", "", text)
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
+
+    # If extracted text is too short, the page likely requires JS rendering
+    # and direct fetch only got an empty shell. Fail with a clear message.
+    if len(text) < 200:
+        raise HTTPException(
+            400,
+            "This page returned very little text content — it likely requires "
+            "JavaScript to render. Please copy and paste the page content directly.",
+        )
+
     return text
 
 

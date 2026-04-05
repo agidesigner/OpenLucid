@@ -379,7 +379,7 @@
   <div id="topic-picker-mount"></div>
 
   <!-- Edit Unit Modal -->
-  <div x-show="showEditUnit" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showEditUnit = false" x-transition.opacity>
+  <div x-show="showEditUnit" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" x-transition.opacity>
     <div class="bg-white rounded-2xl w-full max-w-lg shadow-2xl" x-transition.scale.95 @click.stop>
       <div class="px-6 py-4 border-b flex items-center justify-between">
         <h3 class="font-semibold text-gray-800" x-text="t('edit_unit_title')"></h3>
