@@ -18,6 +18,8 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-}
     restart: unless-stopped
     ports:
       - "${APP_PORT:-80}:8000"
