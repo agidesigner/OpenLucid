@@ -205,15 +205,34 @@ async def check_version():
                         latest = tags[0]["name"].lstrip("v")
                         result["latest"] = latest
                         result["release_url"] = f"https://github.com/{REPO}"
-
-            # Compare versions semantically
-            if result["latest"] and current:
-                try:
-                    result["update_available"] = Version(result["latest"]) > Version(current)
-                except InvalidVersion:
-                    result["update_available"] = result["latest"] != current
     except Exception:
-        result["check_failed"] = True
+        pass
+
+    # Fallback: fetch git smart HTTP refs (works when API is blocked but git clone isn't)
+    if not result["latest"]:
+        try:
+            import re
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(
+                    f"https://github.com/{REPO}.git/info/refs?service=git-upload-pack",
+                )
+                if resp.status_code == 200:
+                    tags = re.findall(r"refs/tags/(v[\d.]+)\n", resp.text)
+                    if tags:
+                        # Sort semantically, pick highest
+                        tags.sort(key=lambda t: Version(t.lstrip("v")), reverse=True)
+                        latest = tags[0].lstrip("v")
+                        result["latest"] = latest
+                        result["release_url"] = f"https://github.com/{REPO}"
+        except Exception:
+            pass
+
+    # Compare versions semantically
+    if result["latest"] and current:
+        try:
+            result["update_available"] = Version(result["latest"]) > Version(current)
+        except InvalidVersion:
+            result["update_available"] = result["latest"] != current
 
     if not result["latest"]:
         result["check_failed"] = True
