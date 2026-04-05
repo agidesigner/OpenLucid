@@ -147,42 +147,62 @@ async def delete_mcp_token(token_id: uuid.UUID, db: AsyncSession = Depends(get_d
 
 @router.get("/version")
 async def check_version():
-    """Return current version and check GitHub for latest."""
-    import re
+    """Return current version and check GitHub for latest.
+    Uses git tags as source of truth — no need to manually update VERSION."""
+    import subprocess
     import httpx
-    from app.config import VERSION
+    from packaging.version import Version, InvalidVersion
 
     REPO = "agidesigner/OpenLucid"
-    result = {"current": VERSION, "latest": None, "update_available": False, "release_url": None, "release_notes": None}
+
+    # Get current version from local git tag (most recent reachable tag)
+    try:
+        current = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip().lstrip("v") or None
+    except Exception:
+        current = None
+    if not current:
+        from app.config import VERSION
+        current = VERSION
+
+    result = {"current": current, "latest": None, "update_available": False, "release_url": None, "release_notes": None}
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            # Try releases first (preferred — has release notes)
+            # Try releases first (has release notes)
             resp = await client.get(
                 f"https://api.github.com/repos/{REPO}/releases/latest",
                 headers={"Accept": "application/vnd.github+json"},
             )
             if resp.status_code == 200:
                 data = resp.json()
-                latest_tag = data.get("tag_name", "").lstrip("v")
-                result["latest"] = latest_tag
-                result["update_available"] = latest_tag != VERSION
+                latest = data.get("tag_name", "").lstrip("v")
+                result["latest"] = latest
                 result["release_url"] = data.get("html_url")
                 result["release_notes"] = data.get("body", "")[:500]
             else:
-                # No releases — read VERSION from config.py on main branch
+                # No releases — get latest tag from GitHub API
                 resp2 = await client.get(
-                    f"https://raw.githubusercontent.com/{REPO}/main/app/config.py",
+                    f"https://api.github.com/repos/{REPO}/tags?per_page=1",
+                    headers={"Accept": "application/vnd.github+json"},
                 )
                 if resp2.status_code == 200:
-                    match = re.search(r'VERSION\s*=\s*["\']([^"\']+)', resp2.text)
-                    if match:
-                        remote_version = match.group(1)
-                        result["latest"] = remote_version
-                        result["update_available"] = remote_version != VERSION
+                    tags = resp2.json()
+                    if tags:
+                        latest = tags[0]["name"].lstrip("v")
+                        result["latest"] = latest
                         result["release_url"] = f"https://github.com/{REPO}"
+
+            # Compare versions semantically
+            if result["latest"] and current:
+                try:
+                    result["update_available"] = Version(result["latest"]) > Version(current)
+                except InvalidVersion:
+                    result["update_available"] = result["latest"] != current
     except Exception:
-        pass  # Network error — silently return current version only
+        pass
 
     return result
 

@@ -722,8 +722,8 @@
                 <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2" x-text="t('update_how')"></div>
                 <p class="text-sm text-gray-500 mb-2" x-text="t('update_how_desc')"></p>
                 <div class="relative">
-                  <pre class="bg-gray-900 text-green-300 text-sm font-mono p-4 rounded-xl pr-20 overflow-x-auto">cd OpenLucid/docker && bash upgrade.sh</pre>
-                  <button @click="copyText('cd OpenLucid/docker && bash upgrade.sh'); upgradeCopied=true; setTimeout(()=>upgradeCopied=false, 2000)"
+                  <pre class="bg-gray-900 text-green-300 text-sm font-mono p-4 rounded-xl pr-20 overflow-x-auto">cd OpenLucid/docker && git -C .. pull && docker compose up --build -d</pre>
+                  <button @click="copyText('cd OpenLucid/docker && git -C .. pull && docker compose up --build -d'); upgradeCopied=true; setTimeout(()=>upgradeCopied=false, 2000)"
                           class="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors"
                           :class="upgradeCopied ? 'bg-green-500 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'">
                     <span x-text="upgradeCopied ? t('update_copied') : t('btn_copy')"></span>
