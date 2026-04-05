@@ -701,11 +701,15 @@
 
               <!-- Status badge -->
               <div x-show="versionChecked && !updateChecking">
-                <div x-show="!updateAvailable" class="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-100 rounded-xl">
+                <div x-show="checkFailed" class="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl">
+                  <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 11-12.728 0M12 9v4"/></svg>
+                  <span class="text-sm text-gray-500" x-text="t('update_check_failed')"></span>
+                </div>
+                <div x-show="!checkFailed && !updateAvailable" class="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-100 rounded-xl">
                   <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                   <span class="text-sm text-green-700" x-text="t('update_up_to_date')"></span>
                 </div>
-                <div x-show="updateAvailable" class="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-100 rounded-xl">
+                <div x-show="!checkFailed && updateAvailable" class="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-100 rounded-xl">
                   <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                   <span class="text-sm text-amber-700" x-text="t('update_available')"></span>
                 </div>
@@ -1045,6 +1049,7 @@
         updateAvailable: false,
         updateChecking: false,
         versionChecked: false,
+        checkFailed: false,
         upgradeCopied: false,
 
         // Model fetch state
@@ -1070,15 +1075,17 @@
 
         async checkUpdate() {
           this.updateChecking = true;
+          this.checkFailed = false;
           try {
             const res = await fetch('/api/v1/settings/version');
             if (res.ok) {
               const data = await res.json();
               this.versionInfo = data;
               this.updateAvailable = data.update_available;
+              this.checkFailed = !!data.check_failed;
               this.versionChecked = true;
             }
-          } catch(e) { console.error('Version check failed', e); }
+          } catch(e) { console.error('Version check failed', e); this.checkFailed = true; this.versionChecked = true; }
           finally { this.updateChecking = false; }
         },
 
@@ -1089,6 +1096,7 @@
               const data = await res.json();
               this.versionInfo = data;
               this.updateAvailable = data.update_available;
+              this.checkFailed = !!data.check_failed;
               this.versionChecked = true;
             }
           } catch {}

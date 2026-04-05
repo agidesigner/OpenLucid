@@ -176,10 +176,10 @@ async def check_version():
         from app.config import VERSION
         current = VERSION
 
-    result = {"current": current, "latest": None, "update_available": False, "release_url": None, "release_notes": None}
+    result = {"current": current, "latest": None, "update_available": False, "check_failed": False, "release_url": None, "release_notes": None}
 
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=15) as client:
             # Try releases first (has release notes)
             resp = await client.get(
                 f"https://api.github.com/repos/{REPO}/releases/latest",
@@ -211,7 +211,10 @@ async def check_version():
                 except InvalidVersion:
                     result["update_available"] = result["latest"] != current
     except Exception:
-        pass
+        result["check_failed"] = True
+
+    if not result["latest"]:
+        result["check_failed"] = True
 
     return result
 
