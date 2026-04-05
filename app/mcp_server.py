@@ -255,11 +255,18 @@ async def list_knowledge(
 async def search_assets(
     scope_type: str,
     scope_id: str,
+    q: str = "",
+    tags: str = "",
+    asset_type: str = "",
     page: int = 1,
     page_size: int = 20,
 ) -> str:
-    """Search/list assets for a merchant or offer. scope_type: merchant | offer.
-    Each item includes a preview_url for viewing the file."""
+    """Search assets for a merchant or offer. scope_type: merchant | offer.
+    q: fuzzy search across filename, title, and tag values (e.g. q='logo' matches '品牌Logo').
+    tags: exact tag value match, comma-separated (e.g. tags='品牌标识,宣传物料').
+    asset_type: filter by type (e.g. 'image', 'video', 'document').
+    Tip: use q for keyword search, tags for precise filtering.
+    Each item includes a preview_url for viewing/downloading the file."""
     from app.adapters.storage import LocalStorageAdapter
     from app.application.asset_service import AssetService
     from app.schemas.asset import AssetResponse
@@ -267,7 +274,11 @@ async def search_assets(
     async with _session_factory() as session:
         storage = LocalStorageAdapter()
         svc = AssetService(session, storage)
-        items, total = await svc.list(
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+        items, total = await svc.search(
+            q=q or None,
+            tags=tag_list,
+            asset_type=asset_type or None,
             scope_type=scope_type,
             scope_id=uuid.UUID(scope_id),
             page=page,
