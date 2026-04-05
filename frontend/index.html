@@ -131,7 +131,7 @@
           <svg class="w-3.5 h-3.5 text-gray-300 shrink-0 transition-transform" :class="scoreExpanded && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
         </div>
         <!-- Expanded breakdown -->
-        <div x-show="scoreExpanded" x-collapse x-cloak class="bg-white rounded-xl border border-gray-100 shadow-sm mt-2 p-4">
+        <div x-show="scoreExpanded" x-cloak x-transition class="bg-white rounded-xl border border-gray-100 shadow-sm mt-2 p-4">
           <div class="grid grid-cols-1 sm:grid-cols-5 gap-3">
             <template x-for="dim in [
               {key:'profile', max:20, label:t('score_profile')},

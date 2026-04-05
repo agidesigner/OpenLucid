@@ -790,13 +790,8 @@
                       <div class="text-xs text-gray-400" x-text="offerBrandKit.description || t('no_description')"></div>
                     </div>
                   </div>
-                  <div class="flex items-center gap-2">
-                    <span class="text-[11px] px-2 py-0.5 rounded-full font-medium"
-                          :class="offerBrandKit.status === 'active' ? 'bg-green-50 text-green-600' : 'bg-yellow-50 text-yellow-600'"
-                          x-text="{draft: t('bk_draft'), active: t('bk_active'), archived: t('bk_archived')}[offerBrandKit.status] || offerBrandKit.status"></span>
-                    <a :href="'/brandkit.html?id=' + offerBrandKit.id"
-                       class="text-sm text-accent hover:text-accent-hover font-medium" x-text="t('tab_brandkit') + ' &rarr;'"></a>
-                  </div>
+                  <a :href="'/brandkit.html?id=' + offerBrandKit.id"
+                     class="text-sm text-accent hover:text-accent-hover font-medium" x-text="t('tab_brandkit') + ' &rarr;'"></a>
                 </div>
                 <!-- Summary of profile fields -->
                 <div class="grid grid-cols-2 gap-3 text-sm">
