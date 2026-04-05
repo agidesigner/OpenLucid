@@ -474,6 +474,8 @@ async def run_app(
       - generate: Generate structured topic plans.
         Optional: strategy_unit_id, count (via word_count param, default 5).
         Returns: list of topic plans with title, angle, hook, key_points.
+
+    goal must be one of: reach_growth, lead_generation, conversion, education, traffic_redirect, other.
     """
     oid = uuid.UUID(offer_id)
     suid = uuid.UUID(strategy_unit_id) if strategy_unit_id else None
@@ -676,9 +678,9 @@ async def content_brief(offer_id: str, channel: str = "general", language: str =
     return (
         f"I need a content brief for offer ID {offer_id} targeting the '{channel}' channel "
         f"in {language}. Please:\n"
-        "1. First attach or read the offer://{offer_id}/context resource to understand the product.\n"
+        "1. First call get_offer_context_summary to understand the product.\n"
         "2. Summarize the offer's positioning, audiences, and key selling points.\n"
-        "3. Call generate_topic_plans to get 5 topic ideas for this offer and channel.\n"
+        "3. Call run_app(app_id='topic_studio', action='generate', offer_id=...) to get 5 topic ideas.\n"
         "4. For each topic, explain why it fits the target audience and channel.\n"
         "5. Recommend which topic to prioritize and outline next steps."
     )

@@ -421,29 +421,51 @@
             <h2 class="text-lg font-semibold text-gray-900 mb-1" x-text="t('mcp_title')"></h2>
             <p class="text-sm text-gray-500 mb-6" x-text="t('mcp_subtitle')"></p>
 
-            <!-- Status -->
+            <!-- 1. Connect -->
             <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-4">
               <div class="flex items-center gap-2 mb-1">
                 <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
-                <span class="text-sm font-medium text-gray-800" x-text="t('mcp_status_running')"></span>
+                <h3 class="text-sm font-semibold text-gray-800" x-text="t('mcp_connect_title')"></h3>
               </div>
-              <p class="text-xs text-gray-400" x-text="t('mcp_status_hint')"></p>
-            </div>
+              <p class="text-xs text-gray-400 mb-4" x-text="t('mcp_connect_subtitle')"></p>
 
-            <!-- SSE Endpoint -->
-            <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-4">
-              <label class="block text-xs font-medium text-gray-500 mb-2" x-text="t('mcp_endpoint_label')"></label>
-              <div class="flex items-center gap-2">
-                <code class="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 font-mono truncate"
-                      x-text="mcpEndpoint"></code>
-                <button @click="copyText(mcpEndpoint); copiedField='endpoint'; setTimeout(()=>copiedField='', 2000)"
-                        class="shrink-0 border border-gray-200 text-gray-600 px-3 py-2.5 rounded-xl text-xs hover:bg-gray-50 transition-colors">
-                  <span x-text="copiedField==='endpoint' ? t('mcp_copied') : t('btn_copy')"></span>
+              <!-- CLI command -->
+              <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2" x-text="t('mcp_connect_cli')"></label>
+              <div class="bg-gray-900 text-green-300 text-xs font-mono p-3 rounded-xl overflow-auto whitespace-pre-wrap mb-1" x-text="mcpCliTemplate"></div>
+              <div class="flex items-center justify-between mb-1">
+                <button @click="copyText(mcpCliTemplate); copiedField='cli'; setTimeout(()=>copiedField='', 2000)"
+                        class="text-xs text-accent hover:text-accent-hover font-medium transition-colors">
+                  <span x-text="copiedField==='cli' ? t('mcp_copied') : t('mcp_copy_command')"></span>
+                </button>
+                <p x-show="mcpHasAuth && !newTokenValue" class="text-[11px] text-amber-600" x-text="t('mcp_auth_token_hint')"></p>
+              </div>
+              <p class="text-[11px] text-gray-400 mb-4" x-text="t('mcp_connect_cli_hint')"></p>
+
+              <!-- JSON config -->
+              <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2" x-text="t('mcp_connect_json')"></label>
+              <pre class="bg-gray-900 text-green-300 text-xs leading-relaxed font-mono p-3 rounded-xl overflow-auto whitespace-pre mb-1" x-text="mcpConfigJson"></pre>
+              <div class="flex items-center justify-between mb-5">
+                <button @click="copyText(mcpConfigJson); copiedField='json'; setTimeout(()=>copiedField='', 2000)"
+                        class="text-xs text-accent hover:text-accent-hover font-medium transition-colors">
+                  <span x-text="copiedField==='json' ? t('mcp_copied') : t('mcp_copy_config')"></span>
                 </button>
               </div>
+
+              <!-- Compatibility -->
+              <div class="flex items-start gap-2 bg-blue-50 border border-blue-100 rounded-xl p-3">
+                <svg class="w-4 h-4 text-blue-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                <div>
+                  <p class="text-xs text-gray-700 mb-1.5" x-text="t('mcp_compat_note')"></p>
+                  <div class="flex flex-wrap gap-1.5">
+                    <template x-for="name in compatClients" :key="name">
+                      <span class="text-[11px] font-medium text-blue-700 bg-blue-100/60 px-2 py-0.5 rounded-md" x-text="name"></span>
+                    </template>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <!-- Access Tokens -->
+            <!-- 2. Access Tokens -->
             <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-4">
               <div class="flex items-center justify-between mb-1">
                 <h3 class="text-sm font-semibold text-gray-800" x-text="t('mcp_tokens_title')"></h3>
@@ -512,162 +534,7 @@
               </button>
             </div>
 
-            <!-- Quick Start Guide — tabbed -->
-            <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-4">
-              <h3 class="text-sm font-semibold text-gray-800 mb-3" x-text="t('mcp_guide_title')"></h3>
-
-              <!-- Tab bar -->
-              <div class="flex gap-1 mb-4 bg-gray-100 rounded-xl p-1 w-fit">
-                <button @click="mcpTab='claude-code'"
-                        class="px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all"
-                        :class="mcpTab==='claude-code' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'">
-                  Claude Code
-                </button>
-                <button @click="mcpTab='openclaw'"
-                        class="px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all"
-                        :class="mcpTab==='openclaw' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
-                        x-text="t('mcp_tab_openclaw')">
-                </button>
-                <button @click="mcpTab='other'"
-                        class="px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all"
-                        :class="mcpTab==='other' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
-                        x-text="t('mcp_tab_other')">
-                </button>
-              </div>
-
-              <!-- Claude Code guide -->
-              <div x-show="mcpTab==='claude-code'" class="space-y-4">
-                <!-- Step 1 -->
-                <div class="flex gap-3">
-                  <div class="w-5 h-5 rounded-full bg-accent text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">1</div>
-                  <div class="flex-1">
-                    <p class="text-sm font-medium text-gray-800 mb-1" x-text="t('mcp_cc_step1_title')"></p>
-                    <p class="text-xs text-gray-500 mb-2" x-text="t('mcp_cc_step1_desc')"></p>
-                    <div class="bg-gray-900 text-green-300 text-xs font-mono p-3 rounded-xl overflow-auto whitespace-pre-wrap" x-text="mcpCliCmd('claude')"></div>
-                    <button @click="copyText(mcpCliCmd('claude')); copiedField='cc-cmd'; setTimeout(()=>copiedField='', 2000)"
-                            class="mt-2 text-xs text-accent hover:text-accent-hover font-medium transition-colors">
-                      <span x-text="copiedField==='cc-cmd' ? t('mcp_copied') : t('mcp_copy_command')"></span>
-                    </button>
-                    <p x-show="mcpHasAuth && !newTokenValue" class="mt-1.5 text-[11px] text-amber-600" x-text="t('mcp_auth_replace_hint')"></p>
-                  </div>
-                </div>
-                <!-- Step 2 -->
-                <div class="flex gap-3">
-                  <div class="w-5 h-5 rounded-full bg-accent text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</div>
-                  <div class="flex-1">
-                    <p class="text-sm font-medium text-gray-800 mb-1" x-text="t('mcp_cc_step2_title')"></p>
-                    <p class="text-xs text-gray-500 mb-2" x-text="t('mcp_cc_step2_desc')"></p>
-                    <pre class="bg-gray-900 text-green-300 text-xs leading-relaxed font-mono p-3 rounded-xl overflow-auto whitespace-pre" x-text="mcpConfigJson"></pre>
-                    <button @click="copyText(mcpConfigJson); copiedField='cc-json'; setTimeout(()=>copiedField='', 2000)"
-                            class="mt-2 text-xs text-accent hover:text-accent-hover font-medium transition-colors">
-                      <span x-text="copiedField==='cc-json' ? t('mcp_copied') : t('mcp_copy_config')"></span>
-                    </button>
-                  </div>
-                </div>
-                <!-- Step 3 -->
-                <div class="flex gap-3">
-                  <div class="w-5 h-5 rounded-full bg-accent text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">3</div>
-                  <div class="flex-1">
-                    <p class="text-sm font-medium text-gray-800 mb-1" x-text="t('mcp_cc_step3_title')"></p>
-                    <p class="text-xs text-gray-500" x-text="t('mcp_cc_step3_desc')"></p>
-                  </div>
-                </div>
-              </div>
-
-              <!-- OpenClaw guide -->
-              <div x-show="mcpTab==='openclaw'" class="space-y-4">
-                <!-- Step 1: CLI -->
-                <div class="flex gap-3">
-                  <div class="w-5 h-5 rounded-full bg-accent text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">1</div>
-                  <div class="flex-1">
-                    <p class="text-sm font-medium text-gray-800 mb-1" x-text="t('mcp_oc_cli_title')"></p>
-                    <p class="text-xs text-gray-500 mb-2" x-text="t('mcp_oc_cli_desc')"></p>
-                    <div class="bg-gray-900 text-green-300 text-xs font-mono p-3 rounded-xl overflow-auto whitespace-pre-wrap" x-text="mcpCliCmd('openclaw')"></div>
-                    <button @click="copyText(mcpCliCmd('openclaw')); copiedField='oc-cmd'; setTimeout(()=>copiedField='', 2000)"
-                            class="mt-2 text-xs text-accent hover:text-accent-hover font-medium transition-colors">
-                      <span x-text="copiedField==='oc-cmd' ? t('mcp_copied') : t('mcp_copy_command')"></span>
-                    </button>
-                    <p x-show="mcpHasAuth && !newTokenValue" class="mt-1.5 text-[11px] text-amber-600" x-text="t('mcp_auth_replace_hint')"></p>
-                  </div>
-                </div>
-                <!-- Step 2: GUI -->
-                <div class="flex gap-3">
-                  <div class="w-5 h-5 rounded-full bg-accent text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</div>
-                  <div class="flex-1">
-                    <p class="text-sm font-medium text-gray-800 mb-1" x-text="t('mcp_oc_gui_title')"></p>
-                    <p class="text-xs text-gray-500 mb-2" x-text="t('mcp_oc_gui_desc')"></p>
-                    <div class="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-2">
-                      <div>
-                        <span class="text-[11px] text-gray-400 font-medium">Name</span>
-                        <p class="text-xs text-gray-700 font-mono">openlucid</p>
-                      </div>
-                      <div>
-                        <span class="text-[11px] text-gray-400 font-medium">Type</span>
-                        <p class="text-xs text-gray-700 font-mono">SSE</p>
-                      </div>
-                      <div>
-                        <span class="text-[11px] text-gray-400 font-medium">URL</span>
-                        <p class="text-xs text-gray-700 font-mono" x-text="mcpEndpoint"></p>
-                      </div>
-                      <div x-show="mcpHasAuth">
-                        <span class="text-[11px] text-gray-400 font-medium">Authorization</span>
-                        <p class="text-xs text-gray-700 font-mono">Bearer <span x-text="mcpTokenPlaceholder"></span></p>
-                      </div>
-                    </div>
-                    <p x-show="mcpHasAuth && !newTokenValue" class="mt-1.5 text-[11px] text-amber-600" x-text="t('mcp_auth_replace_hint')"></p>
-                  </div>
-                </div>
-                <!-- Step 3 -->
-                <div class="flex gap-3">
-                  <div class="w-5 h-5 rounded-full bg-accent text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">3</div>
-                  <div class="flex-1">
-                    <p class="text-sm font-medium text-gray-800 mb-1" x-text="t('mcp_oc_step3_title')"></p>
-                    <p class="text-xs text-gray-500" x-text="t('mcp_oc_step3_desc')"></p>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Other Agent guide -->
-              <div x-show="mcpTab==='other'" class="space-y-4">
-                <p class="text-xs text-gray-500" x-text="t('mcp_other_intro')"></p>
-                <!-- Connection info -->
-                <div class="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-2">
-                  <div>
-                    <span class="text-[11px] text-gray-400 font-medium">Transport</span>
-                    <p class="text-xs text-gray-700 font-mono">SSE (Server-Sent Events)</p>
-                  </div>
-                  <div>
-                    <span class="text-[11px] text-gray-400 font-medium">Endpoint</span>
-                    <p class="text-xs text-gray-700 font-mono" x-text="mcpEndpoint"></p>
-                  </div>
-                  <div>
-                    <span class="text-[11px] text-gray-400 font-medium">Protocol</span>
-                    <p class="text-xs text-gray-700 font-mono">MCP (Model Context Protocol) 2024-11-05</p>
-                  </div>
-                  <div>
-                    <span class="text-[11px] text-gray-400 font-medium" x-text="t('mcp_other_auth_label')"></span>
-                    <p class="text-xs text-gray-700" x-text="mcpTokens.length ? t('mcp_other_auth_bearer') : t('mcp_other_auth_none')"></p>
-                  </div>
-                </div>
-                <!-- Example config JSON -->
-                <div>
-                  <p class="text-xs text-gray-500 mb-2" x-text="t('mcp_other_json_desc')"></p>
-                  <pre class="bg-gray-900 text-green-300 text-xs leading-relaxed font-mono p-3 rounded-xl overflow-auto whitespace-pre" x-text="mcpConfigJson"></pre>
-                  <button @click="copyText(mcpConfigJson); copiedField='other-json'; setTimeout(()=>copiedField='', 2000)"
-                          class="mt-2 text-xs text-accent hover:text-accent-hover font-medium transition-colors">
-                    <span x-text="copiedField==='other-json' ? t('mcp_copied') : t('mcp_copy_config')"></span>
-                  </button>
-                  <p x-show="mcpHasAuth && !newTokenValue" class="mt-1.5 text-[11px] text-amber-600" x-text="t('mcp_auth_replace_hint')"></p>
-                </div>
-                <!-- Compatibility note -->
-                <div class="flex items-start gap-2 bg-blue-50 border border-blue-100 rounded-xl p-3">
-                  <svg class="w-4 h-4 text-blue-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                  <p class="text-xs text-blue-700" x-text="t('mcp_other_compat')"></p>
-                </div>
-              </div>
-            </div>
-
-            <!-- Prompt Tips -->
+            <!-- 3. System Prompt -->
             <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-4" x-init="loadPromptContext()">
               <div class="flex items-center justify-between mb-1">
                 <h3 class="text-sm font-semibold text-gray-800" x-text="t('mcp_tips_title')"></h3>
@@ -682,7 +549,7 @@
               <p class="text-xs text-gray-400 mb-4" x-text="t('mcp_tips_subtitle')"></p>
 
               <!-- Generated prompt preview -->
-              <div class="relative bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5">
+              <div class="relative bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4">
                 <div x-show="promptLoading" class="flex items-center gap-2 py-1">
                   <svg class="w-3.5 h-3.5 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
                   <span class="text-xs text-gray-400" x-text="t('mcp_tip1_loading')"></span>
@@ -690,82 +557,87 @@
                 <pre x-show="!promptLoading" class="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed" x-text="generatedPrompt"></pre>
               </div>
 
-              <!-- Explanation: 4 tips -->
-              <div class="border-t border-gray-100 pt-4">
-                <p class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3" x-text="t('mcp_tips_breakdown')"></p>
-
-                <!-- Tip 1: Role Setting -->
-                <div class="mb-3">
-                  <div class="flex items-center gap-2 mb-1">
+              <!-- Collapsible breakdown -->
+              <div x-data="{ open: false }">
+                <button @click="open = !open" class="flex items-center gap-1.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600 transition-colors">
+                  <svg class="w-3 h-3 transition-transform" :class="open && 'rotate-90'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                  <span x-text="t('mcp_tips_breakdown')"></span>
+                </button>
+                <div x-show="open" x-transition class="mt-3 space-y-3">
+                  <div class="flex items-start gap-2.5">
                     <span class="w-5 h-5 rounded-full bg-amber-100 text-amber-600 text-[11px] font-bold flex items-center justify-center shrink-0">1</span>
-                    <p class="text-sm font-medium text-gray-800" x-text="t('mcp_tip1_title')"></p>
+                    <div>
+                      <p class="text-xs font-medium text-gray-700" x-text="t('mcp_tip1_title')"></p>
+                      <p class="text-[11px] text-gray-400" x-text="t('mcp_tip1_desc')"></p>
+                    </div>
                   </div>
-                  <p class="text-xs text-gray-500 ml-7" x-text="t('mcp_tip1_desc')"></p>
-                </div>
-
-                <!-- Tip 2: Recommended Workflow -->
-                <div class="mb-3">
-                  <div class="flex items-center gap-2 mb-1">
+                  <div class="flex items-start gap-2.5">
                     <span class="w-5 h-5 rounded-full bg-blue-100 text-blue-600 text-[11px] font-bold flex items-center justify-center shrink-0">2</span>
-                    <p class="text-sm font-medium text-gray-800" x-text="t('mcp_tip2_title')"></p>
+                    <div>
+                      <p class="text-xs font-medium text-gray-700" x-text="t('mcp_tip2_title')"></p>
+                      <p class="text-[11px] text-gray-400" x-text="t('mcp_tip2_desc')"></p>
+                    </div>
                   </div>
-                  <p class="text-xs text-gray-500 ml-7 mb-2" x-text="t('mcp_tip2_desc')"></p>
-                  <div class="ml-7 flex flex-wrap items-center gap-1.5 text-xs">
-                    <span class="bg-accent/10 text-accent font-medium px-2 py-1 rounded-lg">get_merchant_overview</span>
-                    <span class="text-gray-300">&rarr;</span>
-                    <span class="bg-accent/10 text-accent font-medium px-2 py-1 rounded-lg">get_offer_context_summary</span>
-                    <span class="text-gray-300">&rarr;</span>
-                    <span class="bg-accent/10 text-accent font-medium px-2 py-1 rounded-lg">run_app</span>
-                  </div>
-                </div>
-
-                <!-- Tip 3: Use Prompts -->
-                <div class="mb-3">
-                  <div class="flex items-center gap-2 mb-1">
+                  <div class="flex items-start gap-2.5">
                     <span class="w-5 h-5 rounded-full bg-green-100 text-green-600 text-[11px] font-bold flex items-center justify-center shrink-0">3</span>
-                    <p class="text-sm font-medium text-gray-800" x-text="t('mcp_tip3_title')"></p>
-                  </div>
-                  <div class="ml-7 space-y-1">
-                    <div class="flex items-start gap-2">
-                      <code class="text-xs font-mono text-green-700 bg-green-50 px-1.5 py-0.5 rounded shrink-0">onboard_merchant</code>
-                      <span class="text-xs text-gray-500" x-text="t('mcp_tip3_prompt1')"></span>
+                    <div>
+                      <p class="text-xs font-medium text-gray-700" x-text="t('mcp_tip3_title')"></p>
+                      <div class="mt-1 space-y-0.5">
+                        <div class="flex items-start gap-2">
+                          <code class="text-[11px] font-mono text-green-700 bg-green-50 px-1.5 py-0.5 rounded shrink-0">onboard_merchant</code>
+                          <span class="text-[11px] text-gray-400" x-text="t('mcp_tip3_prompt1')"></span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                          <code class="text-[11px] font-mono text-green-700 bg-green-50 px-1.5 py-0.5 rounded shrink-0">content_brief</code>
+                          <span class="text-[11px] text-gray-400" x-text="t('mcp_tip3_prompt2')"></span>
+                        </div>
+                      </div>
                     </div>
-                    <div class="flex items-start gap-2">
-                      <code class="text-xs font-mono text-green-700 bg-green-50 px-1.5 py-0.5 rounded shrink-0">content_brief</code>
-                      <span class="text-xs text-gray-500" x-text="t('mcp_tip3_prompt2')"></span>
-                    </div>
                   </div>
-                </div>
-
-                <!-- Tip 4: Attach Resources -->
-                <div>
-                  <div class="flex items-center gap-2 mb-1">
+                  <div class="flex items-start gap-2.5">
                     <span class="w-5 h-5 rounded-full bg-purple-100 text-purple-600 text-[11px] font-bold flex items-center justify-center shrink-0">4</span>
-                    <p class="text-sm font-medium text-gray-800" x-text="t('mcp_tip4_title')"></p>
-                  </div>
-                  <div class="ml-7 space-y-1">
-                    <div class="flex items-start gap-2">
-                      <code class="text-xs font-mono text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded shrink-0">merchant://{id}/profile</code>
-                      <span class="text-xs text-gray-500" x-text="t('mcp_tip4_res1')"></span>
-                    </div>
-                    <div class="flex items-start gap-2">
-                      <code class="text-xs font-mono text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded shrink-0">offer://{id}/context</code>
-                      <span class="text-xs text-gray-500" x-text="t('mcp_tip4_res2')"></span>
+                    <div>
+                      <p class="text-xs font-medium text-gray-700" x-text="t('mcp_tip4_title')"></p>
+                      <div class="mt-1 space-y-0.5">
+                        <div class="flex items-start gap-2">
+                          <code class="text-[11px] font-mono text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded shrink-0">merchant://{id}/profile</code>
+                          <span class="text-[11px] text-gray-400" x-text="t('mcp_tip4_res1')"></span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                          <code class="text-[11px] font-mono text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded shrink-0">offer://{id}/context</code>
+                          <span class="text-[11px] text-gray-400" x-text="t('mcp_tip4_res2')"></span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            <!-- Available Tools -->
+            <!-- 4. Capabilities -->
             <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-              <h3 class="text-sm font-semibold text-gray-800 mb-1" x-text="t('mcp_tools_title')"></h3>
-              <p class="text-xs text-gray-400 mb-3" x-text="t('mcp_tools_hint')"></p>
-              <div class="space-y-2">
-                <template x-for="tool in mcpTools" :key="tool.name">
-                  <div class="flex items-start gap-2 py-1.5">
-                    <code class="text-xs font-mono text-accent bg-accent/5 px-1.5 py-0.5 rounded shrink-0" x-text="tool.name"></code>
-                    <span class="text-xs text-gray-500" x-text="tool.desc"></span>
+              <h3 class="text-sm font-semibold text-gray-800 mb-1" x-text="t('mcp_cap_title')"></h3>
+              <p class="text-xs text-gray-400 mb-4" x-text="t('mcp_cap_subtitle')"></p>
+              <div class="space-y-3">
+                <template x-for="group in capabilityGroups" :key="group.key">
+                  <div x-data="{ open: false }">
+                    <button @click="open = !open" class="w-full flex items-center gap-3 py-2 group">
+                      <span class="text-base" x-text="group.icon"></span>
+                      <div class="flex-1 text-left">
+                        <p class="text-sm font-medium text-gray-800" x-text="group.label"></p>
+                        <p class="text-[11px] text-gray-400" x-text="group.desc"></p>
+                      </div>
+                      <span class="text-[11px] text-gray-300 font-mono" x-text="group.tools.length + ' tools'"></span>
+                      <svg class="w-3.5 h-3.5 text-gray-300 transition-transform" :class="open && 'rotate-90'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    </button>
+                    <div x-show="open" x-transition class="ml-8 mb-1 space-y-1.5">
+                      <template x-for="tool in group.tools" :key="tool.name">
+                        <div class="flex items-start gap-2">
+                          <code class="text-[11px] font-mono text-accent bg-accent/5 px-1.5 py-0.5 rounded shrink-0" x-text="tool.name"></code>
+                          <span class="text-[11px] text-gray-400" x-text="tool.desc"></span>
+                        </div>
+                      </template>
+                    </div>
                   </div>
                 </template>
               </div>
@@ -954,7 +826,6 @@
 
     function mcpSection() {
       return {
-        mcpTab: 'claude-code',
         copiedField: '',
         mcpTokens: [],
         showTokenForm: false,
@@ -968,6 +839,7 @@
         promptLoaded: false,
 
         mcpEndpoint: `${location.protocol}//${location.host}/mcp/sse`,
+        compatClients: ['Claude Code', 'Cursor', 'Windsurf', 'Cline', 'Continue', 'Codex', 'OpenClaw', 'Gemini CLI', 'MCP SDK'],
         get mcpHasAuth() {
           return this.mcpTokens.length > 0;
         },
@@ -990,28 +862,38 @@
           }
           return JSON.stringify(config, null, 2);
         },
-        mcpCliCmd(bin) {
-          const base = `${bin} mcp add openlucid --transport sse ${this.mcpEndpoint}`;
+        get mcpCliTemplate() {
+          const base = `claude mcp add openlucid --transport sse ${this.mcpEndpoint}`;
           if (!this.mcpHasAuth) return base;
-          return `${base} --header "Authorization: Bearer ${this.mcpTokenPlaceholder}"`;
+          return `${base} \\\n  --header "Authorization: Bearer ${this.mcpTokenPlaceholder}"`;
         },
-        mcpTools: [
-          { name: 'get_merchant_overview', desc: t('mcp_tool_get_merchant_overview') },
-          { name: 'create_merchant', desc: t('mcp_tool_create_merchant') },
-          { name: 'list_merchants', desc: t('mcp_tool_list_merchants') },
-          { name: 'create_offer', desc: t('mcp_tool_create_offer') },
-          { name: 'list_offers', desc: t('mcp_tool_list_offers') },
-          { name: 'get_brandkit', desc: t('mcp_tool_get_brandkit') },
-          { name: 'add_knowledge_item', desc: t('mcp_tool_add_knowledge_item') },
-          { name: 'list_knowledge', desc: t('mcp_tool_list_knowledge') },
-          { name: 'search_assets', desc: t('mcp_tool_search_assets') },
-          { name: 'get_offer_context_summary', desc: t('mcp_tool_get_offer_context_summary') },
-          { name: 'create_strategy_unit', desc: t('mcp_tool_create_strategy_unit') },
-          { name: 'list_strategy_units', desc: t('mcp_tool_list_strategy_units') },
-          { name: 'link_knowledge_to_strategy_unit', desc: t('mcp_tool_link_knowledge') },
-          { name: 'link_asset_to_strategy_unit', desc: t('mcp_tool_link_asset') },
-          { name: 'list_apps', desc: t('mcp_tool_list_apps') },
-          { name: 'run_app', desc: t('mcp_tool_run_app') },
+        capabilityGroups: [
+          { key: 'insights', icon: '\u{1F4CA}', label: t('mcp_cap_insights'), desc: t('mcp_cap_insights_desc'), tools: [
+            { name: 'get_merchant_overview', desc: t('mcp_tool_get_merchant_overview') },
+            { name: 'get_offer_context_summary', desc: t('mcp_tool_get_offer_context_summary') },
+            { name: 'list_merchants', desc: t('mcp_tool_list_merchants') },
+            { name: 'list_offers', desc: t('mcp_tool_list_offers') },
+          ]},
+          { key: 'knowledge', icon: '\u{1F4DD}', label: t('mcp_cap_knowledge'), desc: t('mcp_cap_knowledge_desc'), tools: [
+            { name: 'add_knowledge_item', desc: t('mcp_tool_add_knowledge_item') },
+            { name: 'list_knowledge', desc: t('mcp_tool_list_knowledge') },
+            { name: 'get_brandkit', desc: t('mcp_tool_get_brandkit') },
+          ]},
+          { key: 'strategy', icon: '\u{1F3AF}', label: t('mcp_cap_strategy'), desc: t('mcp_cap_strategy_desc'), tools: [
+            { name: 'create_strategy_unit', desc: t('mcp_tool_create_strategy_unit') },
+            { name: 'list_strategy_units', desc: t('mcp_tool_list_strategy_units') },
+            { name: 'link_knowledge_to_strategy_unit', desc: t('mcp_tool_link_knowledge') },
+            { name: 'link_asset_to_strategy_unit', desc: t('mcp_tool_link_asset') },
+          ]},
+          { key: 'apps', icon: '\u{1F916}', label: t('mcp_cap_apps'), desc: t('mcp_cap_apps_desc'), tools: [
+            { name: 'list_apps', desc: t('mcp_tool_list_apps') },
+            { name: 'run_app', desc: t('mcp_tool_run_app') },
+          ]},
+          { key: 'manage', icon: '\u{1F4E6}', label: t('mcp_cap_manage'), desc: t('mcp_cap_manage_desc'), tools: [
+            { name: 'create_merchant', desc: t('mcp_tool_create_merchant') },
+            { name: 'create_offer', desc: t('mcp_tool_create_offer') },
+            { name: 'search_assets', desc: t('mcp_tool_search_assets') },
+          ]},
         ],
 
         async loadMcpTokens() {
