@@ -954,7 +954,7 @@
 
         get generatedPrompt() {
           const lang = localStorage.getItem('od_lang') || 'en';
-          const isDefault = !this.promptMerchantName || this.promptMerchantName === '我的工作区';
+          const isDefault = !this.promptMerchantName || this.promptMerchantName === '我的工作区' || this.promptMerchantName === 'My Workspace';
           const company = isDefault
             ? (lang === 'zh' ? '公司' : 'the company')
             : this.promptMerchantName;
