@@ -86,7 +86,7 @@ async def extract_profile(
 ):
     """Extract brand profile fields from a URL or uploaded document via AI."""
     from app.adapters.ai import get_ai_adapter
-    from app.api.ai import _extract_docx_text, _extract_pdf_text, _extract_url_text
+    from app.api.ai import _extract_docx_text, _extract_excel_text, _extract_pdf_text, _extract_url_text
 
     text = ""
     if file and file.filename:
@@ -96,6 +96,8 @@ async def extract_profile(
             text = _extract_pdf_text(content)
         elif filename.endswith((".docx", ".doc")):
             text = _extract_docx_text(content)
+        elif filename.endswith((".xlsx", ".xls")):
+            text = _extract_excel_text(content)
         else:
             text = content.decode("utf-8", errors="ignore")
     elif url:
@@ -113,7 +115,19 @@ async def extract_profile(
         msg = str(e)
         if msg == "NO_LLM_CONFIGURED":
             return {"error": "NO_LLM_CONFIGURED"}
+        logger.error(
+            "extract-profile failed | kit=%s source=%s text_len=%d | %s",
+            kit_id, "file" if (file and file.filename) else url, len(text), e,
+            exc_info=True,
+        )
         return {"error": msg}
+    except Exception as e:
+        logger.error(
+            "extract-profile failed | kit=%s source=%s text_len=%d | %s",
+            kit_id, "file" if (file and file.filename) else url, len(text), e,
+            exc_info=True,
+        )
+        return {"error": f"AI extraction failed: {e}"}
     return profiles
 
 

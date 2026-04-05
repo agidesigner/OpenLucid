@@ -339,7 +339,7 @@
                         <svg class="w-5 h-5 text-gray-300 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
                         <span class="text-xs text-gray-400" x-text="wizard.extracting ? t('extracting') : t('upload_hint')"></span>
                       </div>
-                      <input type="file" class="hidden" accept=".pdf,.docx,.doc,.txt" @change="extractFromFile($event)">
+                      <input type="file" class="hidden" accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.txt" @change="extractFromFile($event)">
                     </label>
                   </div>
                   <div x-show="wizard.descFileText" class="bg-blue-50 border border-blue-100 rounded-lg p-3 text-sm text-gray-600 max-h-28 overflow-y-auto relative">
@@ -362,17 +362,22 @@
         <!-- ── Step 1: AI Inferring ── -->
         <div x-show="wizard.step === 1">
           <!-- Progress -->
-          <div x-show="wizard.inferring" class="py-12">
-            <div class="max-w-sm mx-auto text-center">
+          <div x-show="wizard.inferring" class="py-8">
+            <div class="max-w-md mx-auto text-center">
               <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-purple-100 to-blue-100 flex items-center justify-center">
                 <svg class="w-8 h-8 text-accent animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
               </div>
               <p class="text-sm font-medium text-gray-700 mb-1" x-text="wizard.progressLabel"></p>
-              <p class="text-xs text-gray-400 mb-4" x-text="(aiProvider || 'AI') + t('ai_analyzing_hint')"></p>
+              <p class="text-xs text-gray-400 mb-3" x-text="(aiProvider || 'AI') + t('ai_analyzing_hint')"></p>
               <div class="progress-bar">
                 <div class="progress-fill" :style="'width:' + wizard.progress + '%'"></div>
               </div>
-              <span class="text-xs text-gray-400 mt-1 inline-block" x-text="wizard.progress + '%'"></span>
+              <span class="text-xs text-gray-400 mt-1 inline-block" x-text="Math.round(wizard.progress) + '%'"></span>
+              <!-- Thinking text -->
+              <div x-show="wizard.thinkingText" x-transition class="mt-4 bg-gray-50 rounded-lg p-3 text-left max-h-16 overflow-hidden relative">
+                <p class="text-[11px] text-gray-400 leading-relaxed whitespace-pre-wrap" x-text="wizard.thinkingText"></p>
+                <div class="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-gray-50 to-transparent"></div>
+              </div>
             </div>
           </div>
 
@@ -434,9 +439,9 @@
               <div>
               </div>
             </div>
-            <div class="mt-3" x-show="wizardDesc">
+            <div class="mt-3" x-show="wizard.aiDescription || wizardDesc">
               <span class="text-sm text-gray-400" x-text="t('description')"></span>
-              <div class="text-sm text-gray-600 mt-0.5 line-clamp-3" x-text="wizardDesc"></div>
+              <div class="text-sm text-gray-600 mt-0.5 line-clamp-3" x-text="wizard.aiDescription || wizardDesc"></div>
             </div>
           </div>
           <div class="bg-gray-50 rounded-xl p-5">
@@ -548,7 +553,7 @@
           descText: '', descUrlText: '', descFileText: '', url: '', fileName: '',
           extracting: false,
           inferring: false, progress: 0, progressLabel: '',
-          suggestions: null,
+          suggestions: null, aiDescription: '', thinkingText: '',
           creating: false,
         },
 
@@ -581,7 +586,7 @@
             if (res.ok) {
               const d = await res.json();
               this.aiReady = d.ready;
-              this.aiProvider = d.provider || null;
+              this.aiProvider = d.model || d.provider || null;
             }
           } catch { this.aiReady = false; }
         },
@@ -678,7 +683,7 @@
             descText: '', descUrlText: '', descFileText: '', url: '', fileName: '',
             extracting: false,
             inferring: false, progress: 0, progressLabel: '',
-            suggestions: null,
+            suggestions: null, aiDescription: '', thinkingText: '',
             creating: false,
           };
         },
@@ -714,7 +719,7 @@
           event.target.value = '';
         },
 
-        // ── AI inference with progress ──
+        // ── AI inference with streaming thinking ──
         async startInfer() {
           if (!this.wizard.name.trim()) { alert(t('fill_name')); return; }
           if (!this.wizard.offer_type) { alert(t('select_type')); return; }
@@ -722,30 +727,37 @@
           this.wizard.inferring = true;
           this.wizard.progress = 0;
           this.wizard.suggestions = null;
+          this.wizard.thinkingText = '';
 
-          const steps = [
-            { pct: 15, label: t('progress_analyzing') },
-            { pct: 35, label: t('progress_selling') },
-            { pct: 55, label: t('progress_audience') },
-            { pct: 75, label: t('progress_scenario') },
-            { pct: 90, label: t('progress_faq') },
+          const labels = [
+            { at: 5, label: t('progress_analyzing') },
+            { at: 25, label: t('progress_selling') },
+            { at: 45, label: t('progress_audience') },
+            { at: 65, label: t('progress_scenario') },
+            { at: 80, label: t('progress_faq') },
           ];
 
-          // Start progress animation
-          let stepIdx = 0;
+          // Asymptotic progress: fast start, slows down, never reaches 98%
+          // Formula: progress = 98 * (1 - e^(-t/T))  where T controls speed
+          // T=20s means ~63% at 20s, ~86% at 40s, ~95% at 60s
+          const startTime = Date.now();
+          const T = 20000; // time constant in ms
+          let currentLabelIdx = 0;
           const timer = setInterval(() => {
-            if (stepIdx < steps.length) {
-              this.wizard.progress = steps[stepIdx].pct;
-              this.wizard.progressLabel = steps[stepIdx].label;
-              stepIdx++;
+            const elapsed = Date.now() - startTime;
+            this.wizard.progress = 98 * (1 - Math.exp(-elapsed / T));
+            // Update label based on progress
+            while (currentLabelIdx < labels.length && this.wizard.progress >= labels[currentLabelIdx].at) {
+              this.wizard.progressLabel = labels[currentLabelIdx].label;
+              currentLabelIdx++;
             }
-          }, 1500);
+          }, 300);
 
-          this.wizard.progressLabel = steps[0].label;
-          this.wizard.progress = steps[0].pct;
+          this.wizard.progressLabel = labels[0].label;
+          this.wizard.progress = 1;
 
           try {
-            const res = await fetch(`${API}/ai/infer-offer-knowledge`, {
+            const res = await fetch(`${API}/ai/infer-offer-knowledge-stream`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -754,33 +766,62 @@
                 description: this.wizardDesc,
               }),
             });
-            clearInterval(timer);
 
             if (!res.ok) {
               clearInterval(timer);
               this.wizard.step = 0;
               this.wizard.inferring = false;
-              if (res.status === 503) {
-                this.aiReady = false;
-                this.showNoLLMDialog = true;
-              } else if (res.status === 502) {
+              if (res.status === 503) { this.aiReady = false; this.showNoLLMDialog = true; }
+              else if (res.status === 502) {
                 const err = await res.json().catch(() => ({}));
                 alert(t('ai_llm_error') + (err.detail || ''));
-              } else {
-                alert(t('ai_infer_failed'));
-              }
+              } else { alert(t('ai_infer_failed')); }
               return;
             }
+
+            // Read SSE stream
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let data = null;
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+
+              const lines = buffer.split('\n');
+              buffer = lines.pop();  // keep incomplete line in buffer
+
+              for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                  const evt = JSON.parse(line.slice(6));
+                  if (evt.type === 'thinking') {
+                    // Keep last ~200 chars of thinking for display
+                    this.wizard.thinkingText = (this.wizard.thinkingText + evt.text).slice(-200);
+                    if (this.wizard.progress < 95) this.wizard.progress += 0.2;
+                  } else if (evt.type === 'result') {
+                    data = evt;
+                  } else if (evt.type === 'error') {
+                    throw new Error(evt.detail);
+                  }
+                } catch (e) { if (e.message && !e.message.includes('JSON')) throw e; }
+              }
+            }
+
+            clearInterval(timer);
+            if (!data) throw new Error('No result received');
 
             this.wizard.progress = 100;
             this.wizard.progressLabel = t('done');
 
-            const data = await res.json();
             for (const items of Object.values(data.suggestions))
               for (const item of items) { item._selected = true; item._editing = false; }
 
             await new Promise(r => setTimeout(r, 400));
             this.wizard.suggestions = data.suggestions;
+            if (data.description) this.wizard.aiDescription = data.description;
           } catch {
             clearInterval(timer);
             alert(t('ai_infer_failed'));
@@ -810,7 +851,7 @@
             merchant_id: this.workspace.id,
             name: this.wizard.name,
             offer_type: this.wizard.offer_type,
-            description: this.wizardDesc || null,
+            description: this.wizard.aiDescription || this.wizardDesc || null,
             core_selling_points_json: spItems.length ? { points: spItems.map(i => i.title) } : null,
             target_audience_json: audItems.length ? { items: audItems.map(i => i.title) } : null,
             target_scenarios_json: scnItems.length ? { items: scnItems.map(i => i.title) } : null,

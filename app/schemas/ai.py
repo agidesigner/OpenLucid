@@ -32,6 +32,7 @@ class InferOfferKnowledgeRequest(BaseModel):
 
 class InferOfferKnowledgeResponse(BaseModel):
     offer_name: str
+    description: str | None = None
     suggestions: dict[str, list[InferredKnowledgeItem]]
 
 

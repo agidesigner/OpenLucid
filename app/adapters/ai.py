@@ -733,7 +733,9 @@ Return JSON: {"title": "...", "content_structured": {"key": "value"}, "confidenc
 
         system = """You are an expert marketing analyst. Based on the product/service information provided, generate a comprehensive knowledge base.
 
-Generate 2-4 entries for each of the following 5 categories:
+First, write a cleaned-up product description in the "description" field: remove navigation menus, footers, ads, boilerplate, and irrelevant UI text, but KEEP all product-related details — features, specs, pricing, case studies, customer quotes, competitive advantages. Aim for comprehensive coverage within 2000 characters.
+
+Then generate 2-4 entries for each of the following 5 categories:
 1. selling_point: differentiators, technical highlights, user value
 2. audience: user personas, traits, purchase motivations
 3. scenario: use cases, pain-point scenarios, discovery moments
@@ -742,6 +744,7 @@ Generate 2-4 entries for each of the following 5 categories:
 
 Return strictly valid JSON:
 {
+  "description": "Cleaned product description with all relevant details (up to 2000 chars)...",
   "selling_point": [{"title": "...", "content_raw": "...", "confidence": 0.9}, ...],
   "audience": [...],
   "scenario": [...],
@@ -762,13 +765,17 @@ Rules:
         if user_hint:
             user += f"\nAdditional notes from user: {user_hint}"
 
-        logger.info("Inferring knowledge for offer '%s' via %s", offer_name, self.provider)
+        prompt_len = len(system) + len(user)
+        logger.info("Inferring knowledge for offer '%s' via %s (prompt=%d chars)", offer_name, self.provider, prompt_len)
 
         result = await self._chat(system, user, temperature=0.7)
         try:
             parsed = self._parse_json_response(result)
         except (json.JSONDecodeError, ValueError):
-            logger.error("Failed to parse infer-knowledge response: %s", result[:500])
+            logger.error(
+                "Failed to parse infer-knowledge response | offer=%s model=%s prompt_len=%d response_len=%d | response: %s",
+                offer_name, self.model, prompt_len, len(result), result[:1000],
+            )
             raise ValueError(f"LLM returned unparseable response for offer '{offer_name}'")
 
         # Ensure all expected keys exist
@@ -777,6 +784,77 @@ Rules:
                 parsed[key] = []
 
         return parsed
+
+    async def infer_knowledge_stream(
+        self, offer_data: dict[str, Any], language: str = "zh-CN",
+    ):
+        """Stream version of infer_knowledge. Yields (event_type, data) tuples:
+        - ("thinking", "chunk of thinking text")
+        - ("result", {parsed dict})
+        """
+        import re
+        offer = offer_data.get("offer", {})
+        offer_name = offer.get("name", "Product")
+        knowledge_items = offer_data.get("knowledge_items", [])
+        existing_text = format_existing_knowledge(knowledge_items)
+
+        system = """You are an expert marketing analyst. Based on the product/service information provided, generate a comprehensive knowledge base.
+
+First, write a cleaned-up product description in the "description" field: remove navigation menus, footers, ads, boilerplate, and irrelevant UI text, but KEEP all product-related details — features, specs, pricing, case studies, customer quotes, competitive advantages. Aim for comprehensive coverage within 2000 characters.
+
+Then generate 2-4 entries for each of the following 5 categories:
+1. selling_point: differentiators, technical highlights, user value
+2. audience: user personas, traits, purchase motivations
+3. scenario: use cases, pain-point scenarios, discovery moments
+4. faq: most likely customer questions and answers
+5. objection: common hesitations and how to address them
+
+Return strictly valid JSON:
+{
+  "description": "Cleaned product description with all relevant details (up to 2000 chars)...",
+  "selling_point": [{"title": "...", "content_raw": "...", "confidence": 0.9}, ...],
+  "audience": [...],
+  "scenario": [...],
+  "faq": [...],
+  "objection": [...]
+}
+
+Rules:
+- Each entry must be specific and actionable, not generic
+- confidence: your certainty about the inference (0-1)
+- If existing knowledge entries are provided, fill in missing dimensions without repeating them
+- IMPORTANT: Write all title and content_raw values in the SAME language as the input material. Do NOT translate."""
+
+        user = format_offer_summary(offer_data, language="en") + existing_text
+        logger.info("Streaming infer-knowledge for '%s' via %s", offer_name, self.provider)
+
+        full_text = ""
+        in_think = False
+        async for token in self._chat_stream(system, user, temperature=0.7):
+            full_text += token
+            # Detect <think> blocks and yield thinking chunks
+            if "<think>" in token:
+                in_think = True
+            if in_think:
+                clean = token.replace("<think>", "").replace("</think>", "")
+                if clean.strip():
+                    yield ("thinking", clean)
+            if "</think>" in token:
+                in_think = False
+
+        # Parse the final result
+        try:
+            parsed = self._parse_json_response(full_text)
+        except (json.JSONDecodeError, ValueError):
+            logger.error("Failed to parse streamed infer-knowledge | offer=%s response_len=%d | %s",
+                         offer_name, len(full_text), full_text[:1000])
+            raise ValueError(f"LLM returned unparseable response for offer '{offer_name}'")
+
+        for key in ("selling_point", "audience", "scenario", "faq", "objection"):
+            if key not in parsed:
+                parsed[key] = []
+
+        yield ("result", parsed)
 
     async def extract_brandkit_profiles(self, text: str, language: str = "zh-CN") -> dict[str, Any]:
         # Truncate to ~8000 chars to fit context window
