@@ -112,6 +112,35 @@
         <button @click="openWizard()" class="bg-accent text-white px-4 py-2 rounded-lg text-sm hover:bg-accent-hover" x-text="t('create_offer')"></button>
       </div>
 
+      <!-- Company name banner -->
+      <div x-show="!loading && !dbError && isDefaultName && !nameBannerDismissed" x-cloak
+           class="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
+        <svg class="w-4 h-4 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <template x-if="!editingName">
+          <div class="flex-1 flex items-center gap-2 min-w-0">
+            <p class="text-sm text-amber-800" x-text="t('name_banner_hint')"></p>
+            <button @click="editingName=true; $nextTick(()=>$refs.nameInput?.focus())"
+                    class="text-xs font-medium text-accent hover:text-accent-hover shrink-0" x-text="t('name_banner_set')"></button>
+          </div>
+        </template>
+        <template x-if="editingName">
+          <div class="flex-1 flex items-center gap-2">
+            <input x-ref="nameInput" x-model="newCompanyName" type="text" :placeholder="t('name_banner_placeholder')"
+                   class="flex-1 border border-amber-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 bg-white"
+                   @keydown.enter="saveCompanyName()" @keydown.escape="editingName=false">
+            <button @click="saveCompanyName()" :disabled="!newCompanyName.trim() || savingName"
+                    class="bg-accent text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-accent-hover disabled:opacity-50 transition-colors"
+                    x-text="savingName ? '...' : t('btn_save')"></button>
+            <button @click="editingName=false" class="text-gray-400 hover:text-gray-600">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </template>
+        <button x-show="!editingName" @click="nameBannerDismissed=true" class="text-amber-400 hover:text-amber-600 shrink-0">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
       <!-- Completeness Summary (compact bar) -->
       <div x-show="!loading && !dbError && scoresLoaded" x-cloak x-data="{ scoreExpanded: false }" class="mb-4">
         <!-- Main bar (always visible) -->
@@ -543,6 +572,7 @@
     function app() {
       return {
         workspace: null, offers: [], loading: false, dbError: false,
+        editingName: false, newCompanyName: '', savingName: false, nameBannerDismissed: false,
         companyScore: null, offerScores: {}, scoresLoaded: false,
         aiReady: null, // null=checking, true=ready, false=not configured
         aiProvider: null, // provider name from /ai/status
@@ -571,6 +601,28 @@
           let c = 0;
           for (const items of Object.values(this.wizard.suggestions)) for (const i of items) if (i._selected) c++;
           return c;
+        },
+
+        get isDefaultName() {
+          const n = this.workspace?.name;
+          return !n || n === 'My Workspace' || n === '我的工作区';
+        },
+
+        async saveCompanyName() {
+          if (!this.newCompanyName.trim() || !this.workspace) return;
+          this.savingName = true;
+          try {
+            const res = await fetch(`${API}/merchants/${this.workspace.id}`, {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: this.newCompanyName.trim() }),
+            });
+            if (res.ok) {
+              this.workspace = await res.json();
+              this.editingName = false;
+              this.newCompanyName = '';
+            }
+          } catch {}
+          this.savingName = false;
         },
 
         async init() {
