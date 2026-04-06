@@ -200,14 +200,25 @@ async def limit_body_size(request: Request, call_next):
 
 
 @_fastapi_app.middleware("http")
-async def auth_middleware(request: Request, call_next):
-    # Auto-detect public URL from first real request (behind nginx)
+def _infer_public_url(headers):
+    """Detect public URL from request headers (works with both ASGI raw headers and Starlette)."""
     import app.config as _cfg
-    if _cfg._detected_public_url is None:
-        host = request.headers.get("x-forwarded-host") or request.headers.get("host")
-        if host and host not in ("localhost", "127.0.0.1", "localhost:8000"):
-            proto = request.headers.get("x-forwarded-proto", "https")
-            _cfg._detected_public_url = f"{proto}://{host}"
+    if _cfg._detected_public_url is not None:
+        return
+    # ASGI raw headers are list of (name, value) byte tuples
+    if headers and isinstance(headers[0], (list, tuple)):
+        hdr = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in headers}
+    else:
+        hdr = headers  # already a dict-like (Starlette Headers)
+    host = hdr.get("x-forwarded-host") or hdr.get("host") or ""
+    if host and host.split(":")[0] not in ("localhost", "127.0.0.1"):
+        proto = hdr.get("x-forwarded-proto", "https")
+        _cfg._detected_public_url = f"{proto}://{host}"
+
+
+@_fastapi_app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    _infer_public_url(request.headers)
 
     path = request.url.path
 
@@ -337,6 +348,9 @@ class _TopLevelDispatcher:
             return await self.fastapi_app(scope, receive, send)
 
         if scope["type"] == "http" and scope.get("path", "").startswith("/mcp/"):
+            # Auto-detect public URL from MCP requests (same logic as FastAPI middleware)
+            _infer_public_url(scope.get("headers", []))
+
             # Strip /mcp prefix for the MCP sub-app
             scope = dict(scope)
             path = scope["path"][4:]  # /mcp/sse -> /sse
