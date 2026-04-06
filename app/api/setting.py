@@ -243,6 +243,7 @@ async def check_version():
 @router.get("/setup-warnings")
 async def setup_warnings():
     """Return a list of setup issues the user should fix."""
+    from app.config import settings
     warnings = []
     if settings.APP_URL in ("http://localhost", "http://localhost:8000"):
         warnings.append("app_url_not_set")
