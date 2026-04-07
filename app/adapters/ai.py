@@ -852,7 +852,8 @@ Rules:
         except (json.JSONDecodeError, ValueError):
             logger.error("Failed to parse streamed infer-knowledge | offer=%s response_len=%d | %s",
                          offer_name, len(full_text), full_text[:1000])
-            raise ValueError(f"LLM returned unparseable response for offer '{offer_name}'")
+            parsed = {}
+            yield ("error", "AI 未能生成有效结果，请重试")
 
         for key in ("selling_point", "audience", "scenario", "faq", "objection"):
             if key not in parsed:
@@ -949,6 +950,112 @@ Guidelines:
         return await stub.infer_offer_model(name, description, offer_type)
 
 
+class AnthropicMessagesAdapter(OpenAICompatibleAdapter):
+    """Adapter for providers that only support Anthropic Messages API (/v1/messages).
+
+    Subclasses OpenAICompatibleAdapter so all isinstance checks and high-level
+    AI methods are inherited unchanged. Only _chat and _chat_stream are overridden.
+    """
+
+    def __init__(self, api_key: str, base_url: str, model: str, provider: str | None = None):
+        # Do NOT call super().__init__() — we don't need an OpenAI client.
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.provider = provider or "anthropic"
+        self._headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+
+    async def _chat(self, system_prompt: str, user_prompt: str, temperature: float = 0.8, max_tokens: int = 16384) -> str:
+        import asyncio
+        import httpx
+        last_err = None
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.post(
+                        f"{self.base_url}/v1/messages",
+                        headers=self._headers,
+                        json={
+                            "model": self.model,
+                            "max_tokens": max_tokens,
+                            "temperature": temperature,
+                            "system": system_prompt,
+                            "messages": [{"role": "user", "content": user_prompt}],
+                        },
+                        timeout=60,
+                    )
+                resp.raise_for_status()
+                data = resp.json()
+                return data["content"][0]["text"]
+            except Exception as e:
+                last_err = e
+                status = getattr(getattr(e, "response", None), "status_code", None) or 0
+                if status and 400 <= status < 500 and status != 429:
+                    raise
+                if attempt < 2:
+                    wait = (attempt + 1) * 2
+                    logger.warning("Anthropic call failed (attempt %d/3), retrying in %ds: %s", attempt + 1, wait, e)
+                    await asyncio.sleep(wait)
+        raise last_err  # type: ignore[misc]
+
+    async def _chat_stream(self, system_prompt: str, user_prompt: str, temperature: float = 0.8, timeout: float = 180):
+        """Stream tokens via Anthropic Messages SSE."""
+        import asyncio
+        import httpx
+        import json as _json
+        last_err = None
+        for attempt in range(3):
+            try:
+                deadline = asyncio.get_event_loop().time() + timeout
+                async with httpx.AsyncClient() as client:
+                    async with client.stream(
+                        "POST",
+                        f"{self.base_url}/v1/messages",
+                        headers=self._headers,
+                        json={
+                            "model": self.model,
+                            "max_tokens": 16384,
+                            "temperature": temperature,
+                            "system": system_prompt,
+                            "messages": [{"role": "user", "content": user_prompt}],
+                            "stream": True,
+                        },
+                        timeout=timeout,
+                    ) as response:
+                        response.raise_for_status()
+                        async for line in response.aiter_lines():
+                            if asyncio.get_event_loop().time() > deadline:
+                                raise TimeoutError(f"Anthropic stream exceeded {timeout}s")
+                            if not line.startswith("data: "):
+                                continue
+                            data_str = line[6:]
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                event = _json.loads(data_str)
+                            except _json.JSONDecodeError:
+                                continue
+                            if event.get("type") == "content_block_delta":
+                                delta = event.get("delta", {})
+                                if delta.get("type") == "text_delta":
+                                    yield delta.get("text", "")
+                return
+            except Exception as e:
+                last_err = e
+                status = getattr(getattr(e, "response", None), "status_code", None) or 0
+                if status and 400 <= status < 500 and status != 429:
+                    raise
+                if attempt < 2:
+                    wait = (attempt + 1) * 2
+                    logger.warning("Anthropic stream failed (attempt %d/3), retrying in %ds: %s", attempt + 1, wait, e)
+                    await asyncio.sleep(wait)
+        raise last_err  # type: ignore[misc]
+
+
 def _fix_docker_url(url: str) -> str:
     """Replace localhost with host.docker.internal when running inside Docker."""
     import os
@@ -980,15 +1087,20 @@ async def get_ai_adapter(db=None, scene_key: str | None = None, model_type: str 
                 if config:
                     logger.info("AI adapter: no scene config, using active default → %s/%s", config.provider, config.model_name)
             if config:
-                extra_headers = {}
-                if getattr(config, "provider", None) == "anthropic":
-                    extra_headers["anthropic-version"] = "2023-06-01"
+                fixed_url = _fix_docker_url(config.base_url)
+                provider = getattr(config, "provider", None) or getattr(config, "label", "LLM")
+                if provider == "anthropic":
+                    return AnthropicMessagesAdapter(
+                        api_key=config.api_key,
+                        base_url=fixed_url,
+                        model=config.model_name,
+                        provider=provider,
+                    )
                 return OpenAICompatibleAdapter(
                     api_key=config.api_key,
-                    base_url=_fix_docker_url(config.base_url),
+                    base_url=fixed_url,
                     model=config.model_name,
-                    extra_headers=extra_headers or None,
-                    provider=getattr(config, "provider", None) or getattr(config, "label", "LLM"),
+                    provider=provider,
                 )
         except Exception:
             pass

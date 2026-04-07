@@ -125,7 +125,19 @@ async def topic_studio_run(
         channel=data.channel,
         config_id=data.config_id,
     )
-    plans, thinking = await svc.generate(request)
+    try:
+        plans, thinking = await svc.generate(request)
+    except Exception as e:
+        # Extract readable message from upstream LLM errors (e.g. httpx, openai)
+        detail = str(e)
+        resp = getattr(e, "response", None)
+        if resp is not None:
+            try:
+                body = resp.json()
+                detail = body.get("message") or body.get("error") or body.get("detail") or detail
+            except Exception:
+                pass
+        raise HTTPException(status_code=400, detail=detail) from e
     return TopicPlanGenerateResponse(
         offer_id=data.offer_id,
         count=len(plans),

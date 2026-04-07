@@ -118,6 +118,8 @@ async def infer_offer_knowledge_stream(body: InferOfferKnowledgeRequest, db: Asy
             async for event_type, data in adapter.infer_knowledge_stream(offer_data, body.language):
                 if event_type == "thinking":
                     yield f"data: {json_mod.dumps({'type': 'thinking', 'text': data}, ensure_ascii=False)}\n\n"
+                elif event_type == "error":
+                    yield f"data: {json_mod.dumps({'type': 'error', 'detail': data}, ensure_ascii=False)}\n\n"
                 elif event_type == "result":
                     description = data.pop("description", None) if isinstance(data, dict) else None
                     suggestions = {

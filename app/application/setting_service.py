@@ -270,6 +270,15 @@ _STATIC_MODELS: dict[str, list[str]] = {
         "MiniMax-M2.1-highspeed",
         "MiniMax-M2",
     ],
+    "anthropic": [
+        "claude-opus-4-6",
+        "claude-sonnet-4-6",
+        "claude-opus-4-5-20251101",
+        "claude-opus-4-1-20250805",
+        "claude-sonnet-4-5-20250929",
+        "claude-sonnet-4-20250514",
+        "claude-haiku-4-5-20251001",
+    ],
 }
 
 
@@ -283,9 +292,10 @@ async def fetch_llm_models(api_key: str, base_url: str, provider: str) -> tuple[
 
         if provider == "anthropic":
             import httpx
+            url = f"{base_url.rstrip('/')}/models"
             async with httpx.AsyncClient() as client:
                 resp = await client.get(
-                    "https://api.anthropic.com/v1/models",
+                    url,
                     headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
                     timeout=15,
                 )
@@ -315,21 +325,39 @@ async def fetch_llm_models(api_key: str, base_url: str, provider: str) -> tuple[
 
 async def validate_llm_connection(api_key: str, base_url: str, model_name: str, provider: str = "custom") -> None:
     """Validates LLM connection. Raises HTTPException with detail on failure."""
-    from openai import AsyncOpenAI
-
-    extra_headers = {}
-    if provider == "anthropic":
-        extra_headers["anthropic-version"] = "2023-06-01"
-
-    client = AsyncOpenAI(api_key=api_key, base_url=base_url, default_headers=extra_headers)
     try:
-        response = await client.chat.completions.create(
-            model=model_name,
-            messages=[{"role": "user", "content": "Hi"}],
-            max_tokens=5,
-        )
-        if not response.choices:
-            raise HTTPException(status_code=400, detail="Empty response from API, please check the model name")
+        if provider == "anthropic":
+            import httpx
+            url = f"{base_url.rstrip('/')}/v1/messages"
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    url,
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": model_name,
+                        "max_tokens": 5,
+                        "messages": [{"role": "user", "content": "Hi"}],
+                    },
+                    timeout=15,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                if not data.get("content"):
+                    raise HTTPException(status_code=400, detail="Empty response from API, please check the model name")
+        else:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+            response = await client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=5,
+            )
+            if not response.choices:
+                raise HTTPException(status_code=400, detail="Empty response from API, please check the model name")
     except HTTPException:
         raise
     except Exception as e:

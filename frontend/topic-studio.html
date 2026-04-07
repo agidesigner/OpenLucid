@@ -532,7 +532,8 @@
               await this.fetchHistory(false);
             } else {
               const err = await res.json().catch(() => ({}));
-              alert(t('generate_failed') + (err.detail || 'Unknown error'));
+              const msg = err.detail || t('generate_failed_retry');
+              alert(t('generate_failed') + (msg.length > 120 ? msg.slice(0, 120) + '…' : msg));
             }
           } catch { alert(t('generate_failed_retry')); }
 

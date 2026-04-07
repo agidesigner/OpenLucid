@@ -315,6 +315,7 @@
                          :placeholder="PROVIDER_PRESETS[form.provider]?.base_url || 'https://your-api.example.com/v1'"
                          class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
                   <p x-show="form.provider === 'ollama'" class="mt-1.5 text-[11px] text-gray-400" x-text="t('ollama_hint')"></p>
+                  <p x-show="form.provider !== 'ollama' && form.provider !== 'custom' && form.provider !== 'minimax'" class="mt-1.5 text-[11px] text-gray-400" x-text="t('third_party_hint')"></p>
                 </div>
 
                 <!-- Model name -->
@@ -822,6 +823,7 @@
   <script>
     const _STATIC_MODELS = {
       minimax: ['MiniMax-M2.7','MiniMax-M2.7-highspeed','MiniMax-M2.5','MiniMax-M2.5-highspeed','MiniMax-M2.1','MiniMax-M2.1-highspeed','MiniMax-M2'],
+      anthropic: ['claude-opus-4-6','claude-sonnet-4-6','claude-opus-4-5-20251101','claude-opus-4-1-20250805','claude-sonnet-4-5-20250929','claude-sonnet-4-20250514','claude-haiku-4-5-20251001'],
     };
 
     const PROVIDER_PRESETS = {

@@ -837,6 +837,7 @@ window.I18N = {
       no_logs: 'No logs, waiting for polling...',
       // Provider hints
       ollama_hint: 'If Ollama is running on another host or port, update the address',
+      third_party_hint: 'Using a different provider? Update the Base URL to match your provider\'s endpoint',
       no_model_found: 'No installed models found, please run ollama pull <model name> first',
       fetch_models_error: 'Cannot get list, please enter manually: ',
       fetching: 'Fetching',
@@ -995,6 +996,7 @@ window.I18N = {
       log_paused: '已暂停',
       no_logs: '暂无日志，等待轮询中…',
       ollama_hint: '如果 Ollama 运行在其他主机或端口，修改此地址即可',
+      third_party_hint: '使用第三方服务商？请将 Base URL 替换为对应的接口地址',
       no_model_found: '未找到已安装的模型，请先运行 ollama pull <模型名>',
       fetch_models_error: '无法获取列表，请手动输入：',
       fetching: '获取中',

@@ -218,6 +218,9 @@ async def list_offers(
         mid = uuid.UUID(merchant_id) if merchant_id else None
         items, total = await svc.list(merchant_id=mid, page=page, page_size=page_size)
         serialized_items = [OfferResponse.model_validate(i, from_attributes=True).model_dump(mode="json") for i in items]
+        # Strip full description from list — agent should call get_offer_context_summary for details
+        for item in serialized_items:
+            item.pop("description", None)
         return json.dumps({"total": total, "page": page, "items": serialized_items}, ensure_ascii=False, indent=2, default=str)
 
 
@@ -675,12 +678,14 @@ async def get_merchant_overview(merchant_id: str) -> str:
         _, asset_total = await asset_svc.list(scope_type="merchant", scope_id=mid, page=1, page_size=1)
 
         # Also count knowledge/assets per offer
+        # overview only returns lightweight offer summary — full description is in get_offer_context_summary
         for od in offers_data:
             oid = uuid.UUID(od["id"])
             _, ok_total = await knowledge_svc.list(scope_type="offer", scope_id=oid, page=1, page_size=1)
             _, oa_total = await asset_svc.list(scope_type="offer", scope_id=oid, page=1, page_size=1)
             od["knowledge_count"] = ok_total
             od["asset_count"] = oa_total
+            od.pop("description", None)
 
         overview = {
             "merchant": merchant_data,
