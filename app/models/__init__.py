@@ -16,6 +16,7 @@ from app.models.asset_metric import AssetMetric
 from app.models.brandkit import BrandKit
 from app.models.brandkit_asset_link import BrandKitAssetLink
 from app.models.mcp_token import McpToken
+from app.models.creation import Creation
 
 __all__ = [
     "Base",
@@ -37,4 +38,5 @@ __all__ = [
     "BrandKit",
     "BrandKitAssetLink",
     "McpToken",
+    "Creation",
 ]

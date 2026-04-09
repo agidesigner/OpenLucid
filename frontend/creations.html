@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenLucid</title>
+  <script>
+    document.documentElement.style.display='none';
+    fetch('/api/v1/auth/me').then(r=>{
+      if(!r.ok) fetch('/api/v1/auth/setup-status').then(r=>r.json()).then(s=>{
+        location.href=s.needs_setup?'/install.html':'/signin.html';
+      });
+      else document.documentElement.style.display='';
+    });
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        sidebar: { DEFAULT: '#1C1C28', hover: '#2A2A3C' },
+        accent: { DEFAULT: '#155EEF', light: '#EFF4FF', hover: '#1849C6' },
+      }}}
+    }
+  </script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/pinned-apps.js"></script>
+  <script src="/js/avatar.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif}
+    .sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;color:#A0A0B0;font-size:14px;cursor:pointer;transition:all .15s}
+    .sidebar-item:hover{background:#2A2A3C;color:#E0E0EE}
+    .sidebar-item.active{background:#2D2D40;color:#fff}
+    .source-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px;border-radius:9999px;font-weight:500}
+    .src-mcp{background:#EFF4FF;color:#155EEF}
+    .src-internal{background:#F0FDF4;color:#16A34A}
+    .src-manual{background:#F3F4F6;color:#6B7280}
+  </style>
+</head>
+<body class="bg-gray-50 h-screen flex overflow-hidden" x-data="creationsPage()" x-init="init()">
+
+  <!-- Sidebar -->
+  <aside class="w-56 bg-sidebar flex flex-col shrink-0">
+    <div class="px-4 py-5 flex items-center gap-2.5">
+      <img src="/images/logo.png" alt="OpenLucid" class="w-8 h-8 rounded-lg">
+      <span class="text-white font-semibold text-base">OpenLucid</span>
+    </div>
+    <nav class="flex-1 px-3 space-y-1 mt-2">
+      <a href="/" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        <span x-text="t('sidebar_offers')"></span>
+      </a>
+      <a href="/apps.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+        <span x-text="t('sidebar_apps')"></span>
+      </a>
+      <a href="/creations.html" class="sidebar-item active">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
+        <span x-text="t('sidebar_creations')"></span>
+      </a>
+      <a href="/brandkit-list.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
+      </a>
+    </nav>
+    <div class="px-3 pb-3 mt-auto">
+      <div class="text-[10px] text-white/25 text-center">Powered by <a href="https://openlucid.ai/?ref=app" target="_blank" class="hover:text-white/40 transition-colors">OpenLucid</a></div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <header class="h-14 bg-white border-b flex items-center justify-between px-6 shrink-0">
+      <h1 class="text-base font-semibold text-gray-800">📚 <span x-text="t('creations_title')"></span></h1>
+      <div class="flex items-center gap-3">
+        <a href="/setting.html?section=mcp" class="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 border border-gray-200 hover:border-gray-300 px-2.5 py-1.5 rounded-lg transition-colors">
+          <span class="w-1.5 h-1.5 bg-green-400 rounded-full"></span>
+          MCP
+        </a>
+        <div id="avatar-mount"></div>
+      </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-6">
+      <!-- Toolbar -->
+      <div class="bg-white rounded-xl border p-4 mb-4 flex items-center gap-3 flex-wrap">
+        <div class="flex-1 min-w-[240px]">
+          <div class="relative">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <input x-model="searchQ" @input.debounce.300ms="reload()"
+                   type="text" :placeholder="t('creations_search_placeholder')"
+                   class="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+          </div>
+        </div>
+        <select x-model="filterType" @change="reload()"
+                class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+          <option value="" x-text="t('creations_all_types')"></option>
+          <option value="topic" x-text="t('creations_type_topic')"></option>
+          <option value="post" x-text="t('creations_type_post')"></option>
+          <option value="script" x-text="t('creations_type_script')"></option>
+          <option value="email" x-text="t('creations_type_email')"></option>
+          <option value="general" x-text="t('creations_type_general')"></option>
+        </select>
+        <select x-model="filterSource" @change="reload()"
+                class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+          <option value="" x-text="t('creations_all_sources')"></option>
+          <option value="mcp:external" x-text="t('creations_source_mcp')"></option>
+          <option value="topic_studio">Topic Studio</option>
+          <option value="manual" x-text="t('creations_source_manual')"></option>
+        </select>
+        <button @click="openNew()"
+                class="inline-flex items-center gap-1.5 bg-accent text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
+          <span x-text="t('creations_new')"></span>
+        </button>
+      </div>
+
+      <!-- Loading / Empty -->
+      <div x-show="loading" class="text-center py-12 text-gray-400 text-sm" x-text="t('loading')"></div>
+      <div x-show="!loading && items.length === 0" class="bg-white rounded-xl border border-dashed border-gray-200 py-16 text-center">
+        <div class="text-5xl mb-3">📭</div>
+        <p class="text-sm text-gray-500 mb-1" x-text="t('creations_empty_title')"></p>
+        <p class="text-xs text-gray-400" x-text="t('creations_empty_hint')"></p>
+      </div>
+
+      <!-- List -->
+      <div x-show="!loading && items.length > 0" class="space-y-2">
+        <template x-for="c in items" :key="c.id">
+          <div class="bg-white rounded-xl border hover:shadow-sm transition-shadow">
+            <div class="p-4 cursor-pointer" @click="openDetail(c)">
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 mb-1">
+                    <span class="text-[11px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded font-medium" x-text="c.content_type"></span>
+                    <span class="source-badge"
+                          :class="c.source_app === 'mcp:external' ? 'src-mcp' : (c.source_app === 'manual' ? 'src-manual' : 'src-internal')"
+                          x-text="c.source_app"></span>
+                    <template x-for="tag in (c.tags || [])">
+                      <span class="text-[11px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded" x-text="tag"></span>
+                    </template>
+                  </div>
+                  <h3 class="text-[15px] font-semibold text-gray-800 leading-snug" x-text="c.title"></h3>
+                  <p class="text-[13px] text-gray-500 mt-1 line-clamp-2" x-text="c.content"></p>
+                  <p x-show="c.source_note" class="text-[11px] text-gray-400 mt-1.5 italic" x-text="c.source_note"></p>
+                </div>
+                <div class="flex flex-col items-end gap-2 shrink-0">
+                  <span class="text-[11px] text-gray-400 tabular-nums" x-text="new Date(c.created_at).toLocaleDateString()"></span>
+                  <button @click.stop="confirmDelete(c)" class="text-gray-300 hover:text-red-500 transition-colors p-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Pagination -->
+      <div x-show="!loading && total > pageSize" class="mt-4 flex items-center justify-center gap-2 text-sm">
+        <button @click="page--; reload()" :disabled="page <= 1"
+                class="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50">←</button>
+        <span class="text-gray-500" x-text="`${page} / ${Math.ceil(total / pageSize)}`"></span>
+        <button @click="page++; reload()" :disabled="page * pageSize >= total"
+                class="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50">→</button>
+      </div>
+    </main>
+  </div>
+
+  <!-- Detail / Edit Modal -->
+  <div x-show="modal.open" x-cloak
+       class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+       @click="closeModal()">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col" @click.stop>
+      <div class="p-5 border-b flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-2">
+          <span class="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded font-medium" x-text="modal.data.content_type || 'general'"></span>
+          <h2 class="text-base font-semibold text-gray-800" x-text="modal.mode === 'new' ? t('creations_new_title') : t('creations_edit_title')"></h2>
+        </div>
+        <button @click="closeModal()" class="text-gray-400 hover:text-gray-600">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="p-5 overflow-y-auto flex-1 space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1" x-text="t('creations_field_title')"></label>
+          <input x-model="modal.data.title" type="text" maxlength="512"
+                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1" x-text="t('creations_field_content')"></label>
+          <textarea x-model="modal.data.content" rows="10"
+                    class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"></textarea>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1" x-text="t('creations_field_type')"></label>
+            <select x-model="modal.data.content_type"
+                    class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+              <option value="general">general</option>
+              <option value="topic">topic</option>
+              <option value="post">post</option>
+              <option value="script">script</option>
+              <option value="email">email</option>
+              <option value="caption">caption</option>
+              <option value="hook">hook</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1" x-text="t('creations_field_tags')"></label>
+            <input x-model="modal.tagsText" type="text" placeholder="tiktok, launch, hook"
+                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1" x-text="t('creations_field_note')"></label>
+          <input x-model="modal.data.source_note" type="text"
+                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+        </div>
+      </div>
+      <div class="p-4 border-t flex items-center justify-between shrink-0">
+        <div class="text-[11px] text-gray-400">
+          <span x-show="modal.mode === 'edit'" x-text="modal.data.source_app + ' · ' + (modal.data.created_at ? new Date(modal.data.created_at).toLocaleString() : '')"></span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button @click="closeModal()" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg" x-text="t('btn_cancel')"></button>
+          <button @click="save()" :disabled="modal.saving || !modal.data.title || !modal.data.content"
+                  class="px-4 py-2 text-sm bg-accent text-white rounded-lg hover:bg-accent-hover disabled:opacity-50">
+            <span x-text="modal.saving ? t('saving') : t('btn_save')"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function creationsPage() {
+      return {
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        loading: true,
+        searchQ: '',
+        filterType: '',
+        filterSource: '',
+        modal: {
+          open: false,
+          mode: 'new',  // 'new' | 'edit'
+          data: {},
+          tagsText: '',
+          saving: false,
+        },
+
+        async init() {
+          document.title = t('creations_title') + ' - OpenLucid';
+          await this.reload();
+        },
+
+        async reload() {
+          this.loading = true;
+          try {
+            const params = new URLSearchParams({
+              page: this.page,
+              page_size: this.pageSize,
+            });
+            if (this.searchQ) params.set('q', this.searchQ);
+            if (this.filterType) params.set('content_type', this.filterType);
+            if (this.filterSource) params.set('source_app', this.filterSource);
+            const res = await fetch(`/api/v1/creations?${params}`);
+            if (res.ok) {
+              const data = await res.json();
+              this.items = data.items || [];
+              this.total = data.total || 0;
+            }
+          } catch (e) { console.error(e); }
+          finally { this.loading = false; }
+        },
+
+        openNew() {
+          this.modal = {
+            open: true,
+            mode: 'new',
+            data: { title: '', content: '', content_type: 'general', source_note: '' },
+            tagsText: '',
+            saving: false,
+          };
+        },
+
+        openDetail(c) {
+          this.modal = {
+            open: true,
+            mode: 'edit',
+            data: { ...c },
+            tagsText: (c.tags || []).join(', '),
+            saving: false,
+          };
+        },
+
+        closeModal() {
+          this.modal.open = false;
+        },
+
+        async save() {
+          this.modal.saving = true;
+          try {
+            const tags = this.modal.tagsText
+              ? this.modal.tagsText.split(',').map(t => t.trim()).filter(Boolean)
+              : null;
+            const body = {
+              title: this.modal.data.title,
+              content: this.modal.data.content,
+              content_type: this.modal.data.content_type || 'general',
+              tags,
+              source_note: this.modal.data.source_note || null,
+            };
+            let res;
+            if (this.modal.mode === 'new') {
+              body.source_app = 'manual';
+              res = await fetch('/api/v1/creations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+              });
+            } else {
+              res = await fetch(`/api/v1/creations/${this.modal.data.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+              });
+            }
+            if (res.ok) {
+              this.modal.open = false;
+              await this.reload();
+            } else {
+              const err = await res.json().catch(() => ({}));
+              alert((err.error?.message || err.detail || 'Save failed'));
+            }
+          } catch (e) {
+            alert('Save failed: ' + e.message);
+          }
+          this.modal.saving = false;
+        },
+
+        async confirmDelete(c) {
+          if (!confirm(t('creations_confirm_delete') + '\n\n' + c.title)) return;
+          try {
+            const res = await fetch(`/api/v1/creations/${c.id}`, { method: 'DELETE' });
+            if (res.ok || res.status === 204) await this.reload();
+          } catch (e) { console.error(e); }
+        },
+      };
+    }
+  </script>
+</body>
+</html>

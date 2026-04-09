@@ -43,11 +43,19 @@ mcp = FastMCP(
     "OpenLucid",
     transport_security=_build_transport_security(),
     instructions=(
-        "OpenLucid — AI content platform for merchants. "
+        "OpenLucid — the user's marketing data and creation hub.\n"
         "Data model: Merchant → Offer → Knowledge / Assets / BrandKit / StrategyUnit.\n"
-        "Workflow: get_merchant_overview → get_offer_context_summary → run_app (kb_qa/script_writer/topic_studio).\n"
-        "Use prompts 'onboard_merchant' or 'content_brief' for guided workflows. "
-        "Attach merchant:// or offer:// resources for persistent context."
+        "\n"
+        "Read workflow: get_merchant_overview → get_offer_context_summary → run_app "
+        "(kb_qa / script_writer / topic_studio).\n"
+        "\n"
+        "Capture workflow: when you produce a final, accepted piece of content using "
+        "OpenLucid data — a post, a script, an email, a hook — call save_creation to "
+        "store it back in the user's library so it doesn't get lost in chat history. "
+        "Save the final version, not every draft.\n"
+        "\n"
+        "Guided prompts: 'onboard_merchant' or 'content_brief'. "
+        "Persistent context: attach merchant:// or offer:// resources."
     ),
 )
 
@@ -695,6 +703,78 @@ async def get_merchant_overview(merchant_id: str) -> str:
             "merchant_asset_count": asset_total,
         }
         return json.dumps(overview, ensure_ascii=False, indent=2, default=str)
+
+
+# ── Creations (capture finished content back to OpenLucid) ─────
+
+
+@mcp.tool()
+async def save_creation(
+    title: str,
+    content: str,
+    content_type: str = "general",
+    offer_id: str | None = None,
+    merchant_id: str | None = None,
+    tags: str = "",
+    source_note: str | None = None,
+) -> str:
+    """Save a finished content piece (post, script, copy, email, etc.) back to OpenLucid
+    so the user can find, reuse, and reference it later. This is how content created
+    in the chat returns to the user's permanent OpenLucid library.
+
+    WHEN TO CALL (be proactive):
+      - You produced content the user accepted, picked, or said was good
+      - You produced a final version (after revisions) — save the final, not drafts
+      - The user said "use this", "let's go with this", "ok this works", "就用这个",
+        "这版可以", "保留", "存一下"
+      - The user is about to leave the topic / move on (last finished output of a thread)
+      - You generated multiple variants and the user picked one — save the picked one
+
+    WHEN NOT TO CALL:
+      - The user is still iterating (intermediate drafts)
+      - You only quoted or summarized existing KB content
+      - The output is exploratory ("brainstorm 5 ideas") and the user hasn't picked any
+      - You'd save more than 3 items in one turn (likely over-capture)
+
+    Args:
+      title: Short, descriptive title (max 512 chars).
+      content: The full content text. Plain text or markdown.
+      content_type: Free-form category. Common values: post / script / email /
+                    caption / hook / general. Default "general".
+      offer_id: Optional offer UUID this content is for. If provided, the merchant
+                is auto-derived from the offer.
+      merchant_id: Optional merchant UUID. Only needed if offer_id is omitted AND
+                   the deployment has multiple merchants.
+      tags: Optional comma-separated tags (e.g. "tiktok,launch,hook").
+      source_note: Optional one-line note about how this was created (e.g.
+                   "Generated from KB about feature X, second draft after user
+                   asked for shorter version").
+
+    The source_app field is auto-populated as "mcp:external" so the user can
+    distinguish externally captured content from internally generated content.
+
+    Returns the saved creation as JSON with its assigned id.
+    """
+    from app.application.creation_service import CreationService
+    from app.schemas.creation import CreationCreate, CreationResponse
+
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+
+    async with _session_factory() as session:
+        svc = CreationService(session)
+        data = CreationCreate(
+            title=title,
+            content=content,
+            content_type=content_type or "general",
+            offer_id=uuid.UUID(offer_id) if offer_id else None,
+            merchant_id=uuid.UUID(merchant_id) if merchant_id else None,
+            tags=tag_list,
+            source_app="mcp:external",
+            source_note=source_note,
+        )
+        creation = await svc.create(data)
+        await session.commit()
+        return _serialize(creation, CreationResponse)
 
 
 # ── Resources ─────────────────────────────────────────────────

@@ -54,6 +54,10 @@
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
         <span x-text="t('sidebar_apps')"></span>
       </a>
+      <a href="/creations.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
+        <span x-text="t('sidebar_creations')"></span>
+      </a>
       <a href="/brandkit-list.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
         <span x-text="t('sidebar_brandkit')"></span>
@@ -907,6 +911,9 @@
             { name: 'create_offer', desc: t('mcp_tool_create_offer') },
             { name: 'search_assets', desc: t('mcp_tool_search_assets') },
           ]},
+          { key: 'capture', icon: '\u{1F4DA}', label: t('mcp_cap_capture'), desc: t('mcp_cap_capture_desc'), tools: [
+            { name: 'save_creation', desc: t('mcp_tool_save_creation') },
+          ]},
         ],
 
         async checkAppUrl() {
@@ -996,11 +1003,17 @@
               `你负责的产品包括${products}。`,
               `所有营销任务 — 写文案、调研人群、找素材 — 都通过 OpenLucid MCP 工具完成。`,
               ``,
-              `## 工作流`,
+              `## 读取工作流`,
               `1. 先调用 get_merchant_overview 了解企业全貌`,
               `2. 再调用 get_offer_context_summary 深入了解具体产品`,
               `3. 最后调用 run_app 执行任务（知识库问答 / 脚本创作 / 选题生成）`,
               `4. 需要素材时，调用 search_assets（支持 q 模糊搜索、tags 标签过滤、asset_type 类型过滤），直接分享 preview_url`,
+              ``,
+              `## 回收工作流（重要）`,
+              `当你基于 OpenLucid 数据产出了最终的、被用户认可的内容（文案 / 脚本 / 邮件 / 钩子等），主动调用 save_creation 把它存回用户的创作库，以免淹没在聊天记录里。`,
+              `- 触发场景：用户说"就用这个"、"这版可以"、"保留"、"存一下"，或者从多个版本里挑了一条`,
+              `- 只存最终版，不存每一稿草稿`,
+              `- 调用时必须填 title + content；如果对应某个产品，也填 offer_id`,
               ``,
               `## 引导提示词`,
               `- 需要快速了解商户时，使用 onboard_merchant 提示词`,
@@ -1017,11 +1030,17 @@
             `Your portfolio includes ${products}.`,
             `For any marketing tasks — copywriting, audience research, asset sourcing — use OpenLucid MCP tools.`,
             ``,
-            `## Workflow`,
+            `## Read workflow`,
             `1. Call get_merchant_overview to understand the business at a glance`,
             `2. Call get_offer_context_summary to dive into a specific product`,
             `3. Call run_app to execute tasks (KB Q&A / Script Writer / Topic Studio)`,
             `4. For assets/images, call search_assets (supports q fuzzy search, tags filter, asset_type filter) — share the preview_url directly`,
+            ``,
+            `## Capture workflow (important)`,
+            `When you produce a final, user-accepted piece of content (copy / script / email / hook) using OpenLucid data, proactively call save_creation to store it back in the user's library so it doesn't get lost in chat history.`,
+            `- Triggers: user says "use this", "this works", "keep this", "save it", or picks one option from multiple variants`,
+            `- Save only the final version, not every draft`,
+            `- Required: title + content; also pass offer_id if the content is for a specific product`,
             ``,
             `## Guided prompts`,
             `- Use onboard_merchant prompt to quickly understand a merchant`,
