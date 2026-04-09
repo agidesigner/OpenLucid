@@ -49,19 +49,7 @@ async def update_password(db: AsyncSession, user: User, new_password: str) -> No
 
 
 async def send_reset_email(email: str, reset_url: str) -> None:
-    from app.config import settings
-
-    mail_type = settings.MAIL_TYPE.lower().strip()
-
-    # Auto-detect: if MAIL_TYPE not set, infer from available config
-    if not mail_type:
-        if settings.RESEND_API_KEY:
-            mail_type = "resend"
-        elif settings.SMTP_HOST:
-            mail_type = "smtp"
-        else:
-            logger.warning("Email not configured. Password reset URL: %s", reset_url)
-            return
+    from app.libs.mail import send_email
 
     subject = "OpenLucid - Password Reset"
     body = f"""Hello,
@@ -73,42 +61,6 @@ Please click the link below to reset your password (valid for 15 minutes):
 If you did not request a password reset, please ignore this email.
 """
 
-    if mail_type == "resend":
-        await _send_via_resend(email, subject, body, settings)
-    elif mail_type == "smtp":
-        await _send_via_smtp(email, subject, body, settings)
-    else:
-        logger.error("Unknown MAIL_TYPE: %s", mail_type)
-
-
-async def _send_via_resend(to: str, subject: str, body: str, settings) -> None:
-    import resend
-
-    resend.api_key = settings.RESEND_API_KEY
-    resend.Emails.send({
-        "from": settings.MAIL_FROM,
-        "to": [to],
-        "subject": subject,
-        "text": body,
-    })
-    logger.info("Password reset email sent via Resend to %s", to)
-
-
-async def _send_via_smtp(to: str, subject: str, body: str, settings) -> None:
-    import aiosmtplib
-    from email.mime.text import MIMEText
-
-    msg = MIMEText(body, "plain", "utf-8")
-    msg["Subject"] = subject
-    msg["From"] = settings.MAIL_FROM
-    msg["To"] = to
-
-    await aiosmtplib.send(
-        msg,
-        hostname=settings.SMTP_HOST,
-        port=settings.SMTP_PORT,
-        username=settings.SMTP_USER or None,
-        password=settings.SMTP_PASSWORD or None,
-        start_tls=True,
-    )
-    logger.info("Password reset email sent via SMTP to %s", to)
+    sent = await send_email(email, subject, body)
+    if not sent:
+        logger.warning("Email not configured. Password reset URL: %s", reset_url)

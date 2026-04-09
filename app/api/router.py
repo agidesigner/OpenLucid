@@ -13,6 +13,7 @@ from app.api.setting import router as setting_router
 from app.api.apps import router as apps_router
 from app.api.brandkits import router as brandkits_router
 from app.api.creations import router as creations_router
+from app.api.feedback import router as feedback_router
 from app.api.coverage import router_su as coverage_su_router, router_offer as coverage_offer_router, router_batch as coverage_batch_router
 
 api_router = APIRouter()
@@ -32,3 +33,4 @@ api_router.include_router(coverage_offer_router)
 api_router.include_router(apps_router)
 api_router.include_router(brandkits_router)
 api_router.include_router(creations_router)
+api_router.include_router(feedback_router)

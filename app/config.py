@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
 
+    # Feedback widget — when set, in-app feedback button is enabled and submissions
+    # are emailed here. Empty = button hidden in UI. Mail provider must also be configured.
+    FEEDBACK_TO_EMAIL: str = ""
+
     APP_URL: str = "http://localhost:8000"
 
     # CORS
