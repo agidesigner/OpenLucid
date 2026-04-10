@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.application import auth_service
 from app.config import settings
-from app.libs.jwt_utils import create_access_token, create_reset_token, decode_token
+from app.libs.jwt_utils import create_access_token, create_reset_token, decode_token, _pwh_snapshot
 from app.models.user import User
 from app.schemas.auth import (
     ChangePasswordRequest,
@@ -136,7 +136,7 @@ async def reset_password(body: ResetPasswordRequest, request: Request, db: Async
     user = await auth_service.get_user_by_email(db, payload.get("email", ""))
     if not user:
         raise HTTPException(400, "User not found")
-    if user.hashed_password[:8] != payload.get("pwh"):
+    if _pwh_snapshot(user.hashed_password) != payload.get("pwh"):
         raise HTTPException(400, "Reset link has expired (password was already changed)")
 
     try:

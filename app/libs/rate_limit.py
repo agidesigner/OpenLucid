@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 import time
 import threading
 from collections import defaultdict
@@ -10,6 +11,7 @@ from fastapi import HTTPException, Request
 
 MAX_REQUESTS = 5
 WINDOW_SECONDS = 60
+_CLEANUP_PROBABILITY = 0.01  # 1% chance per request to clean up stale entries
 
 _lock = threading.Lock()
 _hits: dict[str, list[float]] = defaultdict(list)
@@ -35,3 +37,9 @@ def check_rate_limit(request: Request) -> None:
         if len(timestamps) >= MAX_REQUESTS:
             raise HTTPException(429, "Too many requests, please try again later")
         timestamps.append(now)
+
+        # Probabilistic cleanup of stale IPs to prevent unbounded memory growth
+        if random.random() < _CLEANUP_PROBABILITY:
+            stale = [k for k, v in _hits.items() if k != ip and all(t <= cutoff for t in v)]
+            for k in stale:
+                del _hits[k]

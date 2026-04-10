@@ -31,7 +31,22 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     logger = logging.getLogger(__name__)
     os.makedirs(settings.STORAGE_BASE_PATH, exist_ok=True)
 
-    # 0. Verify database connectivity early — surface credential mismatches
+    # 0a. Warn if SECRET_KEY is still the default — tokens can be forged
+    _DEFAULT_KEYS = {
+        "change-me-in-production-use-a-long-random-string",
+        "change-me-in-production",
+    }
+    if settings.SECRET_KEY in _DEFAULT_KEYS and not settings.DISABLE_AUTH:
+        logger.warning(
+            "\n"
+            "═══ INSECURE SECRET_KEY ══════════════════════════════════\n"
+            "  SECRET_KEY is still the default value.\n"
+            "  Anyone can forge JWT tokens and impersonate any user.\n"
+            "  Set a strong random SECRET_KEY in your .env file.\n"
+            "═════════════════════════════════════════════════════════\n"
+        )
+
+    # 0b. Verify database connectivity early — surface credential mismatches
     #    loudly instead of letting every request silently 500.
     try:
         from sqlalchemy import text
@@ -53,6 +68,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             "═══════════════════════════════════",
             e, settings.DATABASE_URL[:40],
         )
+        raise
 
     # 1. Run alembic migrations
     try:
@@ -64,54 +80,29 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         stdout, _ = await proc.communicate()
         output = stdout.decode().strip() if stdout else ""
         if proc.returncode != 0:
-            logger.error("alembic upgrade head failed (app will continue):\n%s", output)
+            logger.error("alembic upgrade head failed:\n%s", output)
+            raise RuntimeError(f"Alembic migration failed (exit code {proc.returncode})")
         if output:
             logger.info("alembic upgrade head:\n%s", output)
     except FileNotFoundError:
         logger.warning("alembic not found in PATH, skipping auto-migration")
 
-    # 2. Belt-and-suspenders: ensure every column that was added after the
-    #    initial migration exists. Uses IF NOT EXISTS so it is idempotent and
-    #    safe to run on every startup, even when alembic records are in sync.
-    await _ensure_schema()
-
     # 3. Background startup tasks (hash backfill + re-queue stuck parses)
-    asyncio.create_task(_startup_recovery())
+    task = asyncio.create_task(_startup_recovery())
+    task.add_done_callback(_log_task_exception)
     yield
 
 
-async def _ensure_schema() -> None:
-    """Add any columns that may be missing due to migration drift."""
+def _log_task_exception(task: "asyncio.Task") -> None:
+    """Log unhandled exceptions from background tasks."""
     import logging
-    from sqlalchemy import text
-    from app.database import async_session_factory
-
-    logger = logging.getLogger(__name__)
-
-    # Each tuple: (table, column, pg_type)
-    columns = [
-        ("assets", "title",        "VARCHAR(512)"),
-        ("assets", "content_text", "TEXT"),
-        ("assets", "hook_score",   "FLOAT"),
-        ("assets", "reuse_score",  "FLOAT"),
-        ("assets", "file_hash",    "VARCHAR(64)"),
-        ("topic_plans", "user_rating", "INTEGER"),
-    ]
-
-    added = []
-    async with async_session_factory() as session:
-        for table, col, col_type in columns:
-            try:
-                await session.execute(
-                    text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}")
-                )
-                added.append(f"{table}.{col}")
-            except Exception as e:
-                logger.warning("Schema ensure failed for %s.%s: %s", table, col, e)
-        await session.commit()
-
-    if added:
-        logger.info("Schema self-heal: ensured columns %s", added)
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc:
+        logging.getLogger(__name__).error(
+            "Background task %s failed: %s", task.get_name(), exc, exc_info=exc,
+        )
 
 
 async def _startup_recovery() -> None:
@@ -178,10 +169,11 @@ _fastapi_app = FastAPI(
 _cors_origins = ["*"] if settings.CORS_ORIGINS.strip() == "*" else [
     o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()
 ]
+_cors_allow_credentials = settings.CORS_ORIGINS.strip() != "*"
 _fastapi_app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_credentials=True,
+    allow_credentials=_cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -220,7 +212,9 @@ async def auth_middleware(request: Request, call_next):
     if path in PUBLIC:
         return await call_next(request)
 
-    # Asset files are public (single-user self-hosted; no multi-tenant risk)
+    # Asset files are public (single-user self-hosted; no multi-tenant risk).
+    # WARNING: If deploying to public internet, consider adding auth here
+    # to prevent unauthorized enumeration and download of uploaded assets.
     if "/assets/" in path and path.endswith(("/file", "/thumbnail")):
         return await call_next(request)
 

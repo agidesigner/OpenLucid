@@ -39,6 +39,13 @@ class LocalStorageAdapter(StorageAdapter):
         self.base_path = Path(base_path or settings.STORAGE_BASE_PATH)
         self.base_path.mkdir(parents=True, exist_ok=True)
 
+    def _safe_path(self, storage_uri: str) -> Path:
+        """Resolve storage_uri under base_path, rejecting path traversal attempts."""
+        resolved = (self.base_path / storage_uri).resolve()
+        if not str(resolved).startswith(str(self.base_path.resolve())):
+            raise ValueError("Invalid storage path")
+        return resolved
+
     async def save_file(self, file_content: bytes, file_name: str, sub_path: str = "") -> str:
         unique_name = f"{uuid.uuid4().hex}_{file_name}"
         dir_path = self.base_path / sub_path
@@ -49,12 +56,12 @@ class LocalStorageAdapter(StorageAdapter):
         return str(file_path.relative_to(self.base_path))
 
     async def get_file(self, storage_uri: str) -> bytes:
-        file_path = self.base_path / storage_uri
+        file_path = self._safe_path(storage_uri)
         async with aiofiles.open(file_path, "rb") as f:
             return await f.read()
 
     async def delete_file(self, storage_uri: str) -> None:
-        file_path = self.base_path / storage_uri
+        file_path = self._safe_path(storage_uri)
         if file_path.exists():
             os.remove(file_path)
 
@@ -62,4 +69,4 @@ class LocalStorageAdapter(StorageAdapter):
         return f"/files/{storage_uri}"
 
     def get_absolute_path(self, storage_uri: str) -> str:
-        return str((self.base_path / storage_uri).resolve())
+        return str(self._safe_path(storage_uri))
