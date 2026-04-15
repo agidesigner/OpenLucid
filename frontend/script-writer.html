@@ -26,6 +26,7 @@
   <script src="/js/pinned-apps.js"></script>
   <script src="/js/avatar.js"></script>
   <script src="/js/feedback.js"></script>
+  <script src="/js/apps-shared.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
     [x-cloak]{display:none!important}
@@ -65,6 +66,10 @@
       <a href="/creations.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
         <span x-text="t('sidebar_creations')"></span>
+      </a>
+      <a href="/video-studio.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        <span x-text="t('sidebar_videos')"></span>
       </a>
       <a href="/brandkit-list.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
@@ -226,73 +231,102 @@
                           class="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent resize-none"></textarea>
               </div>
 
-              <!-- Goal: auto-set from strategy unit or manual pick -->
-              <div class="mb-4">
-                <label class="text-xs font-medium text-gray-600 mb-2 block" x-text="t('goal_label')"></label>
-
-                <!-- Locked: inherited from strategy unit -->
-                <div x-show="goalLocked" class="flex items-center gap-3 p-3 rounded-xl border-2 border-accent/30 bg-accent/5">
-                  <div class="min-w-0 flex-1">
-                    <div class="text-sm font-medium text-gray-800" x-text="t('mo_' + goal)"></div>
+              <!-- Composer: Platform × Goal × Persona -->
+              <div class="mb-4 rounded-xl border border-gray-100 bg-gray-50/60 p-4">
+                <div class="flex items-center gap-1.5 mb-3">
+                  <svg class="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+                  <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide" x-text="t('composer_title')"></span>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <!-- Platform -->
+                  <div>
+                    <label class="text-[11px] text-gray-400 mb-1 block" x-text="t('platform_label')"></label>
+                    <select x-model="platformId"
+                            class="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+                      <template x-for="p in platforms" :key="p.id">
+                        <option :value="p.id" x-text="p.emoji + ' ' + p.name"></option>
+                      </template>
+                    </select>
                   </div>
-                  <span class="text-[10px] text-accent bg-accent/10 px-2 py-0.5 rounded-full whitespace-nowrap" x-text="t('goal_from_strategy')"></span>
-                </div>
-
-                <!-- Unlocked: manual pick -->
-                <div x-show="!goalLocked" class="grid grid-cols-2 gap-2.5">
-                  <template x-for="g in goals" :key="g.key">
-                    <button @click="goal = g.key; if(!manualTone) autoTone()"
-                            class="goal-card flex items-start gap-2.5 p-3 rounded-xl border-2 text-left"
-                            :class="goal === g.key ? 'selected' : 'border-gray-100'">
-                      <span class="text-xl leading-none mt-0.5" x-text="g.icon"></span>
-                      <div class="min-w-0">
-                        <div class="text-sm font-medium text-gray-800" x-text="g.label"></div>
-                        <div class="text-[11px] text-gray-400 mt-0.5 leading-tight" x-text="g.desc"></div>
-                      </div>
-                    </button>
-                  </template>
-                </div>
-              </div>
-
-              <!-- Tone -->
-              <div class="mb-4">
-                <label class="text-xs font-medium text-gray-600 mb-2 block" x-text="t('tone_label')"></label>
-                <div class="flex flex-wrap gap-1.5">
-                  <button @click="tone = ''; manualTone = false; autoTone()"
-                          class="tone-chip" :class="!tone ? 'selected' : ''"
-                          x-text="t('tone_auto')"></button>
-                  <template x-for="tn in tones" :key="tn.key">
-                    <button @click="tone = tn.key; manualTone = true"
-                            class="tone-chip" :class="tone === tn.key ? 'selected' : ''"
-                            x-text="tn.label"></button>
-                  </template>
-                </div>
-              </div>
-
-              <!-- Word Count -->
-              <div class="mb-4">
-                <label class="text-xs font-medium text-gray-600 mb-2 block">
-                  <span x-text="t('wordcount_label')"></span>
-                  <span class="font-normal text-gray-400 ml-1" x-text="t('wordcount_hint')"></span>
-                </label>
-                <div class="flex items-center gap-2">
-                  <template x-for="wc in [100, 150, 200, 300, 500]" :key="wc">
-                    <button @click="wordCount = wc"
-                            class="wc-chip" :class="wordCount === wc ? 'selected' : ''"
-                            x-text="wc"></button>
-                  </template>
-                  <input type="number" x-model.number="wordCount" min="50" max="2000" step="50"
-                         class="w-20 border border-gray-200 rounded-lg px-2.5 py-1 text-sm text-gray-700 text-center focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+                  <!-- Goal -->
+                  <div>
+                    <label class="text-[11px] text-gray-400 mb-1 block" x-text="t('goal_label')"></label>
+                    <!-- Locked from strategy unit -->
+                    <div x-show="goalLocked" class="flex items-center gap-1.5 border border-accent/30 bg-accent/5 rounded-lg px-2.5 py-1.5">
+                      <span class="text-sm" x-text="goalOptions.find(g=>g.id===goalId)?.emoji || '🎯'"></span>
+                      <span class="text-sm text-gray-700 flex-1 truncate" x-text="goalOptions.find(g=>g.id===goalId)?.name || goalId"></span>
+                      <span class="text-[10px] text-accent bg-accent/10 px-1.5 py-0.5 rounded-full shrink-0" x-text="t('goal_from_strategy')"></span>
+                    </div>
+                    <select x-show="!goalLocked" x-model="goalId"
+                            class="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+                      <template x-for="g in goalOptions" :key="g.id">
+                        <option :value="g.id" x-text="g.emoji + ' ' + g.name"></option>
+                      </template>
+                    </select>
+                  </div>
+                  <!-- Persona -->
+                  <div>
+                    <label class="text-[11px] text-gray-400 mb-1 block" x-text="t('persona_label')"></label>
+                    <select x-model="personaId"
+                            class="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+                      <option value="" x-text="t('persona_any')"></option>
+                      <template x-for="p in personas" :key="p.id">
+                        <option :value="p.id" x-text="p.emoji + ' ' + p.name"></option>
+                      </template>
+                    </select>
+                  </div>
+                  <!-- Output Language -->
+                  <div>
+                    <label class="text-[11px] text-gray-400 mb-1 block" x-text="t('language_label')"></label>
+                    <select x-model="outputLang"
+                            @change="languageManualOverride = true"
+                            class="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+                      <option value="zh">🇨🇳 中文</option>
+                      <option value="en">🇺🇸 English</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
               <!-- Advanced Options (collapsed) -->
-              <details class="mb-4">
+              <details class="mb-4" id="sw-advanced">
                 <summary class="text-xs text-gray-400 cursor-pointer select-none hover:text-gray-600 transition-colors flex items-center gap-1 mb-2">
                   <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                   <span x-text="t('advanced_title')"></span>
                 </summary>
                 <div class="space-y-3 pl-1">
+                  <!-- Structure -->
+                  <div>
+                    <div class="flex items-center gap-1.5 mb-1">
+                      <label class="text-xs text-gray-500" x-text="t('structure_label')"></label>
+                      <span x-show="!structureManualOverride"
+                            class="text-[10px] text-accent/70 bg-accent/8 px-1.5 py-0.5 rounded"
+                            x-text="t('structure_auto')"></span>
+                    </div>
+                    <select x-model="structureId"
+                            @change="structureManualOverride = true"
+                            class="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+                      <template x-for="s in structures" :key="s.id">
+                        <option :value="s.id" x-text="s.emoji + ' ' + s.name"></option>
+                      </template>
+                    </select>
+                  </div>
+                  <!-- Word Count -->
+                  <div>
+                    <label class="text-xs text-gray-500 mb-1.5 block">
+                      <span x-text="t('wordcount_label')"></span>
+                      <span class="font-normal text-gray-400 ml-1" x-text="t('wordcount_hint')"></span>
+                    </label>
+                    <div class="flex items-center gap-2">
+                      <template x-for="wc in [100, 150, 200, 300, 500]" :key="wc">
+                        <button @click="wordCount = wc"
+                                class="wc-chip" :class="wordCount === wc ? 'selected' : ''"
+                                x-text="wc"></button>
+                      </template>
+                      <input type="number" x-model.number="wordCount" min="50" max="2000" step="50"
+                             class="w-20 border border-gray-200 rounded-lg px-2.5 py-1 text-sm text-gray-700 text-center focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+                    </div>
+                  </div>
                   <!-- CTA -->
                   <div>
                     <label class="text-xs text-gray-500 mb-1 block" x-text="t('cta_label')"></label>
@@ -307,7 +341,13 @@
                   </div>
                   <!-- Reference -->
                   <div>
-                    <label class="text-xs text-gray-500 mb-1 block" x-text="t('reference_label')"></label>
+                    <div class="flex items-center justify-between mb-1">
+                      <label class="text-xs text-gray-500" x-text="t('reference_label')"></label>
+                      <span x-show="refCreationTitle" class="text-[11px] text-accent flex items-center gap-1">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+                        <span x-text="t('ref_loaded_hint') + ' ' + refCreationTitle" class="truncate max-w-[200px]"></span>
+                      </span>
+                    </div>
                     <textarea x-model="reference" :placeholder="t('reference_placeholder')" rows="3"
                               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent resize-none"></textarea>
                   </div>
@@ -323,7 +363,7 @@
               <!-- Generate Button -->
               <div class="flex justify-end">
                 <button @click="doGenerate()"
-                        :disabled="loading || !offerId || !goal"
+                        :disabled="loading || !offerId"
                         class="bg-gradient-to-r from-purple-600 to-accent text-white px-6 py-2.5 rounded-lg text-[13px] font-medium hover:opacity-90 disabled:opacity-50 transition flex items-center gap-2">
                   <svg x-show="loading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
                   <svg x-show="!loading" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
@@ -352,6 +392,18 @@
                 <span class="text-lg">🎙️</span>
                 <h3 class="text-sm font-semibold text-gray-700" x-text="t('result_title')"></h3>
                 <div class="flex-1"></div>
+                <!-- Saved badge -->
+                <span x-show="creationId" class="text-[11px] text-green-600 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                  <span x-text="t('saved_creation_hint')"></span>
+                </span>
+                <!-- Generate Video direct button (only for video-platform results) -->
+                <a x-show="creationId && _isVideoResult()"
+                   :href="'/creations.html?open_video=' + creationId"
+                   class="inline-flex items-center gap-1 text-[11px] font-medium text-white bg-accent hover:bg-accent-hover rounded-lg px-3 py-1.5 transition-colors">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                  <span x-text="t('go_generate_video')"></span>
+                </a>
                 <span class="text-xs text-gray-400" x-text="t('word_count_label') + '：' + (scriptResult || '').length"></span>
                 <button @click="copyScript()"
                         class="text-xs text-accent hover:text-accent-hover transition-colors flex items-center gap-1 ml-2">
@@ -359,7 +411,69 @@
                   <span x-text="copied ? t('copied') : t('copy_btn')"></span>
                 </button>
               </div>
-              <div class="text-sm text-gray-700 script-output" x-text="scriptResult"></div>
+
+              <!-- Structured sections (Composer output) -->
+              <div x-show="structuredContent" class="space-y-3">
+                <template x-for="[sid, sec] in Object.entries(structuredContent?.sections || {})" :key="sid">
+                  <div class="rounded-lg border border-gray-100 overflow-hidden">
+                    <div class="px-3 py-2 bg-gray-50 flex items-center justify-between">
+                      <span class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide"
+                            x-text="_sectionLabel(sid)"></span>
+                      <span x-show="sec.duration_seconds" class="text-[11px] text-gray-400"
+                            x-text="'~' + sec.duration_seconds + 's'"></span>
+                    </div>
+                    <div class="px-3 py-3">
+                      <p class="text-sm text-gray-700 leading-relaxed" x-text="sec.text"></p>
+                      <details x-show="sec.visual_direction" class="mt-2">
+                        <summary class="text-[11px] text-gray-400 cursor-pointer hover:text-gray-600 select-none flex items-center gap-1">
+                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                          <span x-text="t('visual_dir_label')"></span>
+                        </summary>
+                        <p class="text-[11px] text-gray-400 mt-1.5 pl-4 italic leading-relaxed" x-text="sec.visual_direction"></p>
+                      </details>
+                      <p x-show="sec.image_hint" class="text-[11px] text-gray-400 mt-1.5 flex items-center gap-1">
+                        <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                        <span x-text="sec.image_hint"></span>
+                      </p>
+                    </div>
+                  </div>
+                </template>
+                <!-- B-roll plan (AI director decisions) -->
+                <template x-if="structuredContent?.broll_plan?.length">
+                  <div class="rounded-lg border border-purple-100 bg-purple-50/30 px-3 py-3">
+                    <div class="flex items-center gap-1.5 mb-2">
+                      <svg class="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                      <span class="text-[11px] font-semibold text-purple-500 uppercase tracking-wide" x-text="t('broll_plan_title')"></span>
+                    </div>
+                    <div class="space-y-1.5">
+                      <template x-for="(br, i) in structuredContent.broll_plan" :key="i">
+                        <div class="flex items-start gap-2 text-[11px]">
+                          <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium"
+                                :class="br.type === 'retention' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'"
+                                x-text="br.type === 'retention' ? t('broll_type_retention') : t('broll_type_illustrate')"></span>
+                          <span class="text-gray-400" x-text="br.duration_seconds + 's'"></span>
+                          <span class="text-gray-600 flex-1" x-text="br.prompt"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- text_post metadata (title + hashtags) -->
+                <template x-if="structuredContent?.metadata">
+                  <div class="rounded-lg border border-gray-100 px-3 py-3">
+                    <p class="text-sm font-medium text-gray-700" x-text="structuredContent.metadata?.title"></p>
+                    <div x-show="structuredContent.metadata?.hashtags?.length" class="flex flex-wrap gap-1 mt-2">
+                      <template x-for="tag in (structuredContent.metadata?.hashtags || [])" :key="tag">
+                        <span class="text-[11px] bg-blue-50 text-blue-500 px-2 py-0.5 rounded-full" x-text="tag"></span>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Plain text result (no structured content) -->
+              <div x-show="!structuredContent" class="text-sm text-gray-700 script-output" x-text="scriptResult"></div>
             </div>
 
           </div>
@@ -541,9 +655,12 @@ Output language MUST match the language of the knowledge base content and topic.
       const params = new URLSearchParams(location.search);
       return {
         offers: [],
-        offerId: params.get('offer_id') || '',
+        // Start empty — assign after offers load + $nextTick so <option>s exist first
+        offerId: '',
         strategyUnits: [],
-        strategyUnitId: params.get('strategy_unit_id') || '',
+        strategyUnitId: '',
+        _urlOfferId: params.get('offer_id') || '',
+        _urlStrategyUnitId: params.get('strategy_unit_id') || '',
         selectedUnit: null,
         llmConfigs: [],
         configId: '',
@@ -554,25 +671,40 @@ Output language MUST match the language of the knowledge base content and topic.
         systemPrompt: '',
 
         // Config
-        topic: '',
-        goal: 'reach_growth',
+        topic: params.get('topic') || '',
         goalLocked: false,
         tone: '',
         manualTone: false,
-        wordCount: 150,
+        wordCount: 200,
         cta: '',
         industry: '',
         reference: '',
         extraReq: '',
 
-        // Goal definitions
-        goals: [],
+        // Composer dimensions
+        platforms: [],
+        platformId: 'douyin',
+        outputLang: window._odLang === 'zh' ? 'zh' : 'en',
+        detectedLang: '',
+        languageManualOverride: false,
+        personas: [],
+        personaId: '',
+        structures: [],
+        structureId: 'hook_body_cta',
+        structureManualOverride: false,
+        goalOptions: [],
+        goalId: 'seeding',
+
+        // Tone definitions (kept for non-persona legacy mode)
         tones: [],
 
         // State
+        refCreationTitle: '',
         suggestingTopic: false,
         loading: false,
         scriptResult: null,
+        structuredContent: null,
+        creationId: null,
         thinking: null,
         thinkingActive: false,
         copied: false,
@@ -580,13 +712,7 @@ Output language MUST match the language of the knowledge base content and topic.
         async init() {
           document.title = t('page_title') + ' - OpenLucid';
 
-          // Build goal/tone options from i18n
-          this.goals = [
-            { key: 'reach_growth', icon: '🎯', label: t('goal_reach'), desc: t('goal_reach_desc') },
-            { key: 'lead_generation', icon: '📋', label: t('goal_leads'), desc: t('goal_leads_desc') },
-            { key: 'conversion', icon: '🛒', label: t('goal_sales'), desc: t('goal_sales_desc') },
-            { key: 'education', icon: '📚', label: t('goal_educate'), desc: t('goal_educate_desc') },
-          ];
+          // Build tone options from i18n (used in legacy/no-persona mode)
           this.tones = [
             { key: 'professional', label: t('tone_professional') },
             { key: 'friendly', label: t('tone_friendly') },
@@ -601,26 +727,93 @@ Output language MUST match the language of the knowledge base content and topic.
           // Load default system prompt
           this.systemPrompt = this._loadPrompt();
 
-          // Load data in parallel
-          const [offersRes, llmRes] = await Promise.all([
+          const lang = getApiLang().slice(0, 2);  // zh-CN → zh, en → en
+
+          // Load all data in parallel
+          const [offersRes, llmRes, platformsRes, personasRes, structuresRes, goalsRes] = await Promise.all([
             fetch(`${API}/offers?page_size=100`).catch(() => null),
             fetch(`${API}/settings/llm`).catch(() => null),
+            fetch(`${API}/apps/script-writer/platforms?lang=${lang}`).catch(() => null),
+            fetch(`${API}/apps/script-writer/personas?lang=${lang}`).catch(() => null),
+            fetch(`${API}/apps/script-writer/structures?lang=${lang}`).catch(() => null),
+            fetch(`${API}/apps/script-writer/goals?lang=${lang}`).catch(() => null),
           ]);
 
           if (offersRes?.ok) this.offers = (await offersRes.json()).items || [];
           if (llmRes?.ok) this.llmConfigs = await llmRes.json();
-
-          // Restore last offer
-          if (!this.offerId) {
-            this.offerId = localStorage.getItem('od_last_sw_offer') || '';
+          if (platformsRes?.ok) {
+            // Script Writer is for VIDEO scripts only — filter out text platforms
+            const all = await platformsRes.json();
+            this.platforms = all.filter(p => p.content_type === 'video');
+            if (this.platforms.length && !this.platforms.find(p => p.id === this.platformId)) {
+              this.platformId = this.platforms[0].id;
+            }
           }
-          if (this.offerId && !this.offers.find(o => o.id === this.offerId)) {
-            this.offerId = '';
+          if (personasRes?.ok) this.personas = await personasRes.json();
+          if (structuresRes?.ok) {
+            this.structures = await structuresRes.json();
+            if (this.structures.length && !this.structures.find(s => s.id === this.structureId)) {
+              this.structureId = this.structures[0].id;
+            }
+          }
+          if (goalsRes?.ok) {
+            this.goalOptions = await goalsRes.json();
+            if (this.goalOptions.length && !this.goalOptions.find(g => g.id === this.goalId)) {
+              this.goalId = this.goalOptions[0].id;
+            }
+            // Apply initial Goal→Structure inference (watch only fires on changes, not on load)
+            if (!this.structureManualOverride) {
+              this.structureId = this._goalToStructure(this.goalId);
+            }
           }
 
-          if (this.offerId) {
+          // Determine which offer to select (priority: URL > last used)
+          let targetOffer = this._urlOfferId || localStorage.getItem('od_last_sw_offer') || '';
+          if (targetOffer && !this.offers.find(o => o.id === targetOffer)) {
+            targetOffer = '';
+          }
+
+          if (targetOffer) {
+            // Wait for <option> elements to render before assigning x-model value
+            await this.$nextTick();
+            this.offerId = targetOffer;
+            this.strategyUnitId = this._urlStrategyUnitId || '';
             localStorage.setItem('od_last_sw_offer', this.offerId);
             await this.fetchContext();
+            await this.detectPrimaryLang();
+          }
+
+          // Auto-infer structure when goal changes (unless user manually overrode it)
+          this.$watch('goalId', (val) => {
+            if (!this.structureManualOverride) {
+              this.structureId = this._goalToStructure(val);
+            }
+          });
+
+          // Auto-set word count when platform changes
+          this.$watch('platformId', (val) => {
+            const p = this.platforms.find(p => p.id === val);
+            if (p?.max_script_chars) {
+              // ~40% of max gives a comfortable default (200 for 600-char platforms, 400 for 1000-char)
+              this.wordCount = Math.round(p.max_script_chars * 0.4 / 50) * 50;
+            }
+          });
+
+          // Pre-fill reference from a referred creation (e.g., "Recreate" button in Creations)
+          const refCreationId = params.get('ref_creation_id');
+          if (refCreationId) {
+            const refRes = await fetch(`/api/v1/creations/${refCreationId}`).catch(() => null);
+            if (refRes?.ok) {
+              const refCreation = await refRes.json();
+              this.reference = refCreation.content || '';
+              if (!this.topic) this.topic = refCreation.title || '';
+              this.refCreationTitle = refCreation.title || '';
+              // Ensure advanced section is open so user sees the pre-filled reference
+              this.$nextTick(() => {
+                const adv = document.getElementById('sw-advanced');
+                if (adv) adv.open = true;
+              });
+            }
           }
         },
 
@@ -648,22 +841,47 @@ Output language MUST match the language of the knowledge base content and topic.
           }
         },
 
-        autoTone() {
-          // Auto-match tone to goal (as per the system prompt defaults)
+        _goalToStructure(goalId) {
           const map = {
-            reach_growth: 'sincere',
-            lead_generation: 'professional',
-            conversion: 'energetic',
-            education: 'friendly',
-            traffic_redirect: 'energetic',
-            other: 'friendly',
+            seeding:           'hook_body_cta',
+            reach_growth:      'hook_body_cta',
+            conversion:        'pas',
+            lead_generation:   'pas',
+            knowledge_sharing: 'story_lesson_cta',
+            brand_awareness:   'before_after_bridge',
           };
-          this.tone = map[this.goal] || '';
+          return map[goalId] || 'hook_body_cta';
+        },
+
+        _isVideoResult() {
+          if (this.structuredContent?.content_type) {
+            return this.structuredContent.content_type === 'video';
+          }
+          return (this.platforms.find(p => p.id === this.platformId)?.content_type || '') === 'video';
+        },
+
+        _sectionLabel(sid) {
+          const map = {
+            hook: window._odLang === 'zh' ? '开场钩子' : 'Hook',
+            body: window._odLang === 'zh' ? '正文' : 'Body',
+            cta: 'CTA',
+            problem: window._odLang === 'zh' ? '痛点' : 'Problem',
+            agitate: window._odLang === 'zh' ? '放大痛点' : 'Agitate',
+            solve: window._odLang === 'zh' ? '解决方案' : 'Solution',
+            before: window._odLang === 'zh' ? '转变前' : 'Before',
+            after: window._odLang === 'zh' ? '转变后' : 'After',
+            bridge: window._odLang === 'zh' ? '桥接' : 'Bridge',
+            story: window._odLang === 'zh' ? '故事' : 'Story',
+            lesson: window._odLang === 'zh' ? '结论' : 'Lesson',
+          };
+          return map[sid] || (sid.charAt(0).toUpperCase() + sid.slice(1));
         },
 
         async onOfferChange() {
           localStorage.setItem('od_last_sw_offer', this.offerId);
           this.scriptResult = null;
+          this.structuredContent = null;
+          this.creationId = null;
           this.thinking = null;
           this.thinkingActive = false;
           this.contextData = null;
@@ -671,12 +889,15 @@ Output language MUST match the language of the knowledge base content and topic.
           this.strategyUnitId = '';
           this.selectedUnit = null;
           this.goalLocked = false;
+          this.structureManualOverride = false;
+          this.languageManualOverride = false;
 
           if (this.offerId) {
             history.replaceState(null, '', `?offer_id=${this.offerId}`);
             const name = this.offers.find(o => o.id === this.offerId)?.name || '';
             document.title = `${t('title_with_offer')} · ${name} - OpenLucid`;
             await this.fetchContext();
+            await this.detectPrimaryLang();
           } else {
             history.replaceState(null, '', location.pathname);
             document.title = t('page_title') + ' - OpenLucid';
@@ -687,12 +908,41 @@ Output language MUST match the language of the knowledge base content and topic.
           this.selectedUnit = this.strategyUnits.find(su => su.id === this.strategyUnitId) || null;
           const obj = this.selectedUnit?.marketing_objective;
           if (obj) {
-            this.goal = obj;
+            // Map legacy marketing_objective to new goal_id
+            const moToGoalId = {
+              reach_growth: 'reach_growth',
+              lead_generation: 'lead_generation',
+              conversion: 'conversion',
+              education: 'knowledge_sharing',
+              traffic_redirect: 'reach_growth',
+              other: 'seeding',
+            };
+            this.goalId = moToGoalId[obj] || obj;
             this.goalLocked = true;
-            if (!this.manualTone) this.autoTone();
           } else {
             this.goalLocked = false;
           }
+        },
+
+        async detectPrimaryLang() {
+          // Guess KB language and set Composer default (unless user already overrode)
+          if (!this.offerId) return;
+          try {
+            const r = await fetch(`${API}/offers/${this.offerId}/primary_lang`);
+            if (!r.ok) return;
+            const d = await r.json();
+            this.detectedLang = d.language || '';
+            if (!this.languageManualOverride && this.detectedLang) {
+              this.outputLang = this.detectedLang;
+              // Pick a platform matching the detected language if current choice mismatches region
+              const current = this.platforms.find(p => p.id === this.platformId);
+              const wantZh = this.detectedLang === 'zh';
+              if (current && ((current.region === 'zh') !== wantZh)) {
+                const match = this.platforms.find(p => (p.region === 'zh') === wantZh);
+                if (match) this.platformId = match.id;
+              }
+            }
+          } catch (e) { /* silent */ }
         },
 
         async fetchContext() {
@@ -721,42 +971,28 @@ Output language MUST match the language of the knowledge base content and topic.
           if (!this.offerId || this.suggestingTopic) return;
           this.suggestingTopic = true;
           try {
-            const res = await fetch(`${API}/apps/script-writer/suggest-topic`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                offer_id: this.offerId,
-                strategy_unit_id: this.strategyUnitId || undefined,
-                goal: this.goal,
-                language: getApiLang(),
-                config_id: this.configId || undefined,
-              }),
+            this.topic = await window.odSuggestTopic({
+              offer_id: this.offerId,
+              goal: this.goalId,
+              strategy_unit_id: this.strategyUnitId || undefined,
+              config_id: this.configId || undefined,
             });
-            if (res.ok) {
-              const data = await res.json();
-              this.topic = data.topic || '';
-            } else {
-              const err = await res.json().catch(() => ({}));
-              console.error('suggest-topic error:', res.status, err);
-              alert(err.detail || 'Failed to suggest topic');
-            }
           } catch(e) { console.error(e); alert(e.message); }
           this.suggestingTopic = false;
         },
 
         async doGenerate() {
-          if (!this.offerId || !this.goal) return;
+          if (!this.offerId) return;
           this.loading = true;
           this.scriptResult = null;
+          this.structuredContent = null;
+          this.creationId = null;
           this.thinking = null;
           this.thinkingActive = false;
           this.copied = false;
 
           // Save prompt if edited
           this._savePrompt();
-
-          // Determine tone to send
-          const toneToSend = this.tone || undefined;
 
           try {
             const res = await fetch(`${API}/apps/script-writer/generate/stream`, {
@@ -767,15 +1003,20 @@ Output language MUST match the language of the knowledge base content and topic.
                 strategy_unit_id: this.strategyUnitId || undefined,
                 system_prompt: this.systemPrompt,
                 topic: this.topic.trim(),
-                goal: this.goal,
-                tone: toneToSend,
+                goal: this.goalId,
+                tone: (!this.personaId && this.tone) ? this.tone : undefined,
                 word_count: this.wordCount,
                 cta: this.cta || undefined,
                 industry: this.industry || undefined,
                 reference: this.reference || undefined,
                 extra_req: this.extraReq || undefined,
-                language: getApiLang(),
+                language: this.outputLang === 'zh' ? 'zh-CN' : 'en',
                 config_id: this.configId || undefined,
+                // Composer dimensions
+                platform_id: this.platformId || undefined,
+                persona_id: this.personaId || undefined,
+                goal_id: this.goalId,
+                structure_id: this.structureId || undefined,
               }),
             });
 
@@ -829,9 +1070,15 @@ Output language MUST match the language of the knowledge base content and topic.
                   this.scriptResult = scriptContent;
                 } else if (eventType === 'done') {
                   const result = JSON.parse(data);
-                  // If we didn't get streaming tokens (stub), use the done result
-                  if (!scriptContent && result.script) {
+                  // Backend converts structured JSON to plain text in result.script
+                  if (result.script) {
                     this.scriptResult = result.script;
+                  }
+                  if (result.structured_content) {
+                    this.structuredContent = result.structured_content;
+                  }
+                  if (result.creation_id) {
+                    this.creationId = result.creation_id;
                   }
                 }
               }

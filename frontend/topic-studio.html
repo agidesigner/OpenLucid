@@ -59,6 +59,10 @@
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
         <span x-text="t('sidebar_creations')"></span>
       </a>
+      <a href="/video-studio.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        <span x-text="t('sidebar_videos')"></span>
+      </a>
       <a href="/brandkit-list.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
         <span x-text="t('sidebar_brandkit')"></span>
@@ -301,6 +305,19 @@
                         </button>
                       </div>
                     </div>
+                    <!-- Quick actions: write content / make video -->
+                    <div class="flex items-center gap-2 mt-3 pt-3 border-t border-gray-50">
+                      <a :href="_topicToUrl('/script-writer.html', p)"
+                         class="flex-1 inline-flex items-center justify-center gap-1.5 text-xs font-medium text-gray-600 hover:text-accent hover:bg-accent/5 border border-gray-200 hover:border-accent/40 rounded-md px-3 py-1.5 transition-colors">
+                        <span>🎬</span>
+                        <span x-text="t('topic_make_video')"></span>
+                      </a>
+                      <a :href="_topicToUrl('/content-studio.html', p)"
+                         class="flex-1 inline-flex items-center justify-center gap-1.5 text-xs font-medium text-gray-600 hover:text-accent hover:bg-accent/5 border border-gray-200 hover:border-accent/40 rounded-md px-3 py-1.5 transition-colors">
+                        <span>📝</span>
+                        <span x-text="t('topic_write_post')"></span>
+                      </a>
+                    </div>
                   </div>
                 </template>
               </div>
@@ -320,7 +337,7 @@
               </div>
               <div class="space-y-2">
                 <template x-for="p in historyPlans" :key="p.id">
-                  <div class="bg-white rounded-lg border border-gray-100 p-4 hover:shadow-sm transition-shadow">
+                  <div class="bg-white rounded-lg border border-gray-100 p-4 hover:shadow-sm transition-shadow group">
                     <div class="flex items-start justify-between">
                       <div class="flex-1 min-w-0">
                         <h4 class="text-sm font-medium text-gray-800" x-text="p.title"></h4>
@@ -332,6 +349,16 @@
                         <div x-show="p.hook" class="text-[13px] text-gray-500 mt-1.5 line-clamp-1" x-text="p.hook"></div>
                       </div>
                       <div class="flex items-center gap-1 shrink-0 ml-3">
+                        <a :href="_topicToUrl('/script-writer.html', p)"
+                           class="p-1 rounded-md text-gray-300 hover:text-accent hover:bg-accent/5 opacity-0 group-hover:opacity-100 transition-all"
+                           :title="t('topic_make_video')">
+                          <span class="text-[13px]">🎬</span>
+                        </a>
+                        <a :href="_topicToUrl('/content-studio.html', p)"
+                           class="p-1 rounded-md text-gray-300 hover:text-accent hover:bg-accent/5 opacity-0 group-hover:opacity-100 transition-all"
+                           :title="t('topic_write_post')">
+                          <span class="text-[13px]">📝</span>
+                        </a>
                         <button @click="rateTopic(p, 1)" class="p-1 rounded-md transition-colors" :class="p.user_rating === 1 ? 'text-green-600 bg-green-50' : 'text-gray-300 hover:text-green-500 hover:bg-green-50'" :title="p.user_rating === 1 ? t('rate_liked') : ''">
                           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14z M4 21h-1a2 2 0 01-2-2v-7a2 2 0 012-2h1"/></svg>
                         </button>
@@ -511,6 +538,19 @@
         onTopicPickerSelect(unitId) {
           this.strategyUnitId = unitId || '';
           this.generate();
+        },
+
+        _topicToUrl(basePath, plan) {
+          // Build URL for Script Writer / Content Studio with pre-filled topic + offer
+          const p = new URLSearchParams();
+          if (this.offerId) p.set('offer_id', this.offerId);
+          if (this.strategyUnitId) p.set('strategy_unit_id', this.strategyUnitId);
+          // Compose topic text: title first, hook as context if present
+          const title = (plan.title || '').trim();
+          const hook = (plan.hook || '').trim();
+          const topicText = hook ? `${title}\n\n${hook}` : title;
+          if (topicText) p.set('topic', topicText);
+          return `${basePath}?${p.toString()}`;
         },
 
         async rateTopic(plan, rating) {

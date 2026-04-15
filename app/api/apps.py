@@ -186,6 +186,77 @@ async def kb_qa_ask_stream(
 # ── Script Writer ─────────────────────────────────────────────
 
 
+@router.get("/script-writer/platforms")
+async def script_writer_list_platforms(lang: str = Query("zh", pattern="^(zh|en)$")):
+    from app.application.script_platforms import list_platforms
+    # Sort by relevance to the user's language:
+    #   zh user: zh platforms first, then global, then en-only
+    #   en user: en platforms first, then global, then zh-only
+    if lang == "zh":
+        region_priority = {"zh": 0, "global": 1, "en": 2}
+    else:
+        region_priority = {"en": 0, "global": 1, "zh": 2}
+    sorted_platforms = sorted(
+        list_platforms(),
+        key=lambda p: (region_priority.get(p.region, 99), p.id),
+    )
+    return [
+        {
+            "id": p.id,
+            "name": p.localized_name(lang),
+            "emoji": p.emoji,
+            "region": p.region,
+            "content_type": p.content_type,
+            "aspect_ratio": p.aspect_ratio,
+            "max_script_chars": p.max_script_chars,
+        }
+        for p in sorted_platforms
+    ]
+
+
+@router.get("/script-writer/personas")
+async def script_writer_list_personas(lang: str = Query("zh", pattern="^(zh|en)$")):
+    from app.application.script_personas import list_personas
+    return [
+        {
+            "id": p.id,
+            "name": p.localized_name(lang),
+            "emoji": p.emoji,
+            "description": p.localized_description(lang),
+            "tags": p.tags,
+        }
+        for p in list_personas()
+    ]
+
+
+@router.get("/script-writer/structures")
+async def script_writer_list_structures(lang: str = Query("zh", pattern="^(zh|en)$")):
+    from app.application.script_structures import list_structures
+    return [
+        {
+            "id": s.id,
+            "name": s.localized_name(lang),
+            "emoji": s.emoji,
+            "description": s.localized_description(lang),
+            "section_ids": s.section_ids,
+        }
+        for s in list_structures()
+    ]
+
+
+@router.get("/script-writer/goals")
+async def script_writer_list_goals(lang: str = Query("zh", pattern="^(zh|en)$")):
+    from app.application.script_goals import list_goals
+    return [
+        {
+            "id": g.id,
+            "name": g.localized_name(lang),
+            "emoji": g.emoji,
+        }
+        for g in list_goals()
+    ]
+
+
 @router.post("/script-writer/suggest-topic")
 async def script_writer_suggest_topic(
     data: dict,

@@ -30,6 +30,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
     logger = logging.getLogger(__name__)
     os.makedirs(settings.STORAGE_BASE_PATH, exist_ok=True)
+    os.makedirs(os.path.join(settings.STORAGE_BASE_PATH, "composited"), exist_ok=True)
 
     # 0a. Warn if SECRET_KEY is still the default — tokens can be forged
     _DEFAULT_KEYS = {
@@ -239,6 +240,7 @@ register_exception_handlers(_fastapi_app)
 _fastapi_app.include_router(health_router)
 _fastapi_app.include_router(api_router, prefix="/api/v1")
 
+_fastapi_app.mount("/uploads", StaticFiles(directory=settings.STORAGE_BASE_PATH), name="uploads")
 _fastapi_app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 
 

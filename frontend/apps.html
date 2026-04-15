@@ -56,6 +56,10 @@
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
         <span x-text="t('sidebar_creations')"></span>
       </a>
+      <a href="/video-studio.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        <span x-text="t('sidebar_videos')"></span>
+      </a>
       <a href="/brandkit-list.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
         <span x-text="t('sidebar_brandkit')"></span>
@@ -170,12 +174,10 @@
 
         openApp(app) {
           if (app.status !== 'active') return;
-          if (app.slug === 'topic-studio') {
-            location.href = '/topic-studio.html';
-          } else if (app.slug === 'kb-qa') {
-            location.href = '/kb-qa.html';
-          } else if (app.slug === 'script-writer') {
-            location.href = '/script-writer.html';
+          // All active apps follow the convention: /{slug}.html
+          const knownSlugs = ['topic-studio', 'kb-qa', 'script-writer', 'content-studio'];
+          if (knownSlugs.includes(app.slug)) {
+            location.href = `/${app.slug}.html`;
           }
         },
 

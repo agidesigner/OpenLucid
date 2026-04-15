@@ -10,6 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.llm_config import LLMConfig
+from app.models.media_capability_default import MediaCapabilityDefault
+from app.models.media_provider_config import MediaProviderConfig
 from app.models.model_scene_config import ModelSceneConfig
 from app.schemas.setting import (
     LLMConfigCreate,
@@ -18,6 +20,10 @@ from app.schemas.setting import (
     LLMSceneConfigsResponse,
     LLMSceneConfigsUpdate,
     MODEL_TYPE_LABELS,
+    MediaCapabilitiesResponse,
+    MediaCapabilitiesUpdateRequest,
+    MediaCapabilityConfig,
+    MediaCapabilityOption,
     ModelTypeConfig,
     SceneSection,
     SYSTEM_SCENES,
@@ -204,6 +210,154 @@ async def update_scene_configs(db: AsyncSession, data: LLMSceneConfigsUpdate) ->
     return await get_scene_configs(db)
 
 
+# ── Media capability defaults (image / video / tts) ───────────────
+
+# What each capability is, what providers + models support it.
+# If a provider has this capability, we list its offerings here.
+_CAPABILITY_META = {
+    "image_gen": {
+        "label": "图像生成",
+        "icon": "🖼️",
+        "description": "用于生成封面图、产品图、辅助配图",
+        # (provider → list of model codes)
+        "models_by_provider": {
+            "chanjing": [
+                ("doubao-seedream-4.5", "Seedream 4.5 · 字节"),
+                ("doubao-seedream-4.0", "Seedream 4.0 · 字节"),
+                ("doubao-seedream-3.0", "Seedream 3.0 · 字节"),
+                ("kling-v2-1", "Kling v2.1 · 快手"),
+                ("kling-v2", "Kling v2 · 快手"),
+                ("wan2.2-t2i", "Wan 2.2 · 阿里"),
+            ],
+            "google": [
+                ("gemini-3-pro-image-preview", "Nano Banana Pro · Google (推荐)"),
+                ("gemini-3.1-flash-image-preview", "Nano Banana 2 · Google (快)"),
+                ("gemini-2.5-flash-image", "Nano Banana · Google (稳定)"),
+            ],
+        },
+    },
+    "video_gen": {
+        "label": "视频生成",
+        "icon": "🎬",
+        "description": "用于 B-roll 分镜生成、图生视频",
+        "models_by_provider": {
+            "chanjing": [
+                ("Doubao-Seedance-1.0-pro", "Seedance 1.0 Pro · 字节 (推荐)"),
+                ("doubao-seedance-1.0-lite-i2v", "Seedance 1.0 Lite · 字节"),
+                ("tx_kling-v2-1-master", "Kling v2.1 Master · 快手"),
+                ("kling-2.5", "Kling 2.5 · 快手"),
+                ("MiniMax-Hailuo-02", "Hailuo 02 · MiniMax"),
+                ("viduq1", "Vidu Q1"),
+            ],
+            "google": [
+                # Gemini API as of 2026-04: only Veo 3.1 series currently available
+                # (veo-3-generate-preview shut down 2026-03-09; veo-2 no longer listed)
+                ("veo-3.1-generate-preview", "Veo 3.1 · Google (推荐)"),
+                ("veo-3.1-lite-generate-preview", "Veo 3.1 Lite · Google (快)"),
+            ],
+        },
+    },
+    "tts": {
+        "label": "语音合成",
+        "icon": "🔊",
+        "description": "选择默认 TTS 供应商。供应商内部集成了多种语音引擎（Cicada、ElevenLabs 等），具体音色在生成视频时选择。",
+        # TTS uses voice_id, not model_code. Provider transparently routes to
+        # the underlying engine (Cicada / ElevenLabs / ...) based on the voice.
+        "models_by_provider": {
+            "chanjing": [],  # voices listed dynamically from provider API
+            "jogg": [],
+        },
+    },
+}
+
+
+async def get_media_capability_configs(db: AsyncSession) -> MediaCapabilitiesResponse:
+    """Build the capability → options mapping based on configured media providers."""
+    # Load active providers
+    providers_result = await db.execute(
+        select(MediaProviderConfig).where(MediaProviderConfig.is_active.is_(True))
+    )
+    active_providers = list(providers_result.scalars().all())
+    providers_by_name: dict[str, list[MediaProviderConfig]] = {}
+    for p in active_providers:
+        providers_by_name.setdefault(p.provider, []).append(p)
+
+    # Load current defaults
+    defaults_result = await db.execute(select(MediaCapabilityDefault))
+    defaults: dict[str, MediaCapabilityDefault] = {
+        d.capability: d for d in defaults_result.scalars().all()
+    }
+
+    capabilities: list[MediaCapabilityConfig] = []
+    for cap, meta in _CAPABILITY_META.items():
+        options: list[MediaCapabilityOption] = []
+        for provider_name, models in meta["models_by_provider"].items():
+            for p in providers_by_name.get(provider_name, []):
+                if cap == "tts":
+                    # TTS is "pick provider, voice chosen per-use" — label clarifies
+                    # this is a provider choice, not a model or voice selection
+                    options.append(MediaCapabilityOption(
+                        provider_config_id=str(p.id),
+                        provider=p.provider,
+                        provider_label=p.label,
+                        model_code=None,
+                        voice_id=None,
+                        display_label=f"{p.label}（TTS 供应商）",
+                    ))
+                else:
+                    for code, title in models:
+                        options.append(MediaCapabilityOption(
+                            provider_config_id=str(p.id),
+                            provider=p.provider,
+                            provider_label=p.label,
+                            model_code=code,
+                            voice_id=None,
+                            display_label=f"{title}",
+                        ))
+
+        d = defaults.get(cap)
+        capabilities.append(MediaCapabilityConfig(
+            capability=cap,
+            label=meta["label"],
+            icon=meta["icon"],
+            description=meta["description"],
+            current_provider_config_id=str(d.provider_config_id) if d and d.provider_config_id else None,
+            current_model_code=d.model_code if d else None,
+            current_voice_id=d.voice_id if d else None,
+            options=options,
+        ))
+    return MediaCapabilitiesResponse(capabilities=capabilities)
+
+
+async def update_media_capability_configs(
+    db: AsyncSession, data: MediaCapabilitiesUpdateRequest
+) -> MediaCapabilitiesResponse:
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    for upd in data.updates:
+        provider_id = uuid.UUID(upd.provider_config_id) if upd.provider_config_id else None
+        stmt = (
+            pg_insert(MediaCapabilityDefault)
+            .values(
+                capability=upd.capability,
+                provider_config_id=provider_id,
+                model_code=upd.model_code,
+                voice_id=upd.voice_id,
+            )
+            .on_conflict_do_update(
+                index_elements=["capability"],
+                set_={
+                    "provider_config_id": provider_id,
+                    "model_code": upd.model_code,
+                    "voice_id": upd.voice_id,
+                },
+            )
+        )
+        await db.execute(stmt)
+    await db.commit()
+    return await get_media_capability_configs(db)
+
+
 async def get_llm_config_for_scene(
     db: AsyncSession, scene_key: str, model_type: str = "text_llm"
 ) -> LLMConfig | None:
@@ -302,6 +456,34 @@ async def fetch_llm_models(api_key: str, base_url: str, provider: str) -> tuple[
                 resp.raise_for_status()
                 data = resp.json()
                 model_ids = [m["id"] for m in data.get("data", [])]
+        elif provider == "gemini":
+            # Gemini's OpenAI-compatibility layer does not expose /models list.
+            # Use Gemini's native /v1beta/models endpoint instead — reconstruct
+            # it from whatever base_url the user gave (handles both
+            # https://generativelanguage.googleapis.com/v1beta and .../v1beta/openai).
+            import httpx
+            base = base_url.rstrip('/')
+            if base.endswith('/openai'):
+                base = base[:-len('/openai')]
+            if not base.endswith('/v1beta'):
+                base = "https://generativelanguage.googleapis.com/v1beta"
+            url = f"{base}/models"
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    url,
+                    params={"key": api_key},
+                    timeout=15,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                # Response: {"models": [{"name": "models/gemini-2.0-flash", "supportedGenerationMethods": [...], ...}]}
+                all_models = data.get("models", [])
+                # Filter to models that support text generation via generateContent
+                chat_models = [
+                    m for m in all_models
+                    if "generateContent" in (m.get("supportedGenerationMethods") or [])
+                ]
+                model_ids = [m["name"].removeprefix("models/") for m in chat_models]
         else:
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=api_key, base_url=base_url)

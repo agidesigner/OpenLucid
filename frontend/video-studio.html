@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenLucid</title>
+  <script>
+    document.documentElement.style.display='none';
+    fetch('/api/v1/auth/me').then(r=>{
+      if(!r.ok) fetch('/api/v1/auth/setup-status').then(r=>r.json()).then(s=>{
+        location.href=s.needs_setup?'/install.html':'/signin.html';
+      });
+      else document.documentElement.style.display='';
+    });
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        sidebar: { DEFAULT: '#1C1C28', hover: '#2A2A3C' },
+        accent: { DEFAULT: '#155EEF', light: '#EFF4FF', hover: '#1849C6' },
+      }}}
+    }
+  </script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/pinned-apps.js"></script>
+  <script src="/js/avatar.js"></script>
+  <script src="/js/feedback.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif}
+    .sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;color:#A0A0B0;font-size:14px;cursor:pointer;transition:all .15s}
+    .sidebar-item:hover{background:#2A2A3C;color:#E0E0EE}
+    .sidebar-item.active{background:#2D2D40;color:#fff}
+  </style>
+</head>
+<body class="bg-gray-50 h-screen flex overflow-hidden" x-data="videoStudioPage()" x-init="init()">
+
+  <!-- Sidebar -->
+  <aside class="w-56 bg-sidebar flex flex-col shrink-0">
+    <div class="px-4 py-5 flex items-center gap-2.5">
+      <img src="/images/logo.png" alt="OpenLucid" class="w-8 h-8 rounded-lg">
+      <span class="text-white font-semibold text-base">OpenLucid</span>
+    </div>
+    <nav class="flex-1 px-3 space-y-1 mt-2">
+      <a href="/" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        <span x-text="t('sidebar_offers')"></span>
+      </a>
+      <a href="/apps.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+        <span x-text="t('sidebar_apps')"></span>
+      </a>
+      <a href="/creations.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
+        <span x-text="t('sidebar_creations')"></span>
+      </a>
+      <a href="/video-studio.html" class="sidebar-item active">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        <span x-text="t('sidebar_videos')"></span>
+      </a>
+      <a href="/brandkit-list.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
+      </a>
+    </nav>
+    <div class="px-3 pb-3 mt-auto">
+      <div class="text-[10px] text-white/25 text-center">Powered by <a href="https://openlucid.ai/?ref=app" target="_blank" class="hover:text-white/40 transition-colors">OpenLucid</a></div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <header class="h-14 bg-white border-b flex items-center justify-between px-6 shrink-0">
+      <h1 class="text-base font-semibold text-gray-800">🎬 <span x-text="t('vs_title')"></span></h1>
+      <div class="flex items-center gap-3">
+        <a href="/setting.html?section=media-providers" class="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 border border-gray-200 hover:border-gray-300 px-2.5 py-1.5 rounded-lg transition-colors">
+          <span class="w-1.5 h-1.5 bg-green-400 rounded-full"></span>
+          <span x-text="t('vs_providers_link')"></span>
+        </a>
+        <div id="avatar-mount"></div>
+      </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-6">
+      <!-- Stats strip -->
+      <div class="grid grid-cols-4 gap-3 mb-4">
+        <template x-for="card in statCards" :key="card.key">
+          <div class="bg-white rounded-xl border p-4 cursor-pointer transition-colors"
+               :class="filterStatus === card.key ? 'border-accent ring-1 ring-accent/20' : 'border-gray-100 hover:border-gray-300'"
+               @click="filterStatus = (filterStatus === card.key ? '' : card.key); reload()">
+            <div class="text-[11px] uppercase tracking-wider text-gray-400 mb-1" x-text="card.label"></div>
+            <div class="flex items-baseline gap-2">
+              <div class="text-2xl font-semibold tabular-nums" :class="card.colorClass" x-text="card.count"></div>
+              <div x-show="card.key === 'processing' && card.count > 0" class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="bg-white rounded-xl border p-4 mb-4 flex items-center gap-3 flex-wrap">
+        <div class="flex items-center gap-2 text-xs">
+          <span class="text-gray-500" x-text="t('vs_filter_provider')"></span>
+          <select x-model="filterProvider" @change="reload()"
+                  class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+            <option value="" x-text="t('vs_all_providers')"></option>
+            <option value="chanjing">Chanjing 蝉镜</option>
+            <option value="jogg">Jogg.ai</option>
+          </select>
+        </div>
+        <div class="flex items-center gap-2 text-xs">
+          <span class="text-gray-500" x-text="t('vs_filter_offer')"></span>
+          <select x-model="filterOfferId" @change="page=1; reload()"
+                  class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent max-w-[200px]">
+            <option value="" x-text="t('vs_all_offers')"></option>
+            <template x-for="o in offers" :key="o.id">
+              <option :value="o.id" x-text="o.name"></option>
+            </template>
+          </select>
+        </div>
+        <div class="flex items-center gap-2 text-xs" x-show="filterStatus">
+          <span class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-accent/10 text-accent inline-flex items-center gap-1">
+            <span x-text="t('vs_status_' + filterStatus)"></span>
+            <button @click="filterStatus = ''; reload()" class="hover:text-accent-hover">×</button>
+          </span>
+        </div>
+        <div class="flex-1"></div>
+        <button @click="reload()" class="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 hover:border-gray-300 px-2.5 py-1.5 rounded-lg transition-colors">
+          <svg class="w-3.5 h-3.5" :class="loading && 'animate-spin'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          <span x-text="t('vs_refresh')"></span>
+        </button>
+      </div>
+
+      <!-- Loading / Empty -->
+      <div x-show="loading && items.length === 0" class="text-center py-16 text-gray-400 text-sm" x-text="t('loading')"></div>
+      <div x-show="!loading && items.length === 0" class="bg-white rounded-xl border border-dashed border-gray-200 py-16 text-center">
+        <div class="text-5xl mb-3">🎬</div>
+        <p class="text-sm text-gray-500 mb-1" x-text="t('vs_empty_title')"></p>
+        <p class="text-xs text-gray-400 mb-4" x-text="t('vs_empty_hint')"></p>
+        <a href="/creations.html" class="inline-flex items-center gap-1.5 bg-accent text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-accent-hover transition-colors">
+          <span x-text="t('vs_go_creations')"></span> →
+        </a>
+      </div>
+
+      <!-- Grid -->
+      <div x-show="!loading && items.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <template x-for="job in items" :key="job.id">
+          <div class="bg-white rounded-xl border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
+            <!-- Video / cover area -->
+            <div class="aspect-video bg-gray-100 relative cursor-pointer group/thumb"
+                 @click="job.status === 'completed' && job.video_url && openVideoPlayer(job.video_url, job.cover_url)">
+              <template x-if="job.status === 'completed' && job.video_url">
+                <div class="relative w-full h-full">
+                  <img :src="job.cover_url || ''" class="w-full h-full object-cover" alt="">
+                  <div class="absolute inset-0 flex items-center justify-center bg-black/20 group-hover/thumb:bg-black/40 transition-colors">
+                    <svg class="w-12 h-12 text-white drop-shadow-lg" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                  </div>
+                </div>
+              </template>
+              <template x-if="job.status !== 'completed'">
+                <div class="w-full h-full flex flex-col items-center justify-center gap-2 text-gray-400">
+                  <template x-if="job.status === 'failed'">
+                    <svg class="w-8 h-8 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  </template>
+                  <template x-if="job.status === 'pending' || job.status === 'processing'">
+                    <svg class="w-8 h-8 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                  </template>
+                  <span class="text-[11px] font-medium" x-text="t('vs_status_' + job.status)"></span>
+                  <span x-show="job.progress != null" class="text-[10px] text-gray-400" x-text="`${job.progress}%`"></span>
+                </div>
+              </template>
+              <!-- Status badge -->
+              <span class="absolute top-2 left-2 text-[10px] font-medium px-2 py-0.5 rounded-full backdrop-blur-sm"
+                    :class="{
+                      'bg-gray-200/80 text-gray-700': job.status === 'pending',
+                      'bg-blue-100/90 text-blue-700': job.status === 'processing',
+                      'bg-green-100/90 text-green-700': job.status === 'completed',
+                      'bg-red-100/90 text-red-700': job.status === 'failed',
+                    }"
+                    x-text="t('vs_status_' + job.status)"></span>
+              <!-- Provider badge -->
+              <span class="absolute top-2 right-2 text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-900/60 text-white backdrop-blur-sm" x-text="job.provider"></span>
+            </div>
+
+            <!-- Card body -->
+            <div class="p-3">
+              <a :href="`/creations.html?focus=${job.creation_id}`"
+                 class="block text-sm font-semibold text-gray-800 hover:text-accent transition-colors truncate"
+                 :title="job.creation_title"
+                 x-text="job.creation_title"></a>
+              <div class="text-[11px] text-gray-400 mt-0.5 flex items-center gap-2">
+                <span x-text="job.creation_content_type"></span>
+                <span x-show="job.duration_seconds">·</span>
+                <span x-show="job.duration_seconds" x-text="`${job.duration_seconds}s`"></span>
+                <span>·</span>
+                <span x-text="formatDate(job.created_at)"></span>
+              </div>
+              <p x-show="job.error_message" class="mt-1 text-[11px] text-red-600 break-words line-clamp-2" x-text="job.error_message"></p>
+              <div class="mt-3 flex items-center gap-3 text-[11px]">
+                <a x-show="job.status === 'completed' && job.video_url"
+                   :href="job.video_url" target="_blank" rel="noopener" download
+                   class="font-medium text-accent hover:underline">
+                  <span x-text="t('vs_download')"></span> ↓
+                </a>
+                <a :href="`/creations.html?focus=${job.creation_id}`"
+                   class="text-gray-500 hover:text-gray-700">
+                  <span x-text="t('vs_open_creation')"></span> →
+                </a>
+                <div class="flex-1"></div>
+                <button @click="confirmDelete(job)" class="text-gray-300 hover:text-red-500 transition-colors">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Pagination -->
+      <div x-show="!loading && total > pageSize" class="mt-4 flex items-center justify-center gap-2 text-sm">
+        <button @click="page--; reload()" :disabled="page <= 1"
+                class="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50">←</button>
+        <span class="text-gray-500" x-text="`${page} / ${Math.ceil(total / pageSize)}`"></span>
+        <button @click="page++; reload()" :disabled="page * pageSize >= total"
+                class="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50">→</button>
+      </div>
+    </main>
+  </div>
+
+  <!-- ── Video Lightbox Player ── -->
+  <div x-show="videoPlayer.open" x-cloak
+       x-transition:enter="transition ease-out duration-200"
+       x-transition:enter-start="opacity-0"
+       x-transition:enter-end="opacity-100"
+       x-transition:leave="transition ease-in duration-150"
+       x-transition:leave-start="opacity-100"
+       x-transition:leave-end="opacity-0"
+       class="fixed inset-0 z-[200] flex items-center justify-center"
+       @keydown.escape.window="closeVideoPlayer()">
+    <div class="absolute inset-0 bg-black/80" @click="closeVideoPlayer()"></div>
+    <div class="relative z-10 flex flex-col items-center gap-3 max-w-[90vw] max-h-[90vh]" @click.stop>
+      <button @click="closeVideoPlayer()"
+              class="absolute -top-2 -right-2 z-20 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur flex items-center justify-center text-white transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+      <video :src="videoPlayer.url" :poster="videoPlayer.poster"
+             class="rounded-xl shadow-2xl max-h-[80vh] max-w-[85vw] bg-black"
+             controls autoplay playsinline></video>
+      <a x-show="videoPlayer.url" :href="videoPlayer.url" target="_blank" rel="noopener" download
+         class="inline-flex items-center gap-1.5 text-sm text-white/70 hover:text-white transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+        <span x-text="t('vg_download')"></span>
+      </a>
+    </div>
+  </div>
+
+  <script>
+    function videoStudioPage() {
+      return {
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 12,
+        loading: true,
+        filterStatus: '',
+        filterProvider: '',
+        filterOfferId: '',
+        offers: [],
+        // Counts per status — fetched separately for the stat cards
+        counts: { all: 0, pending: 0, processing: 0, completed: 0, failed: 0 },
+        // Video lightbox player
+        videoPlayer: { open: false, url: '', poster: '' },
+
+        async init() {
+          document.title = t('vs_title') + ' - OpenLucid';
+          // Load offers for filter dropdown
+          try {
+            const r = await fetch('/api/v1/offers?page_size=100');
+            if (r.ok) this.offers = (await r.json()).items || await r.json() || [];
+          } catch {}
+          await this.reload();
+        },
+
+        get statCards() {
+          return [
+            { key: '',           label: t('vs_stat_all'),         count: this.counts.all,        colorClass: 'text-gray-800' },
+            { key: 'processing', label: t('vs_stat_processing'),  count: this.counts.processing, colorClass: 'text-blue-600' },
+            { key: 'completed',  label: t('vs_stat_completed'),   count: this.counts.completed,  colorClass: 'text-green-600' },
+            { key: 'failed',     label: t('vs_stat_failed'),      count: this.counts.failed,     colorClass: 'text-red-500' },
+          ];
+        },
+
+        openVideoPlayer(url, poster) {
+          this.videoPlayer = { open: true, url, poster: poster || '' };
+        },
+        closeVideoPlayer() {
+          this.videoPlayer.open = false;
+          setTimeout(() => { if (!this.videoPlayer.open) this.videoPlayer.url = ''; }, 300);
+        },
+
+        async reload() {
+          this.loading = true;
+          try {
+            const params = new URLSearchParams({
+              page: this.page,
+              page_size: this.pageSize,
+            });
+            if (this.filterStatus) params.set('status', this.filterStatus);
+            if (this.filterProvider) params.set('provider', this.filterProvider);
+            if (this.filterOfferId) params.set('offer_id', this.filterOfferId);
+            const r = await fetch(`/api/v1/videos?${params}`);
+            if (r.ok) {
+              const data = await r.json();
+              this.items = data.items || [];
+              this.total = data.total || 0;
+            }
+            // Refresh counts (uses unfiltered totals via separate small queries)
+            await this.refreshCounts();
+          } catch (e) { console.error(e); }
+          finally { this.loading = false; }
+        },
+
+        async refreshCounts() {
+          // 4 lightweight count-only requests (page_size=1 just to get total)
+          try {
+            const fetchTotal = async (status) => {
+              const p = new URLSearchParams({ page: 1, page_size: 1 });
+              if (status) p.set('status', status);
+              if (this.filterProvider) p.set('provider', this.filterProvider);
+              if (this.filterOfferId) p.set('offer_id', this.filterOfferId);
+              const r = await fetch(`/api/v1/videos?${p}`);
+              if (!r.ok) return 0;
+              const d = await r.json();
+              return d.total || 0;
+            };
+            const [all, pending, processing, completed, failed] = await Promise.all([
+              fetchTotal(''),
+              fetchTotal('pending'),
+              fetchTotal('processing'),
+              fetchTotal('completed'),
+              fetchTotal('failed'),
+            ]);
+            this.counts = { all, pending, processing, completed, failed };
+          } catch {}
+        },
+
+        formatDate(iso) {
+          if (!iso) return '';
+          try {
+            const d = new Date(iso);
+            return d.toLocaleDateString();
+          } catch { return iso; }
+        },
+
+        async confirmDelete(job) {
+          if (!confirm(t('vs_confirm_delete'))) return;
+          try {
+            const r = await fetch(`/api/v1/videos/${job.id}`, { method: 'DELETE' });
+            if (r.ok || r.status === 204) await this.reload();
+          } catch (e) { console.error(e); }
+        },
+      };
+    }
+  </script>
+</body>
+</html>

@@ -48,6 +48,44 @@ class LLMSceneConfigsUpdate(BaseModel):
     updates: list[SceneConfigUpdate]
 
 
+# ── Media capability defaults (image / video / TTS) ────────────────
+
+class MediaCapabilityOption(BaseModel):
+    """A selectable (provider + model/voice) combo for a capability dropdown."""
+    provider_config_id: str
+    provider: str            # chanjing | jogg
+    provider_label: str
+    model_code: str | None   # for image_gen / video_gen
+    voice_id: str | None     # for tts
+    display_label: str       # "🎬 蝉镜 · Doubao-Seedance-1.0-pro"
+
+
+class MediaCapabilityConfig(BaseModel):
+    capability: str          # image_gen | video_gen | tts
+    label: str
+    icon: str
+    description: str
+    current_provider_config_id: str | None
+    current_model_code: str | None
+    current_voice_id: str | None
+    options: list[MediaCapabilityOption]
+
+
+class MediaCapabilitiesResponse(BaseModel):
+    capabilities: list[MediaCapabilityConfig]
+
+
+class MediaCapabilityUpdate(BaseModel):
+    capability: str
+    provider_config_id: str | None = None
+    model_code: str | None = None
+    voice_id: str | None = None
+
+
+class MediaCapabilitiesUpdateRequest(BaseModel):
+    updates: list[MediaCapabilityUpdate]
+
+
 class LLMConfigCreate(BaseModel):
     label: str
     provider: str  # openai | minimax | custom

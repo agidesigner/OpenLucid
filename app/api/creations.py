@@ -31,6 +31,12 @@ async def list_creations(
         q=q,
         **pagination,
     )
+    # Enrich with video summary so the list UI can show video badges inline.
+    summaries = await svc.get_video_summaries([c.id for c in items])
+    for c in items:
+        s = summaries.get(c.id)
+        c.video_count = s["count"] if s else 0
+        c.latest_video = s["latest"] if s else None
     return PaginatedResponse(items=items, total=total, **pagination)
 
 

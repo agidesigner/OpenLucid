@@ -28,3 +28,15 @@ class Creation(BaseModel):
     tags: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     source_app: Mapped[str] = mapped_column(String(80), nullable=False, default="manual")
     source_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    structured_content: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Stores the structured script output from Script Writer. Shape:
+    # {
+    #   "platform_id": "douyin", "structure_id": "hook_body_cta",
+    #   "persona_id": "tech_founder", "goal_id": "seeding",
+    #   "content_type": "video",
+    #   "sections": {
+    #     "hook": {"text": "...", "visual_direction": "...", "duration_seconds": 5},
+    #     "body": {"text": "...", "visual_direction": "...", "duration_seconds": 55},
+    #     "cta":  {"text": "...", "visual_direction": "...", "duration_seconds": 5}
+    #   }
+    # }

@@ -60,6 +60,10 @@
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
         <span x-text="t('sidebar_creations')"></span>
       </a>
+      <a href="/video-studio.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        <span x-text="t('sidebar_videos')"></span>
+      </a>
       <a href="/brandkit-list.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
         <span x-text="t('sidebar_brandkit')"></span>
@@ -110,19 +114,32 @@
           <option value="topic_studio">Topic Studio</option>
           <option value="manual" x-text="t('creations_source_manual')"></option>
         </select>
-        <button @click="openNew()"
-                class="inline-flex items-center gap-1.5 bg-accent text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
-          <span x-text="t('creations_new')"></span>
-        </button>
       </div>
 
       <!-- Loading / Empty -->
       <div x-show="loading" class="text-center py-12 text-gray-400 text-sm" x-text="t('loading')"></div>
-      <div x-show="!loading && items.length === 0" class="bg-white rounded-xl border border-dashed border-gray-200 py-16 text-center">
-        <div class="text-5xl mb-3">📭</div>
-        <p class="text-sm text-gray-500 mb-1" x-text="t('creations_empty_title')"></p>
-        <p class="text-xs text-gray-400" x-text="t('creations_empty_hint')"></p>
+      <div x-show="!loading && items.length === 0" class="bg-white rounded-xl border border-dashed border-gray-200 py-12 px-6 text-center">
+        <div class="text-5xl mb-3">✨</div>
+        <h3 class="text-base font-semibold text-gray-800 mb-1" x-text="t('creations_empty_cta_title')"></h3>
+        <p class="text-xs text-gray-400 mb-6" x-text="t('creations_empty_cta_hint')"></p>
+        <div class="flex gap-3 justify-center flex-wrap">
+          <a href="/script-writer.html"
+             class="inline-flex items-center gap-2 bg-white border border-gray-200 hover:border-accent hover:bg-accent/5 rounded-xl px-5 py-3 transition-all group">
+            <span class="text-2xl">🎬</span>
+            <div class="text-left">
+              <div class="text-sm font-semibold text-gray-800 group-hover:text-accent" x-text="t('creations_empty_cta_video')"></div>
+              <div class="text-[11px] text-gray-400" x-text="t('creations_empty_cta_video_desc')"></div>
+            </div>
+          </a>
+          <a href="/content-studio.html"
+             class="inline-flex items-center gap-2 bg-white border border-gray-200 hover:border-accent hover:bg-accent/5 rounded-xl px-5 py-3 transition-all group">
+            <span class="text-2xl">📝</span>
+            <div class="text-left">
+              <div class="text-sm font-semibold text-gray-800 group-hover:text-accent" x-text="t('creations_empty_cta_text')"></div>
+              <div class="text-[11px] text-gray-400" x-text="t('creations_empty_cta_text_desc')"></div>
+            </div>
+          </a>
+        </div>
       </div>
 
       <!-- List -->
@@ -130,7 +147,7 @@
         <template x-for="c in items" :key="c.id">
           <div class="bg-white rounded-xl border hover:shadow-sm transition-shadow">
             <div class="p-4 cursor-pointer" @click="openDetail(c)">
-              <div class="flex items-start justify-between gap-3">
+              <div class="flex items-start gap-3">
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 mb-1">
                     <span class="text-[11px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded font-medium" x-text="c.content_type"></span>
@@ -145,11 +162,65 @@
                   <p class="text-[13px] text-gray-500 mt-1 line-clamp-2" x-text="c.content"></p>
                   <p x-show="c.source_note" class="text-[11px] text-gray-400 mt-1.5 italic" x-text="c.source_note"></p>
                 </div>
+
+                <!-- Video badge: latest cover thumbnail + count, click → open modal with history pre-expanded -->
+                <template x-if="c.video_count > 0">
+                  <button @click.stop="openVideoModal(c, { openHistory: true })"
+                          :title="t('vg_badge_tooltip').replace('{n}', c.video_count)"
+                          class="shrink-0 group relative w-20 h-12 rounded-lg overflow-hidden bg-gray-100 border border-gray-200 hover:border-accent transition-colors">
+                    <!-- Latest cover image -->
+                    <img x-show="c.latest_video && c.latest_video.cover_url"
+                         :src="c.latest_video && c.latest_video.cover_url"
+                         class="absolute inset-0 w-full h-full object-cover"
+                         loading="lazy"
+                         @error="$event.target.style.display='none'">
+                    <!-- Fallback / status overlay -->
+                    <div class="absolute inset-0 flex items-center justify-center"
+                         x-show="!(c.latest_video && c.latest_video.cover_url) || (c.latest_video && c.latest_video.status !== 'completed')">
+                      <template x-if="c.latest_video && c.latest_video.status === 'processing'">
+                        <svg class="w-4 h-4 text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                      </template>
+                      <template x-if="c.latest_video && c.latest_video.status === 'failed'">
+                        <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                      </template>
+                      <template x-if="!c.latest_video || c.latest_video.status === 'pending'">
+                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                      </template>
+                    </div>
+                    <!-- Count chip -->
+                    <span class="absolute bottom-0.5 right-0.5 text-[9px] font-semibold px-1 py-0.5 rounded bg-gray-900/70 text-white backdrop-blur-sm"
+                          x-text="'🎬 ' + c.video_count"></span>
+                    <!-- Play overlay on hover (completed only) -->
+                    <div x-show="c.latest_video && c.latest_video.status === 'completed'"
+                         class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    </div>
+                  </button>
+                </template>
+
                 <div class="flex flex-col items-end gap-2 shrink-0">
                   <span class="text-[11px] text-gray-400 tabular-nums" x-text="new Date(c.created_at).toLocaleDateString()"></span>
-                  <button @click.stop="confirmDelete(c)" class="text-gray-300 hover:text-red-500 transition-colors p-1">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                  </button>
+                  <div class="flex items-center gap-1">
+                    <!-- Generate Video: only for video-ready scripts -->
+                    <button x-show="_isVideoReady(c.content_type)"
+                            @click.stop="openVideoModal(c)"
+                            class="inline-flex items-center gap-1 text-[11px] font-medium text-accent border border-accent/30 hover:bg-accent/5 rounded-md px-2 py-1 transition-colors"
+                            :title="t('vg_button_tooltip')">
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                      <span x-text="t('vg_button')"></span>
+                    </button>
+                    <!-- Recreate as Script: for non-video, non-text-post content -->
+                    <button x-show="_isRecreatable(c.content_type)"
+                            @click.stop="goRecreate(c)"
+                            class="inline-flex items-center gap-1 text-[11px] font-medium text-gray-500 border border-gray-200 hover:bg-gray-50 rounded-md px-2 py-1 transition-colors"
+                            :title="t('recreate_tooltip')">
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                      <span x-text="t('recreate_btn')"></span>
+                    </button>
+                    <button @click.stop="confirmDelete(c)" class="text-gray-300 hover:text-red-500 transition-colors p-1">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -234,6 +305,601 @@
     </div>
   </div>
 
+  <!-- Generate Video Modal -->
+  <div x-show="videoModal.open" x-cloak
+       class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col">
+
+      <!-- Header -->
+      <div class="p-5 border-b flex items-center justify-between shrink-0">
+        <div class="min-w-0">
+          <h2 class="text-base font-semibold text-gray-800 flex items-center gap-2">
+            <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+            <span x-text="t('vg_modal_title')"></span>
+          </h2>
+          <p class="text-xs text-gray-500 mt-0.5 truncate" x-text="videoModal.creation?.title || ''"></p>
+        </div>
+        <button @click="closeVideoModal()" class="text-gray-400 hover:text-gray-600">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="p-5 overflow-y-auto flex-1 space-y-5" x-ref="videoModalBody">
+
+        <!-- No providers configured -->
+        <div x-show="!videoModal.providersLoading && videoModal.providers.length === 0"
+             class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <p class="text-sm text-amber-800 mb-2" x-text="t('vg_no_providers_title')"></p>
+          <p class="text-xs text-amber-700 mb-3" x-text="t('vg_no_providers_hint')"></p>
+          <a href="/setting.html?section=media-providers"
+             class="inline-flex items-center gap-1.5 bg-amber-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-amber-700 transition-colors">
+            <span x-text="t('vg_no_providers_cta')"></span> →
+          </a>
+        </div>
+
+        <!-- ── Videos (shown first when there are results) ── -->
+        <div x-show="videoModal.jobs.length > 0" class="mb-5 pb-4 border-b border-gray-100">
+          <button type="button" @click="videoModal.pastVideosExpanded = !videoModal.pastVideosExpanded"
+                  class="w-full flex items-center justify-between text-left hover:bg-gray-50 -mx-2 px-2 py-1.5 rounded-lg transition-colors">
+            <div class="flex items-center gap-2">
+              <svg class="w-3.5 h-3.5 text-gray-400 transition-transform"
+                   :class="videoModal.pastVideosExpanded ? 'rotate-90' : ''"
+                   fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+              </svg>
+              <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400"
+                    x-text="t('vg_existing_videos') + ' (' + videoModal.jobs.length + ')'"></span>
+              <span x-show="activeJobsCount > 0"
+                    class="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+                <svg class="w-2.5 h-2.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                <span x-text="t('vg_jobs_in_progress').replace('{n}', activeJobsCount)"></span>
+              </span>
+            </div>
+            <span class="text-[10px] text-gray-400" x-text="videoModal.pastVideosExpanded ? t('vg_collapse') : t('vg_expand')"></span>
+          </button>
+
+          <div x-show="videoModal.pastVideosExpanded" x-collapse class="space-y-3 mt-3" x-ref="pastVideosContainer">
+            <!-- Show latest 3 by default; "show all" expands the rest -->
+            <template x-for="(job, idx) in videoModal.jobs" :key="job.id">
+              <template x-if="idx < 3 || videoModal.showAllJobs">
+              <div class="rounded-xl p-3 transition-all duration-500"
+                   :class="videoModal.flashJobId === job.id ? 'bg-amber-50 ring-2 ring-amber-300' : 'bg-gray-50'">
+                <div class="flex items-start gap-3">
+                  <div class="w-32 h-20 bg-gray-200 rounded-lg overflow-hidden shrink-0 relative cursor-pointer group/thumb"
+                       @click="job.status === 'completed' && job.video_url && openVideoPlayer(job.video_url, job.cover_url)">
+                    <template x-if="job.status === 'completed' && job.video_url">
+                      <div class="relative w-full h-full">
+                        <img :src="job.cover_url || ''" class="w-full h-full object-cover" alt="">
+                        <div class="absolute inset-0 flex items-center justify-center bg-black/20 group-hover/thumb:bg-black/40 transition-colors">
+                          <svg class="w-8 h-8 text-white drop-shadow-lg" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        </div>
+                      </div>
+                    </template>
+                    <template x-if="job.status !== 'completed'">
+                      <div class="w-full h-full flex items-center justify-center text-gray-400">
+                        <template x-if="job.status === 'failed'">
+                          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        </template>
+                        <template x-if="job.status !== 'failed'">
+                          <svg class="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 mb-1 flex-wrap">
+                      <span class="text-[11px] font-medium px-2 py-0.5 rounded-full"
+                            :class="{
+                              'bg-gray-200 text-gray-600': job.status === 'pending',
+                              'bg-blue-100 text-blue-700': job.status === 'processing',
+                              'bg-green-100 text-green-700': job.status === 'completed',
+                              'bg-red-100 text-red-700': job.status === 'failed',
+                            }"
+                            x-text="t('vg_status_' + job.status)"></span>
+                      <span class="text-[11px] text-gray-400" x-text="job.provider"></span>
+                      <span x-show="job.progress != null" class="text-[11px] text-gray-400" x-text="`${job.progress}%`"></span>
+                      <span x-show="job.duration_seconds" class="text-[11px] text-gray-400" x-text="`${job.duration_seconds}s`"></span>
+                    </div>
+                    <p x-show="job.error_message" class="text-[11px] text-red-600 mt-1 break-words" x-text="job.error_message"></p>
+                    <div class="flex items-center gap-3 mt-2">
+                      <a x-show="job.status === 'completed' && job.video_url"
+                         :href="job.video_url" target="_blank" rel="noopener" download
+                         class="text-[11px] font-medium text-accent hover:underline">
+                        <span x-text="t('vg_download')"></span> ↓
+                      </a>
+                      <button @click="deleteVideoJob(job)"
+                              class="text-[11px] text-gray-400 hover:text-red-500 transition-colors">
+                        <span x-text="t('vg_delete_job')"></span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              </template>
+            </template>
+            <!-- Show more / show less toggle -->
+            <button x-show="videoModal.jobs.length > 3"
+                    @click="videoModal.showAllJobs = !videoModal.showAllJobs"
+                    type="button"
+                    class="w-full text-center py-1.5 text-[11px] text-gray-400 hover:text-accent transition-colors">
+              <span x-show="!videoModal.showAllJobs" x-text="'查看全部 ' + videoModal.jobs.length + ' 条 ↓'"></span>
+              <span x-show="videoModal.showAllJobs">收起 ↑</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Generate form -->
+        <div x-show="videoModal.providers.length > 0">
+          <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3"
+               x-text="t('vg_generate_section')"></div>
+
+          <!-- Provider: always visible — readonly label (1 provider) or switcher (2+) -->
+          <div class="mb-4">
+            <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('vg_provider')"></label>
+            <!-- Single provider: readonly label -->
+            <div x-show="videoModal.providers.length === 1" class="inline-flex items-center gap-1.5 border border-gray-200 bg-gray-50 rounded-xl px-3 py-2 text-xs text-gray-600">
+              <span x-text="(videoModal.providers[0]?.provider === 'chanjing' ? '🎬' : '🎥') + ' ' + (videoModal.providers[0]?.label || '')"></span>
+            </div>
+            <!-- Multiple providers: switcher -->
+            <div x-show="videoModal.providers.length > 1" class="flex gap-2">
+              <template x-for="p in videoModal.providers" :key="p.id">
+                <button type="button"
+                        @click="onProviderChange(p.id)"
+                        class="flex-1 py-2 px-3 rounded-xl border text-xs font-medium transition-all"
+                        :class="videoModal.selectedProviderId === p.id
+                          ? 'border-accent bg-accent/5 text-accent'
+                          : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'">
+                  <span x-text="(p.provider === 'chanjing' ? '🎬' : '🎥') + ' ' + p.label"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <!-- Loading lists -->
+          <div x-show="videoModal.listsLoading" class="flex items-center justify-center py-8">
+            <svg class="animate-spin w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+          </div>
+
+          <!-- Lists error -->
+          <div x-show="videoModal.listsError" class="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-xl mb-3" x-text="videoModal.listsError"></div>
+
+          <div x-show="!videoModal.listsLoading && !videoModal.listsError && (uniqueAvatars.length > 0 || uniqueVoices.length > 0)" class="space-y-5">
+
+            <!-- ── 1 · Script (collapsed preview — most users don't edit) ── -->
+            <details class="group/script">
+              <summary class="flex items-center justify-between cursor-pointer select-none hover:bg-gray-50 -mx-1 px-1 py-1 rounded-lg transition-colors">
+                <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 pointer-events-none">
+                  <span class="text-accent">1 ·</span>
+                  <span x-text="t('vg_section_script')"></span>
+                </label>
+                <div class="flex items-center gap-2">
+                  <span class="text-[11px] text-gray-400 max-w-[200px] truncate"
+                        x-text="videoModal.form.script ? videoModal.form.script.slice(0, 30) + '…' : ''"></span>
+                  <span class="text-[11px] tabular-nums"
+                        :class="videoModal.form.script.length > 4000 ? 'text-red-500' : 'text-gray-400'"
+                        x-text="`${videoModal.form.script.length}`"></span>
+                  <svg class="w-3 h-3 text-gray-400 transition-transform group-open/script:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </div>
+              </summary>
+              <div class="mt-2">
+                <textarea x-model="videoModal.form.script" rows="6"
+                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
+                          :placeholder="t('vg_script_placeholder')"></textarea>
+                <!-- Visual Direction (from structured_content, Phase 1: read-only) -->
+                <template x-if="videoModal.creation?.structured_content?.sections">
+                  <details class="mt-2">
+                    <summary class="text-[11px] text-gray-400 cursor-pointer hover:text-gray-600 select-none flex items-center gap-1">
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                      <span x-text="t('vg_visual_dir_label')"></span>
+                    </summary>
+                    <div class="mt-2 space-y-1.5 pl-1">
+                      <template x-for="[sid, sec] in Object.entries(videoModal.creation.structured_content.sections)" :key="sid">
+                        <div x-show="sec.visual_direction" class="text-[11px] text-gray-400">
+                          <span class="font-medium text-gray-500 uppercase" x-text="sid + ': '"></span>
+                          <span class="italic" x-text="sec.visual_direction"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </details>
+                </template>
+              </div>
+            </details>
+
+            <!-- ── 2 · Avatar ── -->
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  <span class="text-accent">2 ·</span>
+                  <span x-text="t('vg_section_avatar')"></span>
+                </label>
+                <div class="flex items-center gap-2">
+                  <span class="text-[10px] text-gray-400" x-text="filteredAvatars.length + ' / ' + uniqueAvatars.length"></span>
+                  <button type="button"
+                          @click="refreshProviderLists()"
+                          :disabled="videoModal.listsLoading"
+                          :title="t('vg_refresh_lists_tooltip')"
+                          class="text-gray-400 hover:text-accent disabled:opacity-30 transition-colors">
+                    <svg class="w-3 h-3" :class="videoModal.listsLoading && 'animate-spin'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Filter pills -->
+              <div x-show="uniqueAvatars.length > 0" class="flex items-center gap-1.5 mb-2 flex-wrap">
+                <template x-for="opt in [
+                  {v:'all',    l:t('vg_filter_all'),    n:avatarCounts.all},
+                  {v:'male',   l:'♂ '+t('vg_filter_male'),   n:avatarCounts.male},
+                  {v:'female', l:'♀ '+t('vg_filter_female'), n:avatarCounts.female},
+                ]" :key="opt.v">
+                  <button type="button"
+                          x-show="opt.n > 0"
+                          @click="videoModal.avatarFilter = opt.v"
+                          class="px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors"
+                          :class="videoModal.avatarFilter === opt.v
+                            ? 'border-accent bg-accent/5 text-accent'
+                            : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50'">
+                    <span x-text="opt.l + ' (' + opt.n + ')'"></span>
+                  </button>
+                </template>
+              </div>
+
+              <!-- Empty state -->
+              <div x-show="uniqueAvatars.length === 0"
+                   class="text-center py-6 px-4 bg-gray-50 border border-dashed border-gray-200 rounded-xl">
+                <p class="text-xs text-gray-500" x-text="t('vg_no_avatars')"></p>
+              </div>
+
+              <!-- Grid -->
+              <div x-show="uniqueAvatars.length > 0" class="grid grid-cols-4 gap-2 max-h-72 overflow-y-auto pr-1">
+                <template x-for="(a, idx) in filteredAvatars" :key="a.id || ('idx_' + idx)">
+                  <button type="button"
+                          @click="selectAvatar(a)"
+                          @mouseenter="$el.querySelector('video')?.play().catch(()=>{})"
+                          @mouseleave="const _v = $el.querySelector('video'); if (_v) { _v.pause(); _v.currentTime = 0; }"
+                          class="group relative rounded-xl border-2 overflow-hidden transition-all aspect-square bg-gray-100"
+                          :class="videoModal.form.avatar_id === a.id ? 'border-accent ring-2 ring-accent/20' : 'border-gray-100 hover:border-gray-300'">
+                    <!-- Image (default state) -->
+                    <img x-show="a.preview_image_url"
+                         :src="a.preview_image_url" :alt="a.name"
+                         class="absolute inset-0 w-full h-full object-cover transition-opacity group-hover:opacity-0"
+                         loading="lazy"
+                         @error="$event.target.style.display='none'">
+                    <!-- Hover preview video (replaces image on hover) -->
+                    <video x-show="a.preview_video_url"
+                           :src="a.preview_video_url"
+                           class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+                           muted loop playsinline preload="none">
+                    </video>
+                    <!-- Name fallback when no image -->
+                    <div class="absolute inset-0 flex items-center justify-center px-1 text-center text-[10px] text-gray-400 pointer-events-none"
+                         x-show="!a.preview_image_url">
+                      <span x-text="a.name"></span>
+                    </div>
+                    <!-- Gender/age badges -->
+                    <div class="absolute top-1 right-1 flex gap-0.5 pointer-events-none">
+                      <span x-show="a.gender"
+                            class="text-[9px] font-semibold px-1 py-0.5 rounded backdrop-blur-sm"
+                            :class="a.gender === 'male' ? 'bg-blue-500/80 text-white' : 'bg-pink-500/80 text-white'"
+                            x-text="a.gender === 'male' ? '♂' : '♀'"></span>
+                      <span x-show="a.age"
+                            class="text-[9px] font-semibold px-1 py-0.5 rounded backdrop-blur-sm bg-gray-800/70 text-white"
+                            x-text="t('vg_age_' + a.age)"></span>
+                    </div>
+                    <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent text-white text-[10px] font-medium px-1.5 py-1 truncate pointer-events-none">
+                      <span x-text="a.name"></span>
+                    </div>
+                  </button>
+                </template>
+              </div>
+            </div>
+
+            <!-- ── 3 · Voice (collapsed — auto-matched from Avatar) ── -->
+            <details class="group/voice">
+              <summary class="flex items-center justify-between cursor-pointer select-none hover:bg-gray-50 -mx-1 px-1 py-1 rounded-lg transition-colors">
+                <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 pointer-events-none">
+                  <span class="text-accent">3 ·</span>
+                  <span x-text="t('vg_section_voice')"></span>
+                </label>
+                <div class="flex items-center gap-2">
+                  <span x-show="videoModal.form.voice_id" class="text-[11px] text-gray-500"
+                        x-text="uniqueVoices.find(v => v.id === videoModal.form.voice_id)?.name || ''"></span>
+                  <span x-show="selectedAvatar && videoModal.form.voice_id" class="text-[10px] text-accent/60" x-text="t('vg_voice_match_hint')"></span>
+                  <svg class="w-3 h-3 text-gray-400 transition-transform group-open/voice:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </div>
+              </summary>
+              <div class="mt-2">
+
+              <!-- Search + filter row -->
+              <div class="flex items-center gap-2 mb-2 flex-wrap">
+                <!-- Search box -->
+                <div class="relative flex-1 min-w-[160px]">
+                  <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                  <input type="text" x-model="videoModal.voiceSearch"
+                         :placeholder="t('vg_search_voice')"
+                         class="w-full pl-8 pr-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+                </div>
+                <!-- Filter pills -->
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <button type="button"
+                          x-show="selectedAvatar"
+                          @click="videoModal.voiceFilter = 'best'"
+                          class="px-2 py-1 rounded-full text-[11px] font-medium border transition-colors"
+                          :class="videoModal.voiceFilter === 'best'
+                            ? 'border-accent bg-accent/5 text-accent'
+                            : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50'">
+                    <span x-text="'✨ ' + t('vg_filter_best')"></span>
+                  </button>
+                  <template x-for="opt in [
+                    {v:'all',    l:t('vg_filter_all'),    n:voiceCounts.all},
+                    {v:'male',   l:'♂', n:voiceCounts.male},
+                    {v:'female', l:'♀', n:voiceCounts.female},
+                  ]" :key="opt.v">
+                    <button type="button"
+                            x-show="opt.n > 0"
+                            @click="videoModal.voiceFilter = opt.v"
+                            class="px-2 py-1 rounded-full text-[11px] font-medium border transition-colors"
+                            :class="videoModal.voiceFilter === opt.v
+                              ? 'border-accent bg-accent/5 text-accent'
+                              : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50'">
+                      <span x-text="opt.l + ' (' + opt.n + ')'"></span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Voice list -->
+              <div class="border border-gray-200 rounded-lg max-h-72 overflow-y-auto divide-y divide-gray-100">
+                <template x-for="(v, idx) in filteredVoices" :key="v.id || ('idx_' + idx)">
+                  <div class="flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors"
+                       :class="videoModal.form.voice_id === v.id ? 'bg-accent/5' : 'hover:bg-gray-50'"
+                       @click="videoModal.form.voice_id = v.id">
+                    <!-- Selection indicator -->
+                    <div class="w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center"
+                         :class="videoModal.form.voice_id === v.id ? 'border-accent' : 'border-gray-300'">
+                      <div x-show="videoModal.form.voice_id === v.id" class="w-2 h-2 rounded-full bg-accent"></div>
+                    </div>
+                    <!-- Match badge with tooltip -->
+                    <span x-show="voiceMatchLabel(v)"
+                          class="text-sm shrink-0 cursor-help"
+                          :title="voiceMatchTooltip(v)"
+                          x-text="voiceMatchLabel(v)"></span>
+                    <!-- Name + meta -->
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-medium text-gray-800 truncate" x-text="v.name"></div>
+                      <div class="text-[11px] text-gray-400 flex items-center gap-1.5">
+                        <span x-show="v.gender" x-text="v.gender === 'male' ? '♂' : '♀'"></span>
+                        <span x-show="v.age" x-text="t('vg_age_' + v.age)"></span>
+                        <span x-show="v.language" x-text="voiceLangLabel(v.language)"></span>
+                      </div>
+                    </div>
+                    <!-- Per-row audition button -->
+                    <button type="button"
+                            @click.stop="auditionVoice(v)"
+                            :disabled="videoModal.auditionLoadingId === v.id || !auditionCanPlay"
+                            :title="!auditionCanPlay ? t('vg_audition_no_text') : ''"
+                            class="shrink-0 inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            :class="videoModal.auditionPlayingId === v.id
+                              ? 'border-accent bg-accent/5 text-accent'
+                              : 'border-gray-200 text-gray-600 hover:border-accent hover:text-accent'">
+                      <svg x-show="videoModal.auditionLoadingId === v.id" class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                      <svg x-show="videoModal.auditionLoadingId !== v.id && videoModal.auditionPlayingId === v.id" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+                      <svg x-show="videoModal.auditionLoadingId !== v.id && videoModal.auditionPlayingId !== v.id" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                      <span x-text="t('vg_audition_short')"></span>
+                    </button>
+                  </div>
+                </template>
+                <!-- Empty filter state -->
+                <div x-show="filteredVoices.length === 0" class="py-6 text-center text-xs text-gray-400">
+                  <span x-text="t('vg_voices_no_match')"></span>
+                </div>
+              </div>
+              <p class="mt-1 text-[10px] text-gray-400">
+                <span x-show="auditionCanPlay" x-text="t('vg_audition_hint').replace('{n}', auditionPreviewText.length).replace('{text}', auditionPreviewText)"></span>
+                <span x-show="!auditionCanPlay" x-text="t('vg_audition_no_text')"></span>
+              </p>
+              <audio x-ref="auditionAudio" class="hidden" @ended="videoModal.auditionPlayingId = ''"></audio>
+              </div>
+            </details>
+
+            <!-- ── 4 · Format ── -->
+            <div>
+              <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 block mb-2">
+                <span class="text-accent">4 ·</span>
+                <span x-text="t('vg_section_format')"></span>
+              </label>
+              <div class="grid grid-cols-3 gap-2 mb-3">
+                <!-- Portrait 9:16 -->
+                <button type="button" @click="videoModal.form.aspect_ratio = 'portrait'"
+                        class="py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center gap-1.5"
+                        :class="videoModal.form.aspect_ratio === 'portrait'
+                          ? 'border-accent bg-accent/5'
+                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'">
+                  <div class="w-5 h-9 border-2 rounded-sm transition-colors"
+                       :class="videoModal.form.aspect_ratio === 'portrait' ? 'border-accent' : 'border-gray-400'"></div>
+                  <div class="text-[11px] font-medium"
+                       :class="videoModal.form.aspect_ratio === 'portrait' ? 'text-accent' : 'text-gray-600'">
+                    <span x-text="t('vg_aspect_portrait')"></span>
+                    <span class="text-[9px] text-gray-400 ml-1">9:16</span>
+                  </div>
+                </button>
+                <!-- Landscape 16:9 -->
+                <button type="button" @click="videoModal.form.aspect_ratio = 'landscape'"
+                        class="py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center gap-1.5"
+                        :class="videoModal.form.aspect_ratio === 'landscape'
+                          ? 'border-accent bg-accent/5'
+                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'">
+                  <div class="w-9 h-5 border-2 rounded-sm transition-colors"
+                       :class="videoModal.form.aspect_ratio === 'landscape' ? 'border-accent' : 'border-gray-400'"></div>
+                  <div class="text-[11px] font-medium"
+                       :class="videoModal.form.aspect_ratio === 'landscape' ? 'text-accent' : 'text-gray-600'">
+                    <span x-text="t('vg_aspect_landscape')"></span>
+                    <span class="text-[9px] text-gray-400 ml-1">16:9</span>
+                  </div>
+                </button>
+                <!-- Square 1:1 -->
+                <button type="button" @click="videoModal.form.aspect_ratio = 'square'"
+                        class="py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center gap-1.5"
+                        :class="videoModal.form.aspect_ratio === 'square'
+                          ? 'border-accent bg-accent/5'
+                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'">
+                  <div class="w-7 h-7 border-2 rounded-sm transition-colors"
+                       :class="videoModal.form.aspect_ratio === 'square' ? 'border-accent' : 'border-gray-400'"></div>
+                  <div class="text-[11px] font-medium"
+                       :class="videoModal.form.aspect_ratio === 'square' ? 'text-accent' : 'text-gray-600'">
+                    <span x-text="t('vg_aspect_square')"></span>
+                    <span class="text-[9px] text-gray-400 ml-1">1:1</span>
+                  </div>
+                </button>
+              </div>
+              <!-- B-roll toggle (only when structured_content has visual_direction) -->
+              <template x-if="videoModal.creation?.structured_content?.sections && Object.values(videoModal.creation.structured_content.sections).some(s => s.visual_direction)">
+                <div class="mb-3 rounded-lg border border-dashed border-gray-200 p-2.5">
+                  <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                    <input type="checkbox" x-model="videoModal.form.broll" class="accent-accent w-4 h-4">
+                    <span class="font-medium">穿插 B-roll 画面</span>
+                  </label>
+                  <p class="mt-1 ml-6 text-[11px] text-gray-400">
+                    在口播正文段自动插入 1-2 个 AI 生成的画面片段（每段约 5 秒），让叙述更生动。
+                    开头和结尾保持数字人出镜。
+                    <span class="text-amber-500">额外耗时约 3-5 分钟。</span>
+                  </p>
+                </div>
+              </template>
+
+              <!-- Caption toggle + style selector -->
+              <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                <input type="checkbox" x-model="videoModal.form.caption" class="accent-accent w-4 h-4">
+                <span x-text="t('vg_caption')"></span>
+              </label>
+              <!-- Subtitle style + color (shown when caption enabled) -->
+              <div x-show="videoModal.form.caption" x-collapse class="mt-3 space-y-3">
+                <!-- Style presets with inline preview -->
+                <div class="flex gap-2">
+                  <template x-for="s in [
+                    {id:'classic', label:'经典',  desc:'标准白字',     color:'#FFFFFF', stroke:'#000000', size:'text-sm'},
+                    {id:'bold',    label:'醒目',  desc:'大字强调',     color:'#FFE033', stroke:'#1A1A1A', size:'text-base font-bold'},
+                    {id:'minimal', label:'简约',  desc:'细体低调',     color:'#E8E8E8', stroke:'#555555', size:'text-xs'},
+                  ]" :key="s.id">
+                    <button type="button"
+                            @click="videoModal.form.subtitle_style = s.id; videoModal.form.subtitle_color = ''; videoModal.form.subtitle_stroke = ''"
+                            class="flex-1 rounded-xl border-2 p-2.5 transition-all text-center"
+                            :class="videoModal.form.subtitle_style === s.id
+                              ? 'border-accent bg-accent/5'
+                              : 'border-gray-200 hover:border-gray-300'">
+                      <!-- Live preview bar -->
+                      <div class="bg-gray-800 rounded-md px-2 py-1.5 mb-1.5 flex items-center justify-center min-h-[28px]">
+                        <span :class="s.size"
+                              :style="`color:${videoModal.form.subtitle_color || s.color}; text-shadow: -1px -1px 0 ${videoModal.form.subtitle_stroke || s.stroke}, 1px -1px 0 ${videoModal.form.subtitle_stroke || s.stroke}, -1px 1px 0 ${videoModal.form.subtitle_stroke || s.stroke}, 1px 1px 0 ${videoModal.form.subtitle_stroke || s.stroke};`"
+                              >示例文字</span>
+                      </div>
+                      <div class="text-[11px] font-medium" :class="videoModal.form.subtitle_style === s.id ? 'text-accent' : 'text-gray-600'" x-text="s.label"></div>
+                      <div class="text-[10px] text-gray-400" x-text="s.desc"></div>
+                    </button>
+                  </template>
+                </div>
+                <!-- Custom color overrides -->
+                <div class="flex items-center gap-4 px-1">
+                  <label class="flex items-center gap-1.5 text-[11px] text-gray-500">
+                    <span>文字</span>
+                    <input type="color"
+                           :value="videoModal.form.subtitle_color || ({classic:'#FFFFFF',bold:'#FFE033',minimal:'#E8E8E8'}[videoModal.form.subtitle_style] || '#FFFFFF')"
+                           @input="videoModal.form.subtitle_color = $event.target.value"
+                           class="w-6 h-6 rounded border border-gray-300 cursor-pointer p-0"
+                           style="padding:1px;">
+                  </label>
+                  <label class="flex items-center gap-1.5 text-[11px] text-gray-500">
+                    <span>描边</span>
+                    <input type="color"
+                           :value="videoModal.form.subtitle_stroke || ({classic:'#000000',bold:'#1A1A1A',minimal:'#555555'}[videoModal.form.subtitle_style] || '#000000')"
+                           @input="videoModal.form.subtitle_stroke = $event.target.value"
+                           class="w-6 h-6 rounded border border-gray-300 cursor-pointer p-0"
+                           style="padding:1px;">
+                  </label>
+                  <button x-show="videoModal.form.subtitle_color || videoModal.form.subtitle_stroke"
+                          @click="videoModal.form.subtitle_color = ''; videoModal.form.subtitle_stroke = ''"
+                          class="text-[10px] text-gray-400 hover:text-accent transition-colors">
+                    重置颜色
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Submit error -->
+            <div x-show="videoModal.submitError" class="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-xl"
+                 x-text="videoModal.submitError"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Footer -->
+      <div class="px-5 py-4 border-t flex items-center justify-between gap-4 shrink-0">
+        <div class="min-w-0 flex-1">
+          <!-- Generate summary (highlights what's about to happen) -->
+          <div x-show="generateSummary" class="text-[11px] flex items-center gap-1.5 text-gray-600">
+            <svg class="w-3 h-3 text-accent shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            <span class="truncate" :title="generateSummary">
+              <span class="text-gray-400" x-text="t('vg_will_generate')"></span>
+              <span class="font-medium text-gray-700" x-text="generateSummary"></span>
+            </span>
+          </div>
+          <!-- Fallback hint when nothing chosen yet -->
+          <div x-show="!generateSummary && videoModal.providers.length > 0"
+               class="text-[11px] text-gray-400" x-text="t('vg_footer_hint')"></div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button @click="submitVideo()"
+                  :disabled="!canSubmitVideo"
+                  :title="!canSubmitVideo ? t('vg_disabled_hint') : ''"
+                  class="inline-flex items-center gap-1.5 px-5 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
+            <svg x-show="videoModal.submitting" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+            <span x-show="videoModal.submitting" x-text="t('vg_submitting')"></span>
+            <span x-show="!videoModal.submitting && hasJobs" x-text="t('vg_generate_another')"></span>
+            <span x-show="!videoModal.submitting && !hasJobs" x-text="t('vg_generate_btn')"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Video Lightbox Player ── -->
+  <div x-show="videoPlayer.open" x-cloak
+       x-transition:enter="transition ease-out duration-200"
+       x-transition:enter-start="opacity-0"
+       x-transition:enter-end="opacity-100"
+       x-transition:leave="transition ease-in duration-150"
+       x-transition:leave-start="opacity-100"
+       x-transition:leave-end="opacity-0"
+       class="fixed inset-0 z-[200] flex items-center justify-center"
+       @keydown.escape.window="closeVideoPlayer()">
+    <!-- Backdrop -->
+    <div class="absolute inset-0 bg-black/80" @click="closeVideoPlayer()"></div>
+    <!-- Player container -->
+    <div class="relative z-10 flex flex-col items-center gap-3 max-w-[90vw] max-h-[90vh]"
+         @click.stop>
+      <!-- Close button -->
+      <button @click="closeVideoPlayer()"
+              class="absolute -top-2 -right-2 z-20 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur flex items-center justify-center text-white transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+      <!-- Video -->
+      <video x-ref="lightboxVideo"
+             :src="videoPlayer.url"
+             :poster="videoPlayer.poster"
+             class="rounded-xl shadow-2xl max-h-[80vh] max-w-[85vw] bg-black"
+             controls autoplay playsinline>
+      </video>
+      <!-- Download -->
+      <a x-show="videoPlayer.downloadUrl"
+         :href="videoPlayer.downloadUrl" target="_blank" rel="noopener" download
+         class="inline-flex items-center gap-1.5 text-sm text-white/70 hover:text-white transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+        <span x-text="t('vg_download')"></span>
+      </a>
+    </div>
+  </div>
+
   <script>
     function creationsPage() {
       return {
@@ -253,9 +919,273 @@
           saving: false,
         },
 
+        // ── Generate Video modal ──
+        videoModal: {
+          open: false,
+          creation: null,
+          providers: [],          // active media-provider configs
+          providersLoading: false,
+          selectedProviderId: '',
+          jobs: [],
+          jobsLoading: false,
+          avatars: [],
+          voices: [],
+          listsLoading: false,
+          listsError: '',
+          form: {
+            avatar_id: '',
+            voice_id: '',
+            aspect_ratio: 'portrait',
+            caption: true,
+            script: '',
+          },
+          submitting: false,
+          submitError: '',
+          pollTimers: {},   // { [jobId]: intervalId }
+          // Audition state
+          auditionLoadingId: '',  // voice id currently being synthesized
+          auditionPlayingId: '',  // voice id currently playing
+          auditionCache: {},      // { voice_id: audio_url } — short-circuit repeat clicks
+          // Filter / search state
+          avatarFilter: 'all',    // 'all' | 'male' | 'female'
+          voiceFilter: 'all',     // 'all' | 'best' | 'male' | 'female'
+          voiceSearch: '',
+          pastVideosExpanded: false,
+          showAllJobs: false,
+          // Submission feedback
+          flashJobId: '',         // briefly highlight a newly-submitted job
+        },
+
+        // Video lightbox player
+        videoPlayer: { open: false, url: '', poster: '', downloadUrl: '' },
+
+        get activeJobsCount() {
+          return this.videoModal.jobs.filter(
+            j => j.status === 'pending' || j.status === 'processing'
+          ).length;
+        },
+
+        get hasJobs() {
+          return this.videoModal.jobs.length > 0;
+        },
+
+        // Defensive: dedupe + drop empty-id items so x-for never collides on
+        // an empty-string fallback key. Some Chanjing accounts return malformed
+        // rows, and Alpine's x-for crashes on duplicate/undefined :key, taking
+        // the entire grid down.
+        get uniqueAvatars() {
+          const seen = new Set();
+          return (this.videoModal.avatars || []).filter(a => {
+            if (!a || !a.id || seen.has(a.id)) return false;
+            seen.add(a.id);
+            return true;
+          });
+        },
+        get uniqueVoices() {
+          const seen = new Set();
+          return (this.videoModal.voices || []).filter(v => {
+            if (!v || !v.id || seen.has(v.id)) return false;
+            seen.add(v.id);
+            return true;
+          });
+        },
+        get selectedAvatar() {
+          return this.uniqueAvatars.find(a => a.id === this.videoModal.form.avatar_id) || null;
+        },
+        get selectedVoice() {
+          return this.uniqueVoices.find(v => v.id === this.videoModal.form.voice_id) || null;
+        },
+        get canSubmitVideo() {
+          const m = this.videoModal;
+          if (m.submitting || m.listsLoading) return false;
+          if (!m.selectedProviderId) return false;
+          if (!m.form.avatar_id || !m.form.voice_id) return false;
+          if (!m.form.script || m.form.script.length === 0 || m.form.script.length > 4000) return false;
+          return true;
+        },
+
+        get auditionPreviewText() {
+          // First 20 chars of the script (after trim) — used as the TTS prompt
+          // for per-voice audition. Empty string if no script yet.
+          const s = (this.videoModal.form.script || '').trim();
+          return s.slice(0, 20);
+        },
+
+        get auditionCanPlay() {
+          return this.auditionPreviewText.length > 0;
+        },
+
+        // ── Avatar filter ──
+        get avatarCounts() {
+          const all = this.uniqueAvatars;
+          return {
+            all: all.length,
+            male: all.filter(a => a.gender === 'male').length,
+            female: all.filter(a => a.gender === 'female').length,
+          };
+        },
+        get filteredAvatars() {
+          const f = this.videoModal.avatarFilter;
+          if (f === 'all') return this.uniqueAvatars;
+          return this.uniqueAvatars.filter(a => a.gender === f);
+        },
+
+        // ── Voice search + filter ──
+        get voiceCounts() {
+          const all = this.uniqueVoices;
+          return {
+            all: all.length,
+            male: all.filter(v => v.gender === 'male').length,
+            female: all.filter(v => v.gender === 'female').length,
+          };
+        },
+        get filteredVoices() {
+          const list = this.sortedVoices;
+          const f = this.videoModal.voiceFilter;
+          const q = (this.videoModal.voiceSearch || '').trim().toLowerCase();
+          return list.filter(v => {
+            // Search by name (case-insensitive substring)
+            if (q && !(v.name || '').toLowerCase().includes(q)) return false;
+            // Filter by category
+            if (f === 'all') return true;
+            if (f === 'best') {
+              const av = this.selectedAvatar;
+              if (!av) return false;
+              return this.voiceMatchScore(v, av) > 0;
+            }
+            return v.gender === f;
+          });
+        },
+
+        // ── Generate button summary ──
+        get generateSummary() {
+          // Returns a short string describing what's about to be generated.
+          // Empty string if not all required fields filled in.
+          if (!this.videoModal.selectedProviderId) return '';
+          const av = this.selectedAvatar;
+          const vo = this.selectedVoice;
+          if (!av || !vo) return '';
+          const parts = [av.name, vo.name];
+          parts.push(t('vg_aspect_' + this.videoModal.form.aspect_ratio));
+          if (this.videoModal.form.caption) parts.push(t('vg_caption_short'));
+          return parts.join(' · ');
+        },
+
+        voiceMatchTooltip(voice) {
+          // Hover-text explanation of the ✨/✓/⚠ badge
+          const av = this.selectedAvatar;
+          if (!av) return '';
+          if (av.extras && av.extras.paired_voice_id === voice.id) return t('vg_match_paired_tooltip');
+          if (av.gender && voice.gender && av.gender === voice.gender) return t('vg_match_gender_tooltip');
+          if (av.gender && voice.gender && av.gender !== voice.gender) return t('vg_match_mismatch_tooltip');
+          return '';
+        },
+
+        // ── Voice ↔ Avatar matching ──
+        // Voices are re-ranked when an avatar is selected so the best match
+        // floats to the top. Signals (highest weight first):
+        //   1. paired_voice_id (Chanjing only — the avatar's "official" voice)
+        //   2. matching gender (hard signal, both providers expose this)
+        //   3. matching age (Jogg structured + Chanjing tag-parsed)
+        //   4. script-mood ↔ voice-name keyword match (weak heuristic)
+
+        _detectScriptMood(script) {
+          if (!script) return null;
+          const t = script.toLowerCase();
+          if (/限时|优惠|抢|秒杀|促销|直降|低价|包邮|赠品|甩|sale|deal|discount|buy now|shop now/.test(t)) return 'sales';
+          if (/故事|回忆|陪伴|温暖|曾经|那时|童年|成长|story|once|memory|remember/.test(t)) return 'narrative';
+          if (/分析|数据|报告|研究|趋势|策略|analysis|research|report|data/.test(t)) return 'professional';
+          return null;
+        },
+
+        _voiceMoodTag(voiceName) {
+          if (!voiceName) return null;
+          if (/带货|促销|sale/i.test(voiceName)) return 'sales';
+          if (/情感|故事|narrat|story/i.test(voiceName)) return 'narrative';
+          if (/商务|主播|news|business/i.test(voiceName)) return 'professional';
+          return null;
+        },
+
+        voiceMatchScore(voice, avatar) {
+          if (!voice || !avatar) return 0;
+          let score = 0;
+          // Paired voice — overrides everything else
+          if (avatar.extras && avatar.extras.paired_voice_id === voice.id) {
+            score += 1000;
+          }
+          // Gender (most jarring when wrong)
+          if (avatar.gender && voice.gender && avatar.gender === voice.gender) {
+            score += 50;
+          } else if (avatar.gender && voice.gender && avatar.gender !== voice.gender) {
+            score -= 30;  // explicit penalty for cross-gender
+          }
+          // Age
+          if (avatar.age && voice.age && avatar.age === voice.age) {
+            score += 20;
+          }
+          // Mood (script ↔ voice name)
+          const mood = this._detectScriptMood(this.videoModal.form.script);
+          const vMood = this._voiceMoodTag(voice.name);
+          if (mood && vMood && mood === vMood) {
+            score += 15;
+          }
+          return score;
+        },
+
+        voiceMatchLabel(voice) {
+          // Short badge label shown next to voice in the dropdown.
+          const av = this.selectedAvatar;
+          if (!av) return '';
+          if (av.extras && av.extras.paired_voice_id === voice.id) return '✨';
+          if (av.gender && voice.gender && av.gender === voice.gender) return '✓';
+          if (av.gender && voice.gender && av.gender !== voice.gender) return '⚠';
+          return '';
+        },
+
+        voiceLangLabel(lang) {
+          // Translate provider language strings ("multilingual", "english", "cn"...)
+          // to the active locale. Falls back to the raw value if no translation
+          // exists for that key.
+          if (!lang) return '';
+          const lower = String(lang).toLowerCase().trim();
+          const key = 'vg_lang_' + lower;
+          const translated = t(key);
+          return translated === key ? lang : translated;
+        },
+
+        get sortedVoices() {
+          const list = this.uniqueVoices;
+          const av = this.selectedAvatar;
+          if (!av || list.length === 0) return list;
+          return [...list].sort(
+            (a, b) => this.voiceMatchScore(b, av) - this.voiceMatchScore(a, av)
+          );
+        },
+
+        pickBestVoiceFor(avatar) {
+          if (!avatar) return null;
+          const list = this.uniqueVoices;
+          const ranked = [...list].sort(
+            (a, b) => this.voiceMatchScore(b, avatar) - this.voiceMatchScore(a, avatar)
+          );
+          return ranked[0] || null;
+        },
+
         async init() {
           document.title = t('creations_title') + ' - OpenLucid';
           await this.reload();
+
+          // Auto-open video modal when redirected from Script Writer "Generate Video" button
+          const urlParams = new URLSearchParams(location.search);
+          const openVideoId = urlParams.get('open_video');
+          if (openVideoId) {
+            history.replaceState(null, '', location.pathname);
+            const res = await fetch(`/api/v1/creations/${openVideoId}`).catch(() => null);
+            if (res?.ok) {
+              const creation = await res.json();
+              await this.openVideoModal(creation);
+            }
+          }
         },
 
         async reload() {
@@ -348,6 +1278,430 @@
           try {
             const res = await fetch(`/api/v1/creations/${c.id}`, { method: 'DELETE' });
             if (res.ok || res.status === 204) await this.reload();
+          } catch (e) { console.error(e); }
+        },
+
+        // ── Video generation modal ──
+
+        async openVideoModal(creation, options = {}) {
+          this.videoModal.open = true;
+          this.videoModal.creation = creation;
+          this.videoModal.jobs = [];
+          this.videoModal.avatars = [];
+          this.videoModal.voices = [];
+          this.videoModal.selectedProviderId = '';
+          this.videoModal.listsError = '';
+          this.videoModal.submitError = '';
+          this.videoModal.avatarFilter = 'all';
+          this.videoModal.voiceFilter = 'all';
+          this.videoModal.voiceSearch = '';
+          // Open with history pre-expanded if caller (e.g. video badge click) asked
+          this.videoModal.pastVideosExpanded = !!options.openHistory;
+          this.videoModal.showAllJobs = false;
+          // Auto-infer aspect_ratio from platform (douyin/tiktok → portrait, etc.)
+          const platformAspect = {
+            douyin: 'portrait', wechat_video: 'portrait', tiktok: 'portrait',
+            youtube_shorts: 'portrait', xiaohongshu: 'portrait',
+          };
+          const pid = creation.structured_content?.platform_id;
+          const inferredAspect = (pid && platformAspect[pid]) || 'portrait';
+          this.videoModal.form = {
+            avatar_id: '',
+            voice_id: '',
+            aspect_ratio: inferredAspect,
+            caption: true,
+            subtitle_style: 'classic',
+            subtitle_color: '',
+            subtitle_stroke: '',
+            broll: false,
+            script: this._extractNarration(creation),
+          };
+
+          // Load providers + existing jobs in parallel
+          this.videoModal.providersLoading = true;
+          this.videoModal.jobsLoading = true;
+          try {
+            const [pr, jr] = await Promise.all([
+              fetch('/api/v1/media-providers'),
+              fetch(`/api/v1/creations/${creation.id}/videos`),
+            ]);
+            if (pr.ok) {
+              const all = await pr.json();
+              this.videoModal.providers = all.filter(p => p.is_active);
+            }
+            if (jr.ok) {
+              this.videoModal.jobs = await jr.json();
+            }
+          } catch (e) {
+            console.error(e);
+          } finally {
+            this.videoModal.providersLoading = false;
+            this.videoModal.jobsLoading = false;
+          }
+
+          // Pick smart default provider based on script language
+          if (this.videoModal.providers.length > 0) {
+            const def = this.pickDefaultProvider(this.videoModal.form.script);
+            await this.onProviderChange(def.id);
+          }
+
+          // If any existing job is non-terminal, start polling it
+          for (const job of this.videoModal.jobs) {
+            if (job.status === 'pending' || job.status === 'processing') {
+              this.startPolling(job.id);
+            }
+          }
+
+          // If there are completed videos, show history first (more useful than empty form)
+          const hasCompleted = this.videoModal.jobs.some(j => j.status === 'completed');
+          if (hasCompleted && !options.openHistory) {
+            this.videoModal.pastVideosExpanded = true;
+          }
+        },
+
+        closeVideoModal() {
+          // Stop all active polling timers
+          for (const [, timerId] of Object.entries(this.videoModal.pollTimers)) {
+            clearInterval(timerId);
+          }
+          this.videoModal.pollTimers = {};
+          // Stop any audition playback + clear cache (script may change next session)
+          const audio = this.$refs.auditionAudio;
+          if (audio) {
+            audio.pause();
+            audio.currentTime = 0;
+          }
+          this.videoModal.auditionPlayingId = '';
+          this.videoModal.auditionLoadingId = '';
+          this.videoModal.auditionCache = {};
+          this.videoModal.open = false;
+        },
+
+        _isVideoReady(contentType) {
+          // Content types that can go directly to video generation
+          return contentType === 'script_video' || contentType === 'script_writer';
+        },
+
+        _isRecreatable(contentType) {
+          // Content types that should offer "Recreate as Script" instead of Generate Video
+          // Excludes: video-ready (has its own button), text posts (final product, no video)
+          if (!contentType || contentType === 'general' || contentType === 'kb_qa') return true;
+          if (contentType.startsWith('mcp:') || contentType === 'manual') return true;
+          return false;
+        },
+
+        goRecreate(creation) {
+          const p = new URLSearchParams();
+          if (creation.offer_id) p.set('offer_id', creation.offer_id);
+          p.set('ref_creation_id', creation.id);
+          window.location.href = `/script-writer.html?${p}`;
+        },
+
+        openVideoPlayer(url, poster) {
+          this.videoPlayer = { open: true, url, poster: poster || '', downloadUrl: url };
+          // Pause any small inline videos
+          document.querySelectorAll('.video-modal-body video').forEach(v => v.pause());
+        },
+        closeVideoPlayer() {
+          this.videoPlayer.open = false;
+          // Let the <video> unload by clearing URL after transition
+          setTimeout(() => { if (!this.videoPlayer.open) this.videoPlayer.url = ''; }, 300);
+        },
+
+        _extractNarration(creation) {
+          // Extract TTS-ready narration from structured_content when available.
+          // Uses section_ids for correct order (JSONB doesn't preserve key order).
+          const sc = creation.structured_content;
+          if (sc && sc.sections && typeof sc.sections === 'object') {
+            const order = sc.section_ids || Object.keys(sc.sections);
+            const lines = order
+              .map(id => sc.sections[id])
+              .filter(Boolean)
+              .map(s => (s.text || '').trim())
+              .filter(Boolean);
+            if (lines.length) return lines.join('\n\n');
+          }
+          return creation.content || '';
+        },
+
+        pickDefaultProvider(text) {
+          // Smart default by Chinese-character ratio:
+          //   ≥ 30% Chinese → prefer chanjing if active
+          //   otherwise   → prefer jogg if active
+          //   else fall back to first active
+          const providers = this.videoModal.providers;
+          if (providers.length === 1) return providers[0];
+          const sample = (text || '').slice(0, 500);
+          if (!sample) return providers[0];
+          const cn = (sample.match(/[\u4e00-\u9fff]/g) || []).length;
+          const ratio = cn / sample.length;
+          const preferred = ratio >= 0.3 ? 'chanjing' : 'jogg';
+          return providers.find(p => p.provider === preferred) || providers[0];
+        },
+
+        async onProviderChange(configId, options = {}) {
+          const m = this.videoModal;
+          m.selectedProviderId = configId;
+          m.avatars = [];
+          m.voices = [];
+          m.listsError = '';
+          m.form.avatar_id = '';
+          m.form.voice_id = '';
+
+          const cfg = m.providers.find(p => p.id === configId);
+          if (!cfg) return;
+
+          // Pre-fill aspect_ratio from provider defaults
+          if (cfg.defaults && cfg.defaults.aspect_ratio) {
+            m.form.aspect_ratio = cfg.defaults.aspect_ratio;
+          }
+
+          // ── Cache layer (localStorage, 12h TTL) ──
+          // Avatar/voice lists rarely change on the provider side; caching
+          // them avoids 1-2s of latency every time the user opens the modal,
+          // and saves Chanjing access_token API calls. Bust on demand via the
+          // refresh button (options.force = true).
+          const cacheKey = `od_video_lists:${configId}`;
+          const CACHE_TTL_MS = 12 * 60 * 60 * 1000;  // 12h
+          if (!options.force) {
+            try {
+              const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+              if (cached && (Date.now() - cached.ts) < CACHE_TTL_MS) {
+                m.avatars = cached.avatars || [];
+                m.voices = cached.voices || [];
+                this._applyDefaultsForProvider(cfg);
+                return;  // skip the network entirely
+              }
+            } catch (e) { /* corrupt cache, fall through to fetch */ }
+          }
+
+          m.listsLoading = true;
+          try {
+            const [ar, vr] = await Promise.all([
+              fetch(`/api/v1/media-providers/${configId}/avatars?page=1&page_size=100`),
+              fetch(`/api/v1/media-providers/${configId}/voices?page=1&page_size=100`),
+            ]);
+            if (!ar.ok) throw new Error('avatars: ' + (await ar.text()));
+            if (!vr.ok) throw new Error('voices: ' + (await vr.text()));
+            m.avatars = await ar.json();
+            m.voices = await vr.json();
+
+            // Persist to cache
+            try {
+              localStorage.setItem(cacheKey, JSON.stringify({
+                ts: Date.now(),
+                avatars: m.avatars,
+                voices: m.voices,
+              }));
+            } catch (e) { /* localStorage full or disabled — non-fatal */ }
+
+            this._applyDefaultsForProvider(cfg);
+          } catch (e) {
+            m.listsError = t('vg_lists_load_failed') + e.message;
+          } finally {
+            m.listsLoading = false;
+          }
+        },
+
+        _applyDefaultsForProvider(cfg) {
+          // Pick the default avatar + voice from the provider config (or first
+          // item from the deduped list). Shared between cache-hit and
+          // fresh-fetch paths so behavior is identical.
+          const m = this.videoModal;
+          const avatars = this.uniqueAvatars;
+          const voices = this.uniqueVoices;
+
+          const dAv = (cfg.defaults && cfg.defaults.avatar_id) || '';
+          const avatar = avatars.find(a => a.id === dAv) || avatars[0] || null;
+          m.form.avatar_id = avatar ? avatar.id : '';
+
+          const dVo = (cfg.defaults && cfg.defaults.voice_id) || '';
+          let voice = voices.find(v => v.id === dVo) || null;
+          if (!voice && avatar) voice = this.pickBestVoiceFor(avatar);
+          if (!voice) voice = voices[0] || null;
+          m.form.voice_id = voice ? voice.id : '';
+        },
+
+        async refreshProviderLists() {
+          // Manual cache bust: force a fresh fetch for the current provider.
+          if (!this.videoModal.selectedProviderId) return;
+          await this.onProviderChange(this.videoModal.selectedProviderId, { force: true });
+        },
+
+        selectAvatar(a) {
+          this.videoModal.form.avatar_id = a.id;
+          // Auto-rematch voice unless the user explicitly picked one that's
+          // still a strong match. Always re-pick by best score on avatar change
+          // — simpler mental model.
+          const best = this.pickBestVoiceFor(a);
+          if (best) this.videoModal.form.voice_id = best.id;
+        },
+
+        async auditionVoice(voice) {
+          // Audition the given voice using the first 20 chars of the script.
+          // Calls the backend TTS endpoint, caches the resulting audio URL per
+          // voice for the lifetime of the modal session.
+          const m = this.videoModal;
+          const v = voice || this.selectedVoice;
+          if (!v || !v.id) return;
+
+          const audio = this.$refs.auditionAudio;
+          if (!audio) return;
+
+          // If clicking the currently-playing voice, stop it
+          if (m.auditionPlayingId === v.id) {
+            audio.pause();
+            audio.currentTime = 0;
+            m.auditionPlayingId = '';
+            return;
+          }
+
+          // Stop any other playing voice
+          if (m.auditionPlayingId) {
+            audio.pause();
+            audio.currentTime = 0;
+            m.auditionPlayingId = '';
+          }
+
+          // Cached?
+          let url = m.auditionCache[v.id];
+          if (!url) {
+            const text = this.auditionPreviewText;
+            if (!text) {
+              // Defensive: button should already be disabled when script is
+              // empty, but in case it isn't, fail silently rather than alert.
+              return;
+            }
+            m.auditionLoadingId = v.id;
+            try {
+              const r = await fetch(
+                `/api/v1/media-providers/${m.selectedProviderId}/voices/${encodeURIComponent(v.id)}/preview`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ text }),
+                }
+              );
+              if (!r.ok) {
+                const d = await r.json().catch(() => ({}));
+                throw new Error(d.error?.message || d.detail || r.statusText);
+              }
+              const data = await r.json();
+              url = data.audio_url;
+              if (!url) throw new Error('No audio URL returned');
+              m.auditionCache[v.id] = url;
+            } catch (e) {
+              alert(t('vg_audition_failed') + (e.message || String(e)));
+              return;
+            } finally {
+              m.auditionLoadingId = '';
+            }
+          }
+
+          audio.src = url;
+          try {
+            await audio.play();
+            m.auditionPlayingId = v.id;
+          } catch (e) {
+            console.warn('audio play failed', e);
+          }
+        },
+
+        async submitVideo() {
+          const m = this.videoModal;
+          if (!this.canSubmitVideo) return;
+          m.submitting = true;
+          m.submitError = '';
+          try {
+            const avatar = this.selectedAvatar;
+            const body = {
+              provider_config_id: m.selectedProviderId,
+              avatar_id: m.form.avatar_id,
+              voice_id: m.form.voice_id,
+              script: m.form.script,
+              aspect_ratio: m.form.aspect_ratio,
+              caption: m.form.caption,
+              subtitle_style: m.form.subtitle_style || 'classic',
+              subtitle_color: m.form.subtitle_color || undefined,
+              subtitle_stroke: m.form.subtitle_stroke || undefined,
+              broll: m.form.broll || false,
+              name: this.videoModal.creation?.title || null,
+              provider_extras: (avatar && avatar.extras) || {},
+            };
+            const r = await fetch(`/api/v1/creations/${this.videoModal.creation.id}/videos`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            if (!r.ok) {
+              const d = await r.json().catch(() => ({}));
+              throw new Error(d.error?.message || d.detail || r.statusText);
+            }
+            const job = await r.json();
+            // Add to top of jobs list and start polling
+            m.jobs = [job, ...m.jobs];
+            this.startPolling(job.id);
+
+            // ── UX feedback: make sure user SEES the new job ──
+            // 1. Auto-expand the past videos section
+            m.pastVideosExpanded = true;
+            // 2. Brief highlight on the new job (clears after 2s)
+            m.flashJobId = job.id;
+            setTimeout(() => {
+              if (m.flashJobId === job.id) m.flashJobId = '';
+            }, 2000);
+            // 3. Smooth-scroll the modal body to top (history is now at the top)
+            // Use setTimeout to wait for x-collapse expansion animation (~300ms)
+            setTimeout(() => {
+              const body = this.$refs.videoModalBody;
+              if (body) body.scrollTo({ top: 0, behavior: 'smooth' });
+            }, 350);
+          } catch (e) {
+            m.submitError = e.message || String(e);
+          } finally {
+            m.submitting = false;
+          }
+        },
+
+        startPolling(jobId) {
+          if (this.videoModal.pollTimers[jobId]) return;
+          const tick = async () => {
+            try {
+              const r = await fetch(`/api/v1/videos/${jobId}`);
+              if (!r.ok) return;
+              const updated = await r.json();
+              const idx = this.videoModal.jobs.findIndex(j => j.id === jobId);
+              if (idx >= 0) {
+                this.videoModal.jobs[idx] = updated;
+              }
+              if (updated.status === 'completed' || updated.status === 'failed') {
+                this.stopPolling(jobId);
+              }
+            } catch (e) {
+              console.warn('poll failed', e);
+            }
+          };
+          // Run once immediately, then every 5s
+          tick();
+          this.videoModal.pollTimers[jobId] = setInterval(tick, 5000);
+        },
+
+        stopPolling(jobId) {
+          const timerId = this.videoModal.pollTimers[jobId];
+          if (timerId) {
+            clearInterval(timerId);
+            delete this.videoModal.pollTimers[jobId];
+          }
+        },
+
+        async deleteVideoJob(job) {
+          if (!confirm(t('vg_confirm_delete_job'))) return;
+          try {
+            const r = await fetch(`/api/v1/videos/${job.id}`, { method: 'DELETE' });
+            if (r.ok || r.status === 204) {
+              this.stopPolling(job.id);
+              this.videoModal.jobs = this.videoModal.jobs.filter(j => j.id !== job.id);
+            }
           } catch (e) { console.error(e); }
         },
       };

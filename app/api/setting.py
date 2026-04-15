@@ -13,9 +13,11 @@ from app.application.setting_service import (
     create_llm_config,
     delete_llm_config,
     fetch_llm_models,
+    get_media_capability_configs,
     get_scene_configs,
     list_llm_configs,
     update_llm_config,
+    update_media_capability_configs,
     update_scene_configs,
     validate_llm_connection,
 )
@@ -31,6 +33,8 @@ from app.schemas.setting import (
     McpTokenCreate,
     McpTokenCreatedResponse,
     McpTokenResponse,
+    MediaCapabilitiesResponse,
+    MediaCapabilitiesUpdateRequest,
 )
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -66,6 +70,18 @@ async def get_llm_scenes(db: AsyncSession = Depends(get_db)):
 @router.put("/llm/scenes", response_model=LLMSceneConfigsResponse)
 async def update_llm_scenes(data: LLMSceneConfigsUpdate, db: AsyncSession = Depends(get_db)):
     return await update_scene_configs(db, data)
+
+
+@router.get("/media-capabilities", response_model=MediaCapabilitiesResponse)
+async def get_media_capabilities(db: AsyncSession = Depends(get_db)):
+    return await get_media_capability_configs(db)
+
+
+@router.put("/media-capabilities", response_model=MediaCapabilitiesResponse)
+async def update_media_capabilities(
+    data: MediaCapabilitiesUpdateRequest, db: AsyncSession = Depends(get_db)
+):
+    return await update_media_capability_configs(db, data)
 
 
 @router.put("/llm/{config_id}", response_model=LLMConfigResponse)

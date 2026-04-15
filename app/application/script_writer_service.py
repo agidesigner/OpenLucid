@@ -5,12 +5,16 @@ import logging
 import time
 from typing import AsyncIterator
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.ai import AIAdapter, OpenAICompatibleAdapter, _extract_thinking, get_ai_adapter
 from app.adapters.prompt_builder import format_asset_context, format_knowledge_flat, format_strategy_focus
 from app.application.context_service import ContextService
+from app.application.script_composer import compose_system_prompt
 from app.infrastructure.strategy_unit_repo import StrategyUnitRepository
+from app.models.merchant import Merchant
+from app.models.offer import Offer
 from app.schemas.app import ScriptWriterRequest
 
 logger = logging.getLogger(__name__)
@@ -18,7 +22,7 @@ logger = logging.getLogger(__name__)
 _MAX_KNOWLEDGE_ITEMS = 15
 _MAX_CONTENT_CHARS = 500
 
-# Goal key → Chinese/English label (for user message)
+# Legacy goal key → Chinese/English label (for user message, kept for backwards compat)
 _GOAL_LABELS = {
     "reach_growth": ("涨粉丝", "Grow Audience"),
     "lead_generation": ("拿线索", "Get Leads"),
@@ -26,6 +30,10 @@ _GOAL_LABELS = {
     "education": ("传信息", "Share Knowledge"),
     "traffic_redirect": ("引流直播间", "Drive Traffic"),
     "other": ("其他", "Other"),
+    # new goal_id values (from script_goals.py)
+    "seeding": ("种草", "Seeding"),
+    "knowledge_sharing": ("知识分享", "Knowledge Sharing"),
+    "brand_awareness": ("品牌传播", "Brand Awareness"),
 }
 
 
@@ -77,6 +85,211 @@ def _build_user_message(
     return "\n".join(parts)
 
 
+def _normalize_structured_content(raw: dict, platform, structure) -> dict:
+    """Ensure structured JSON from LLM conforms to our schema. Best-effort."""
+    sections_raw = raw.get("sections") or {}
+    sections: dict = {}
+    for sid in structure.section_ids:
+        sec = sections_raw.get(sid) or {}
+        if isinstance(sec, str):
+            sec = {"text": sec}
+        entry: dict = {"text": sec.get("text") or sec.get("narration") or ""}
+        if platform.is_video:
+            entry["visual_direction"] = sec.get("visual_direction") or ""
+            entry["duration_seconds"] = sec.get("duration_seconds") or None
+        else:
+            if sec.get("image_hint"):
+                entry["image_hint"] = sec["image_hint"]
+        sections[sid] = entry
+
+    result: dict = {
+        "platform_id": platform.id,
+        "structure_id": structure.id,
+        "persona_id": raw.get("persona_id"),
+        "goal_id": raw.get("goal_id"),
+        "content_type": platform.content_type,
+        "section_ids": structure.section_ids,  # preserve order (JSONB sorts keys)
+        "sections": sections,
+    }
+    if platform.is_video and raw.get("estimated_total_seconds"):
+        result["estimated_total_seconds"] = raw["estimated_total_seconds"]
+    if platform.is_video and raw.get("broll_plan"):
+        result["broll_plan"] = raw["broll_plan"]
+    if not platform.is_video and raw.get("metadata"):
+        result["metadata"] = raw["metadata"]
+    return result
+
+
+def _structured_content_to_plain_text(sc: dict) -> str:
+    """Concatenate section texts into a single plain-text script (for TTS and display)."""
+    sections = sc.get("sections") or {}
+    # Use section_ids for correct order (JSONB doesn't preserve key order)
+    order = sc.get("section_ids") or list(sections.keys())
+    lines: list[str] = []
+    for sid in order:
+        sec = sections.get(sid)
+        if sec:
+            text = (sec.get("text") or "").strip()
+            if text:
+                lines.append(text)
+    return "\n\n".join(lines)
+
+
+# ── JSON recovery helpers (for when LLM JSON output fails to parse) ─────────
+
+import re as _re
+
+_TEXT_FIELD_START_RE = _re.compile(r'"text"\s*:\s*"')
+
+
+def _heuristic_narration_from_json_string(raw: str) -> str:
+    """Best-effort extraction of narration from a malformed JSON string.
+
+    Finds each `"text": "..."` and captures the value, handling:
+      - Standard JSON escapes (\\", \\\\, \\n)
+      - **Unclosed strings** (LLM output truncated mid-sentence) — captures
+        what we have and moves on, rather than dropping that section entirely
+    """
+    if not raw:
+        return ""
+
+    captured: list[str] = []
+    for start_match in _TEXT_FIELD_START_RE.finditer(raw):
+        i = start_match.end()
+        buf = []
+        while i < len(raw):
+            ch = raw[i]
+            if ch == "\\" and i + 1 < len(raw):
+                # Include escape sequence as-is (json.loads will handle it later)
+                buf.append(raw[i:i+2])
+                i += 2
+                continue
+            if ch == '"':
+                break  # end of string
+            buf.append(ch)
+            i += 1
+        segment = "".join(buf)
+        if segment:
+            # Try proper JSON decoding (handles \n, \", etc.)
+            try:
+                decoded = json.loads(f'"{segment}"')
+            except Exception:
+                # Malformed escape at tail — drop the last fragment after last backslash
+                safe = segment.rsplit("\\", 1)[0] if "\\" in segment else segment
+                try:
+                    decoded = json.loads(f'"{safe}"')
+                except Exception:
+                    decoded = segment
+            captured.append(decoded.strip())
+
+    return "\n\n".join(s for s in captured if s)
+
+
+def _parse_markdown_to_structured_content(text: str, platform) -> dict:
+    """Parse plain markdown output (from non-video platforms) into structured_content.
+
+    Conventions:
+      - First `# ...` line = title
+      - A single-line of `#tag1 #tag2 ...` (all tokens start with #) = hashtags
+      - Everything else = body text
+      - content_type=thread: body is split by `---` separator lines → each part = one section
+    """
+    ct = platform.content_type
+    raw = (text or "").strip()
+    # Strip any accidental code fence the LLM might have added
+    if raw.startswith("```"):
+        lines = raw.split("\n")
+        lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        raw = "\n".join(lines).strip()
+
+    title = None
+    hashtags: list[str] = []
+    body_lines: list[str] = []
+
+    for line in raw.split("\n"):
+        stripped = line.strip()
+        # H1 title (only first one)
+        if title is None and stripped.startswith("# ") and not stripped.startswith("## "):
+            title = stripped[2:].strip()
+            continue
+        # Hashtag line: all whitespace-separated tokens start with # and have no space
+        if stripped and stripped.count("#") >= 2:
+            tokens = stripped.split()
+            if tokens and all(tok.startswith("#") and len(tok) > 1 for tok in tokens):
+                hashtags.extend(tokens)
+                continue
+        body_lines.append(line)
+
+    body = "\n".join(body_lines).strip()
+
+    # Build sections
+    if ct == "thread":
+        parts = [p.strip() for p in _re.split(r"\n---\n", body) if p.strip()]
+        sections = {f"tweet_{i+1}": {"text": p} for i, p in enumerate(parts)}
+        section_ids = list(sections.keys())
+    else:
+        sections = {"body": {"text": body}}
+        section_ids = ["body"]
+
+    result: dict = {
+        "platform_id": platform.id,
+        "content_type": ct,
+        "section_ids": section_ids,
+        "sections": sections,
+    }
+    metadata = {}
+    if title:
+        metadata["title"] = title
+    if hashtags:
+        metadata["hashtags"] = hashtags
+    if metadata:
+        result["metadata"] = metadata
+    return result
+
+
+def _structured_content_to_plain_text_with_metadata(sc: dict) -> str:
+    """Render structured_content (from markdown parse) back to copy-ready plain text.
+
+    Used for Creation.content — the text that gets copied/displayed.
+    Format: title (if any) + body sections + hashtags (if any).
+    """
+    parts = []
+    meta = sc.get("metadata") or {}
+    if meta.get("title"):
+        parts.append(meta["title"])
+    body = _structured_content_to_plain_text(sc)
+    if body:
+        parts.append(body)
+    if meta.get("hashtags"):
+        parts.append(" ".join(meta["hashtags"]))
+    return "\n\n".join(parts)
+
+
+def _scrub_json_artifacts(text: str) -> str:
+    """Final safety net: never let raw JSON-looking text reach Creation.content.
+
+    1. Strip markdown code fences (```json ... ```)
+    2. If it still looks like a JSON object, attempt heuristic extraction
+    3. Return fence-stripped text as last resort
+    """
+    if not text:
+        return text
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        lines = stripped.split("\n")
+        lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        stripped = "\n".join(lines).strip()
+    if stripped.startswith("{") and '"text"' in stripped:
+        extracted = _heuristic_narration_from_json_string(stripped)
+        if extracted:
+            return extracted
+    return stripped
+
+
 DEFAULT_SYSTEM_PROMPT_ZH = (
     "你是一位专业的短视频口播文案创作专家。根据用户提供的参数，生成可直接用于数字人或真人拍摄的口播文案。"
     "为嘴巴写字，不为眼睛写字。禁止书面语，用口语化表达。开头3秒必须抓住观众。"
@@ -100,7 +313,11 @@ class ScriptWriterService:
         self.ai = ai_adapter
 
     async def _prepare(self, request: ScriptWriterRequest):
-        """Load context, build user message, resolve adapter."""
+        """Load context, build user message, resolve adapter.
+
+        Returns (adapter, system_prompt, user_message, knowledge_count, platform, structure)
+        where platform and structure are None when composer dimensions are not set.
+        """
         if not self.ai:
             self.ai = await get_ai_adapter(
                 self.session, scene_key="script_writer", config_id=request.config_id
@@ -158,18 +375,117 @@ class ScriptWriterService:
             asset_text=asset_text,
         )
 
-        return self.ai, user_message, len(knowledge_items)
+        # Build system prompt: use Composer when any dimension is specified,
+        # otherwise fall back to the legacy system_prompt field.
+        platform = None
+        structure = None
+        use_composer = any([
+            request.platform_id, request.persona_id, request.goal_id, request.structure_id
+        ])
+
+        if use_composer:
+            system_prompt, platform, structure = compose_system_prompt(
+                platform_id=request.platform_id,
+                persona_id=request.persona_id,
+                goal_id=request.goal_id or request.goal,
+                structure_id=request.structure_id,
+                language=request.language,
+            )
+        else:
+            # Legacy path: use system_prompt from request (or built-in default)
+            system_prompt = request.system_prompt or (
+                DEFAULT_SYSTEM_PROMPT_ZH if not request.language.startswith("en")
+                else DEFAULT_SYSTEM_PROMPT_EN
+            )
+
+        return self.ai, system_prompt, user_message, len(knowledge_items), platform, structure
 
     async def generate(self, request: ScriptWriterRequest) -> dict:
-        """Non-streaming generation. Returns {"script": str, "knowledge_count": int}."""
-        adapter, user_message, knowledge_count = await self._prepare(request)
+        """Non-streaming generation. Returns {"script": str, "knowledge_count": int, "structured_content": dict|None}."""
+        adapter, system_prompt, user_message, knowledge_count, platform, structure = await self._prepare(request)
 
         if not isinstance(adapter, OpenAICompatibleAdapter):
-            return {"script": "[Stub] No LLM configured.", "knowledge_count": knowledge_count}
+            return {"script": "[Stub] No LLM configured.", "knowledge_count": knowledge_count, "structured_content": None}
 
-        result = await adapter._chat(request.system_prompt, user_message, temperature=0.8)
-        _, clean_text = _extract_thinking(result)
-        return {"script": clean_text, "knowledge_count": knowledge_count}
+        structured_content = None
+        if platform is not None and structure is not None:
+            if platform.is_video:
+                # Video: JSON mode (needed for B-roll)
+                try:
+                    raw_json = await adapter._chat_json(system_prompt, user_message, temperature=0.75)
+                    structured_content = _normalize_structured_content(raw_json, platform, structure)
+                    clean_text = _structured_content_to_plain_text(structured_content)
+                except Exception as e:
+                    logger.warning("ScriptWriter: JSON generation failed (%s), falling back to plain text", e)
+                    result = await adapter._chat(system_prompt, user_message, temperature=0.8)
+                    _, clean_text = _extract_thinking(result)
+                    structured_content = None
+            else:
+                # Text (post/article/thread): markdown mode
+                result = await adapter._chat(system_prompt, user_message, temperature=0.8)
+                _, md_text = _extract_thinking(result)
+                structured_content = _parse_markdown_to_structured_content(md_text, platform)
+                clean_text = _structured_content_to_plain_text_with_metadata(structured_content)
+        else:
+            # Legacy path: plain text
+            result = await adapter._chat(system_prompt, user_message, temperature=0.8)
+            _, clean_text = _extract_thinking(result)
+
+        creation_id = None
+        if request.save_creation and clean_text.strip():
+            creation_id = await self._save_creation(request, clean_text, structured_content)
+
+        return {
+            "script": clean_text,
+            "knowledge_count": knowledge_count,
+            "structured_content": structured_content,
+            "creation_id": creation_id,
+        }
+
+    async def _save_creation(
+        self,
+        request: ScriptWriterRequest,
+        content: str,
+        structured_content: dict | None,
+    ) -> str | None:
+        """Persist script output as a Creation. Returns creation id string or None."""
+        from app.infrastructure.creation_repo import CreationRepository
+
+        try:
+            # Resolve merchant_id from offer
+            offer = await self.session.get(Offer, request.offer_id)
+            if not offer:
+                return None
+            merchant_id = offer.merchant_id
+
+            # Build title from topic or first line of content
+            title = (request.topic or content.split("\n")[0])[:120].strip()
+            if not title:
+                title = "Script"
+
+            # Determine content_type for the creation
+            content_type = "script_writer"
+            if structured_content:
+                ct = structured_content.get("content_type", "video")
+                content_type = f"script_{ct}"  # e.g. "script_video", "script_text_post"
+
+            repo = CreationRepository(self.session)
+            creation = await repo.create(
+                merchant_id=merchant_id,
+                offer_id=request.offer_id,
+                title=title,
+                content=content,
+                content_type=content_type,
+                source_app="script_writer",
+                structured_content=structured_content,
+            )
+            await self.session.commit()
+            logger.info("ScriptWriter: saved creation %s", creation.id)
+            return str(creation.id)
+        except Exception as e:
+            logger.warning("ScriptWriter: failed to save creation: %s", e)
+            await self.session.rollback()
+            return None
 
     async def suggest_topic(
         self,
@@ -258,17 +574,21 @@ class ScriptWriterService:
             )
 
         if isinstance(self.ai, OpenAICompatibleAdapter):
-            result = await self.ai._chat(system, user, temperature=0.9, max_tokens=1024)
+            # Use streaming to collect the response — non-streaming can return empty content
+            # for thinking models (e.g. Qwen3 via Ollama puts reasoning in reasoning_content
+            # and leaves content empty, while streaming sends everything through delta.content).
+            tokens = []
+            async for token in self.ai._chat_stream(system, user, temperature=0.9):
+                tokens.append(token)
+            result = "".join(tokens)
         else:
             # Stub fallback
             result = f"{'How ' + offer_name + ' helps you achieve more' if is_en else offer_name + '的3个你不知道的用法'}"
         _, clean = _extract_thinking(result)
-        # Fallback: if LLM output was truncated inside <think> (no closing tag),
-        # _extract_thinking returns the raw text as 'clean'. Strip the <think> prefix.
-        if not clean.strip() and "<think>" in result and "</think>" not in result:
-            clean = result.split("<think>", 1)[-1].strip()
-            # Try to grab the last meaningful line as the topic
-            lines = [l.strip() for l in clean.splitlines() if l.strip() and not l.strip().startswith("-")]
+        # Fallback: model thought but produced no answer after </think>
+        if not clean.strip() and "<think>" in result:
+            thinking_raw = result.split("<think>", 1)[-1].split("</think>", 1)[0]
+            lines = [l.strip() for l in thinking_raw.splitlines() if l.strip() and not l.strip().startswith("-")]
             clean = lines[-1] if lines else ""
         logger.info("suggest_topic: %d chars", len(clean))
         return clean.strip().strip('"').strip("'").strip("《》")
@@ -276,7 +596,7 @@ class ScriptWriterService:
     async def generate_stream(self, request: ScriptWriterRequest) -> AsyncIterator[str]:
         """Yield SSE events: thinking, thinking_done, token, done."""
         t0 = time.monotonic()
-        adapter, user_message, knowledge_count = await self._prepare(request)
+        adapter, system_prompt, user_message, knowledge_count, platform, structure = await self._prepare(request)
 
         # Non-streaming fallback for StubAIAdapter
         if not isinstance(adapter, OpenAICompatibleAdapter):
@@ -289,17 +609,16 @@ class ScriptWriterService:
                 f"[Stub] 未配置 LLM，无法生成文案。\n\n"
                 f"选题：{request.topic}\n目标：{goal_zh}\n字数：{request.word_count}"
             )
-            result = {"script": stub_text, "knowledge_count": knowledge_count}
+            result = {"script": stub_text, "knowledge_count": knowledge_count, "structured_content": None}
             yield f"event: done\ndata: {json.dumps(result, ensure_ascii=False)}\n\n"
             return
 
         # Stream tokens
         full_output = ""
         state = "before_think"  # before_think → in_think → after_think / no_think
-        content_started = False
 
         async for token in adapter._chat_stream(
-            request.system_prompt, user_message, temperature=0.8
+            system_prompt, user_message, temperature=0.8, timeout=600
         ):
             full_output += token
 
@@ -311,9 +630,7 @@ class ScriptWriterService:
                         yield f"event: thinking\ndata: {json.dumps(after_tag, ensure_ascii=False)}\n\n"
                 elif len(full_output) > 20 and "<" not in full_output:
                     state = "no_think"
-                    # Emit all accumulated content as tokens
                     yield f"event: token\ndata: {json.dumps(full_output, ensure_ascii=False)}\n\n"
-                    content_started = True
 
             elif state == "in_think":
                 if "</think>" in full_output:
@@ -322,11 +639,9 @@ class ScriptWriterService:
                         yield f"event: thinking\ndata: {json.dumps(before_close, ensure_ascii=False)}\n\n"
                     state = "after_think"
                     yield "event: thinking_done\ndata: {}\n\n"
-                    # Emit any content after </think> in this token
                     after_close = token.split("</think>")[-1] if "</think>" in token else ""
                     if after_close.strip():
                         yield f"event: token\ndata: {json.dumps(after_close, ensure_ascii=False)}\n\n"
-                        content_started = True
                 else:
                     yield f"event: thinking\ndata: {json.dumps(token, ensure_ascii=False)}\n\n"
 
@@ -343,5 +658,39 @@ class ScriptWriterService:
             len(clean_text), elapsed, len(thinking),
         )
 
-        result = {"script": clean_text, "knowledge_count": knowledge_count}
+        # Parse structured content if composer was used
+        structured_content = None
+        if platform is not None and structure is not None:
+            if platform.is_video:
+                # Video: JSON mode (B-roll requires structured data)
+                try:
+                    raw_json = adapter._parse_json_response(clean_text)
+                    structured_content = _normalize_structured_content(raw_json, platform, structure)
+                    clean_text = _structured_content_to_plain_text(structured_content)
+                except Exception as e:
+                    logger.warning(
+                        "ScriptWriter stream: JSON parse failed, attempting heuristic text extraction: %s",
+                        e,
+                    )
+                    fallback = _heuristic_narration_from_json_string(clean_text)
+                    if fallback:
+                        logger.info("ScriptWriter stream: recovered %d chars from heuristic", len(fallback))
+                        clean_text = fallback
+                # Final safety gate — never save raw JSON as narration
+                clean_text = _scrub_json_artifacts(clean_text)
+            else:
+                # Text (post/article/thread): markdown mode
+                structured_content = _parse_markdown_to_structured_content(clean_text, platform)
+                clean_text = _structured_content_to_plain_text_with_metadata(structured_content)
+
+        creation_id = None
+        if request.save_creation and clean_text.strip():
+            creation_id = await self._save_creation(request, clean_text, structured_content)
+
+        result = {
+            "script": clean_text,
+            "knowledge_count": knowledge_count,
+            "structured_content": structured_content,
+            "creation_id": creation_id,
+        }
         yield f"event: done\ndata: {json.dumps(result, ensure_ascii=False)}\n\n"

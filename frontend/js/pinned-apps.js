@@ -1,60 +1,92 @@
 /**
- * Pinned Apps — 把应用 pin 到侧边栏导航
- * 用法：在每个含侧边栏的页面引入此脚本（Avatar 之前）
+ * Sidebar navigation restructure — runs on every page.
+ *
+ * Transforms the hardcoded sidebar into a grouped structure:
+ *
+ *   🏠 Offers
+ *   🎨 Brand Kit
+ *
+ *   — CREATE —
+ *   🎬 Script Writer
+ *   📝 Content Studio
+ *   💡 Topic Studio
+ *
+ *   — LIBRARY —
+ *   📁 Creations
+ *   🎬 Videos
+ *
+ * Removes: Apps (redundant middle-tier) and KB Q&A (low-frequency,
+ * accessed from offer detail instead).
  */
-const PINNED_KEY = 'od_pinned_apps';
 
-// 已知应用的导航定义（app_id → 导航配置）
-// 新应用上线时在此添加一行即可
-const APP_NAV_DEFS = {
-  topic_studio: { nameKey: 'app_topic_studio', emoji: '💡', href: '/topic-studio.html' },
-  kb_qa: { nameKey: 'app_kb_qa', emoji: '💬', href: '/kb-qa.html' },
-  script_writer: { nameKey: 'app_script_writer', emoji: '🎙️', href: '/script-writer.html' },
-};
+// Tools shown in the "Create" section — always visible, not user-toggleable
+const CREATE_TOOLS = [
+  { labelKey: 'app_script_writer',   emoji: '🎬', href: '/script-writer.html' },
+  { labelKey: 'app_content_studio',  emoji: '📝', href: '/content-studio.html' },
+  { labelKey: 'app_topic_studio',    emoji: '💡', href: '/topic-studio.html' },
+];
 
-function getPinnedApps() {
-  try { return JSON.parse(localStorage.getItem(PINNED_KEY) || '[]'); }
-  catch { return []; }
+function _makeSectionHeader(labelKey) {
+  const div = document.createElement('div');
+  div.className = 'nav-section-header';
+  div.setAttribute('data-sidebar-generated', '1');
+  div.style.cssText = 'padding:14px 12px 4px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#50506A;';
+  div.textContent = t(labelKey);
+  return div;
 }
 
-function isAppPinned(appId) {
-  return getPinnedApps().includes(appId);
+function _makeNavItem({ emoji, labelKey, href, currentPath }) {
+  const a = document.createElement('a');
+  a.href = href;
+  a.setAttribute('data-sidebar-generated', '1');
+  a.className = 'sidebar-item' + (currentPath === href ? ' active' : '');
+  a.innerHTML = `<span class="text-base leading-none w-[18px] text-center">${emoji}</span>${t(labelKey)}`;
+  return a;
 }
 
-function togglePinnedApp(appId) {
-  const pinned = getPinnedApps();
-  const idx = pinned.indexOf(appId);
-  if (idx >= 0) pinned.splice(idx, 1);
-  else pinned.push(appId);
-  localStorage.setItem(PINNED_KEY, JSON.stringify(pinned));
-  injectPinnedNav();           // 实时刷新当前页侧边栏
-  return pinned.includes(appId);
-}
+function restructureSidebar() {
+  const nav = document.querySelector('aside.bg-sidebar nav, aside nav');
+  if (!nav) return;
 
-function injectPinnedNav() {
-  // 找到"应用"导航链接作为插入锚点
-  const appsLink = document.querySelector('nav a[href="/apps.html"]');
-  if (!appsLink) return;
-  const nav = appsLink.parentElement;
+  // Prevent double-run
+  if (nav.getAttribute('data-sidebar-restructured') === '1') return;
 
-  // 移除上次注入的条目
-  nav.querySelectorAll('[data-pinned-app]').forEach(el => el.remove());
-
-  const pinned = getPinnedApps();
   const currentPath = location.pathname;
 
-  // 倒序插入，保持 localStorage 中的顺序（最先 pin 的显示在最上面）
-  [...pinned].reverse().forEach(appId => {
-    const def = APP_NAV_DEFS[appId];
-    if (!def) return;
-    const isActive = currentPath === def.href;
-    const a = document.createElement('a');
-    a.href = def.href;
-    a.setAttribute('data-pinned-app', appId);
-    a.className = 'sidebar-item' + (isActive ? ' active' : '');
-    a.innerHTML = `<span class="text-base leading-none w-[18px] text-center">${def.emoji}</span>${t(def.nameKey)}`;
-    nav.insertBefore(a, appsLink);
-  });
+  // 1. Remove the "Apps" link (redundant middle tier)
+  nav.querySelectorAll('a[href="/apps.html"]').forEach(a => a.remove());
+
+  // 1b. Move Brand Kit to sit directly under Offers (top-level peer of Offers)
+  const brandkitLink = nav.querySelector('a[href="/brandkit-list.html"]');
+  const offersLink = nav.querySelector('a[href="/"]');
+  if (brandkitLink && offersLink && brandkitLink.previousElementSibling !== offersLink) {
+    nav.insertBefore(brandkitLink, offersLink.nextSibling);
+  }
+
+  // 2. Find anchor: the Creations link (everyone has it)
+  const creationsLink = nav.querySelector('a[href="/creations.html"]');
+  if (!creationsLink) return;
+
+  // 3. Build and insert "Create" section before Creations link
+  const createHeader = _makeSectionHeader('nav_group_create');
+  nav.insertBefore(createHeader, creationsLink);
+
+  for (const tool of CREATE_TOOLS) {
+    const item = _makeNavItem({ ...tool, currentPath });
+    nav.insertBefore(item, creationsLink);
+  }
+
+  // 4. Insert "Library" section header before Creations
+  const libraryHeader = _makeSectionHeader('nav_group_library');
+  nav.insertBefore(libraryHeader, creationsLink);
+
+  nav.setAttribute('data-sidebar-restructured', '1');
 }
 
-document.addEventListener('DOMContentLoaded', injectPinnedNav);
+// ── Legacy pinned-app helpers kept for apps.html compatibility ─────────────
+// (apps.html still has pin/unpin UI; these are no-ops now but keep the API)
+function getPinnedApps() { return []; }
+function isAppPinned() { return false; }
+function togglePinnedApp() { return false; }
+
+document.addEventListener('DOMContentLoaded', restructureSidebar);

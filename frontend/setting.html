@@ -59,6 +59,10 @@
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
         <span x-text="t('sidebar_creations')"></span>
       </a>
+      <a href="/video-studio.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        <span x-text="t('sidebar_videos')"></span>
+      </a>
       <a href="/brandkit-list.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
         <span x-text="t('sidebar_brandkit')"></span>
@@ -105,6 +109,11 @@
            class="setting-nav-item" :class="section==='llm' && 'active'">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2"/></svg>
           <span x-text="t('nav_llm')"></span>
+        </a>
+        <a href="?section=media-providers" @click.prevent="section='media-providers'; pushState('media-providers')"
+           class="setting-nav-item" :class="section==='media-providers' && 'active'">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+          <span x-text="t('nav_media_providers')"></span>
         </a>
 
         <p class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-2 mt-4 mb-1" x-text="t('nav_integrations')"></p>
@@ -168,47 +177,205 @@
           </div>
 
           <!-- LLM -->
-          <div x-show="section==='llm'" x-cloak>
+          <div x-show="section==='llm'" x-cloak x-init="loadCapabilityView()">
             <div class="flex items-center justify-between mb-1">
-              <h2 class="text-lg font-semibold text-gray-900" x-text="t('llm_title')"></h2>
-              <div class="flex items-center gap-3">
-                <button @click="openSceneModal()"
-                        class="flex items-center gap-1.5 text-sm text-gray-500 font-medium hover:text-gray-700 border border-gray-200 hover:border-gray-300 px-3 py-1.5 rounded-xl transition-colors">
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-                  <span x-text="t('scene_config')"></span>
-                </button>
-                <button @click="openForm(null)"
-                        class="flex items-center gap-1.5 text-sm text-accent font-medium hover:text-accent-hover transition-colors">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                  <span x-text="t('add_provider')"></span>
-                </button>
-              </div>
+              <h2 class="text-lg font-semibold text-gray-900" x-text="t('cap_page_title')"></h2>
             </div>
-            <p class="text-sm text-gray-500 mb-6" x-text="t('llm_subtitle')"></p>
+            <p class="text-sm text-gray-500 mb-6" x-text="t('cap_page_subtitle')"></p>
 
             <!-- Loading -->
             <div x-show="llmLoading" class="flex items-center justify-center py-12">
               <svg class="animate-spin w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
             </div>
 
-            <!-- Empty state -->
+            <!-- FIRST-RUN GUIDANCE: no LLM configured yet -->
             <div x-show="!llmLoading && llmConfigs.length === 0 && !showForm"
-                 class="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
-              <div class="flex flex-col items-center justify-center text-center">
-                <div class="w-12 h-12 bg-gray-100 rounded-2xl flex items-center justify-center mb-3">
-                  <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2"/></svg>
+                 class="bg-gradient-to-br from-accent/5 to-transparent rounded-2xl border border-accent/20 p-8 mb-6">
+              <div class="flex flex-col items-center justify-center text-center max-w-md mx-auto">
+                <div class="w-14 h-14 bg-accent/10 rounded-2xl flex items-center justify-center mb-4">
+                  <span class="text-2xl">📝</span>
                 </div>
-                <p class="text-sm font-medium text-gray-700 mb-1" x-text="t('no_llm')"></p>
-                <p class="text-xs text-gray-400 mb-4" x-text="t('no_llm_hint')"></p>
+                <h3 class="text-base font-semibold text-gray-800 mb-1" x-text="t('cap_first_run_title')"></h3>
+                <p class="text-sm text-gray-500 mb-5" x-text="t('cap_first_run_hint')"></p>
                 <button @click="openForm(null)"
-                        class="bg-accent text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-accent-hover transition-colors">
-                  <span x-text="t('add_provider')"></span>
+                        class="bg-accent text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-accent-hover transition-colors inline-flex items-center gap-2">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                  <span x-text="t('cap_first_run_cta')"></span>
                 </button>
               </div>
             </div>
 
-            <!-- Config cards -->
-            <div x-show="!llmLoading && llmConfigs.length > 0" class="space-y-3 mb-4">
+            <!-- ── CAPABILITY VIEW: main content ── -->
+            <div x-show="!llmLoading && llmConfigs.length > 0" class="space-y-3 mb-6">
+              <!-- 📝 Text Generation -->
+              <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <div class="flex items-start gap-3 mb-3">
+                  <span class="text-2xl leading-none">📝</span>
+                  <div class="flex-1 min-w-0">
+                    <h3 class="text-sm font-semibold text-gray-800" x-text="t('cap_text_title')"></h3>
+                    <p class="text-[11px] text-gray-400 mt-0.5" x-text="t('cap_text_desc')"></p>
+                  </div>
+                </div>
+                <select x-model="textLlmDefault"
+                        @change="applyTextLlmDefaultInline()"
+                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                  <option value="" x-text="t('default_model')"></option>
+                  <template x-for="cfg in llmConfigs" :key="cfg.id">
+                    <option :value="cfg.id" x-text="modelCapabilityLabel(cfg)"></option>
+                  </template>
+                </select>
+                <div x-data="{open: false}" class="mt-2">
+                  <button type="button" @click="open = !open"
+                          class="text-[11px] text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1">
+                    <svg class="w-3 h-3 transition-transform" :class="open ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    <span x-text="t('cap_overrides_label')"></span>
+                    <span x-text="'(' + textOverrideCount + ')'"></span>
+                  </button>
+                  <div x-show="open" x-cloak class="mt-3 space-y-2 pl-4 border-l-2 border-gray-100">
+                    <template x-for="section in textLlmScenes" :key="section.scene_key">
+                      <div class="flex items-center gap-2">
+                        <span class="text-sm leading-none" x-text="section.icon"></span>
+                        <span class="text-xs text-gray-600 flex-1 min-w-0 truncate" x-text="section.label"></span>
+                        <select @change="onSceneOverrideChange(section.scene_key, 'text_llm', $event.target.value)"
+                                class="flex-1 max-w-[220px] border border-gray-200 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                          <option value=""
+                                  :selected="!sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')]"
+                                  x-text="t('use_default')"></option>
+                          <template x-for="cfg in llmConfigs" :key="cfg.id">
+                            <option :value="cfg.id"
+                                    :selected="sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')] === cfg.id"
+                                    x-text="modelCapabilityLabel(cfg)"></option>
+                          </template>
+                        </select>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 👁️ Vision (for asset_tagging, only if section exists) -->
+              <template x-for="section in visionLlmScenes" :key="section.scene_key">
+                <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                  <div class="flex items-start gap-3 mb-3">
+                    <span class="text-2xl leading-none">👁️</span>
+                    <div class="flex-1 min-w-0">
+                      <h3 class="text-sm font-semibold text-gray-800" x-text="t('cap_vision_title')"></h3>
+                      <p class="text-[11px] text-gray-400 mt-0.5" x-text="section.icon + ' ' + section.label"></p>
+                    </div>
+                  </div>
+                  <select @change="onSceneOverrideChange(section.scene_key, 'vision_llm', $event.target.value)"
+                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                    <option value=""
+                            :selected="!sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')]"
+                            x-text="t('default_model')"></option>
+                    <template x-for="cfg in llmConfigs" :key="cfg.id">
+                      <option :value="cfg.id"
+                              :selected="sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')] === cfg.id"
+                              x-text="modelCapabilityLabel(cfg)"></option>
+                    </template>
+                  </select>
+                </div>
+              </template>
+
+              <!-- 🎬 🖼️ 🔊 Media capabilities -->
+              <template x-for="cap in mediaCapabilities" :key="cap.capability">
+                <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                  <div class="flex items-start gap-3 mb-3">
+                    <span class="text-2xl leading-none" x-text="cap.icon"></span>
+                    <div class="flex-1 min-w-0">
+                      <h3 class="text-sm font-semibold text-gray-800" x-text="cap.label"></h3>
+                      <p class="text-[11px] text-gray-400 mt-0.5" x-text="cap.description"></p>
+                    </div>
+                  </div>
+
+                  <!-- Empty state: no providers configured for this capability yet -->
+                  <template x-if="cap.options.length === 0">
+                    <div class="bg-blue-50/60 border border-blue-100 rounded-lg px-3 py-3 text-xs text-gray-700">
+                      <p class="mb-2" x-text="t('cap_no_provider_yet')"></p>
+                      <p class="text-[11px] text-gray-500 mb-3" x-text="capRecommendText(cap.capability)"></p>
+                      <div class="flex flex-wrap gap-2">
+                        <!-- image_gen: Chanjing or Gemini (Nano Banana) -->
+                        <a x-show="cap.capability === 'image_gen'"
+                           href="/setting.html?section=media-providers&return_to=llm"
+                           class="inline-flex items-center gap-1 bg-accent text-white px-3 py-1.5 rounded-md text-[11px] font-medium hover:bg-accent-hover transition-colors">
+                          <span>+</span> <span x-text="t('cap_add_chanjing')"></span>
+                        </a>
+                        <!-- video_gen: Chanjing has B-roll API -->
+                        <a x-show="cap.capability === 'video_gen'"
+                           href="/setting.html?section=media-providers&return_to=llm"
+                           class="inline-flex items-center gap-1 bg-accent text-white px-3 py-1.5 rounded-md text-[11px] font-medium hover:bg-accent-hover transition-colors">
+                          <span>+</span> <span x-text="t('cap_add_chanjing')"></span>
+                        </a>
+                        <!-- tts: both Chanjing and Jogg work -->
+                        <template x-if="cap.capability === 'tts'">
+                          <div class="flex flex-wrap gap-2">
+                            <a href="/setting.html?section=media-providers&return_to=llm"
+                               class="inline-flex items-center gap-1 bg-accent text-white px-3 py-1.5 rounded-md text-[11px] font-medium hover:bg-accent-hover transition-colors">
+                              <span>+</span> <span x-text="t('cap_add_chanjing')"></span>
+                            </a>
+                            <a href="/setting.html?section=media-providers&return_to=llm"
+                               class="inline-flex items-center gap-1 border border-gray-200 text-gray-600 px-3 py-1.5 rounded-md text-[11px] font-medium hover:bg-gray-50 transition-colors">
+                              <span>+</span> <span x-text="t('cap_add_jogg')"></span>
+                            </a>
+                          </div>
+                        </template>
+                      </div>
+                      <p x-show="cap.capability === 'video_gen'" class="text-[11px] text-gray-400 mt-2.5 pt-2.5 border-t border-blue-100/60" x-text="t('cap_or_gemini_veo')"></p>
+                      <p x-show="cap.capability === 'image_gen'" class="text-[11px] text-gray-400 mt-2.5 pt-2.5 border-t border-blue-100/60" x-text="t('cap_or_gemini_nano_banana')"></p>
+                    </div>
+                  </template>
+
+                  <!-- Has options: show dropdown + provider source hint + add-more link -->
+                  <template x-if="cap.options.length > 0">
+                    <div>
+                      <select @change="setMediaCapabilityInline(cap.capability, $event.target.value)"
+                              class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                        <option value="" x-text="t('default_model')"></option>
+                        <template x-for="opt in cap.options" :key="opt.provider_config_id + '::' + (opt.model_code || opt.voice_id || '')">
+                          <option :value="opt.provider_config_id + '::' + (opt.model_code || opt.voice_id || '')"
+                                  :selected="isMediaCapabilitySelected(cap, opt)"
+                                  x-text="opt.display_label"></option>
+                        </template>
+                      </select>
+                      <!-- Provider source hint -->
+                      <div class="flex items-center justify-between mt-2 text-[11px]">
+                        <span class="text-gray-400">
+                          <span x-text="t('cap_source_label')"></span>
+                          <span class="text-gray-500" x-text="capProviderSummary(cap)"></span>
+                        </span>
+                        <a href="/setting.html?section=media-providers&return_to=llm"
+                           class="text-accent hover:underline whitespace-nowrap"
+                           x-text="t('cap_add_more_provider')"></a>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              <!-- Save status -->
+              <div x-show="capSaveStatus" class="text-xs px-3 py-2 rounded-xl"
+                   :class="capSaveStatus === 'saving' ? 'bg-gray-50 text-gray-500' : capSaveStatus === 'ok' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'">
+                <span x-show="capSaveStatus === 'saving'" x-text="t('saving')"></span>
+                <span x-show="capSaveStatus === 'ok'" x-text="t('cap_saved')"></span>
+                <span x-show="capSaveStatus === 'error'" x-text="capSaveError"></span>
+              </div>
+            </div>
+
+            <!-- ── CREDENTIALS (collapsed) ── -->
+            <details x-show="!llmLoading" class="bg-white rounded-2xl border border-gray-100 shadow-sm">
+              <summary class="flex items-center justify-between cursor-pointer select-none px-5 py-4 hover:bg-gray-50/50 rounded-2xl">
+                <div class="flex items-center gap-2">
+                  <svg class="w-4 h-4 text-gray-400 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                  <span class="text-sm font-medium text-gray-700" x-text="t('cap_credentials_title')"></span>
+                  <span class="text-[11px] text-gray-400" x-text="'(' + llmConfigs.length + ')'"></span>
+                </div>
+                <button @click.stop.prevent="openForm(null)"
+                        class="flex items-center gap-1 text-xs text-accent font-medium hover:text-accent-hover transition-colors">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                  <span x-text="t('add_provider')"></span>
+                </button>
+              </summary>
+              <div class="px-5 pb-5 pt-1 space-y-2">
               <template x-for="cfg in llmConfigs" :key="cfg.id">
                 <div class="bg-white rounded-2xl border shadow-sm p-4 transition-all"
                      :class="cfg.is_active ? 'border-accent/40 ring-1 ring-accent/20' : 'border-gray-100'">
@@ -268,11 +435,12 @@
                   </div>
                 </div>
               </template>
-            </div>
+              </div>
+            </details>
 
             <!-- Add/Edit Form -->
             <div x-show="showForm" x-cloak
-                 class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mt-2">
+                 class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mt-3">
               <h3 class="text-sm font-semibold text-gray-800 mb-4"
                   x-text="editingId ? t('edit_provider') : t('add_provider_title')"></h3>
 
@@ -656,6 +824,286 @@
             </div>
           </div>
 
+          <!-- Media Providers -->
+          <div x-show="section==='media-providers'" x-cloak x-data="mediaProvidersSection()" x-init="loadMediaProviders()">
+            <h2 class="text-lg font-semibold text-gray-900 mb-1" x-text="t('mp_title')"></h2>
+            <p class="text-sm text-gray-500 mb-6" x-text="t('mp_subtitle')"></p>
+
+            <!-- Return-to-LLM banner: shown when user came here from the AI capability page -->
+            <template x-if="(new URLSearchParams(location.search)).get('return_to') === 'llm'">
+              <div class="flex items-center justify-between gap-3 bg-accent/5 border border-accent/20 rounded-xl px-4 py-3 mb-4">
+                <div class="flex items-center gap-2 text-xs text-gray-700">
+                  <svg class="w-4 h-4 text-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z"/></svg>
+                  <span x-text="t('mp_return_banner')"></span>
+                </div>
+                <a href="/setting.html?section=llm" class="text-xs font-medium text-accent hover:underline whitespace-nowrap" x-text="t('mp_return_back')"></a>
+              </div>
+            </template>
+
+            <!-- Bilingual recommendation banner -->
+            <div class="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 mb-4">
+              <svg class="w-4 h-4 text-blue-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <p class="text-xs text-gray-700 leading-relaxed" x-text="t('mp_recommendation')"></p>
+            </div>
+
+            <!-- Loading -->
+            <div x-show="mpLoading" class="flex items-center justify-center py-12">
+              <svg class="animate-spin w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+            </div>
+
+            <!-- Provider cards -->
+            <div x-show="!mpLoading" class="space-y-3 mb-4">
+              <template x-for="meta in PROVIDER_META" :key="meta.key">
+                <div class="bg-white rounded-2xl border shadow-sm p-5 transition-all"
+                     :class="getConfigByProvider(meta.key) ? 'border-gray-100' : 'border-dashed border-gray-200'">
+                  <div class="flex items-start justify-between gap-3 mb-3">
+                    <div class="flex items-center gap-3 min-w-0">
+                      <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-lg"
+                           :class="meta.bgClass" x-text="meta.icon"></div>
+                      <div class="min-w-0">
+                        <div class="flex items-center gap-2">
+                          <p class="text-sm font-semibold text-gray-900" x-text="meta.name"></p>
+                          <template x-if="getConfigByProvider(meta.key)">
+                            <span class="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full"
+                                  :class="getConfigByProvider(meta.key).is_active
+                                    ? 'text-green-700 bg-green-50'
+                                    : 'text-gray-500 bg-gray-100'">
+                              <span class="w-1.5 h-1.5 rounded-full"
+                                    :class="getConfigByProvider(meta.key).is_active ? 'bg-green-500' : 'bg-gray-400'"></span>
+                              <span x-text="getConfigByProvider(meta.key).is_active ? t('mp_status_active') : t('mp_status_inactive')"></span>
+                            </span>
+                          </template>
+                          <template x-if="!getConfigByProvider(meta.key)">
+                            <span class="inline-flex items-center gap-1 text-[11px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                              <span class="w-1.5 h-1.5 bg-gray-400 rounded-full"></span>
+                              <span x-text="t('mp_status_unconfigured')"></span>
+                            </span>
+                          </template>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-0.5" x-text="meta.tagline"></p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Configured details -->
+                  <template x-if="getConfigByProvider(meta.key)">
+                    <div class="bg-gray-50 rounded-xl p-3 text-xs text-gray-600 space-y-1.5 mb-3">
+                      <div class="flex items-baseline gap-2">
+                        <span class="text-gray-400 w-16 shrink-0" x-text="t('mp_label')"></span>
+                        <span class="font-medium text-gray-700" x-text="getConfigByProvider(meta.key).label"></span>
+                      </div>
+                      <template x-for="(masked, key) in getConfigByProvider(meta.key).credentials_masked" :key="key">
+                        <div class="flex items-baseline gap-2">
+                          <span class="text-gray-400 w-16 shrink-0 font-mono" x-text="key"></span>
+                          <span class="font-mono text-gray-600" x-text="masked"></span>
+                        </div>
+                      </template>
+                      <div class="flex items-baseline gap-2 pt-1 border-t border-gray-200">
+                        <span class="text-gray-400 w-16 shrink-0" x-text="t('mp_defaults')"></span>
+                        <span class="text-gray-600" x-text="formatDefaults(getConfigByProvider(meta.key))"></span>
+                      </div>
+                    </div>
+                  </template>
+
+                  <!-- Empty state CTA -->
+                  <template x-if="!getConfigByProvider(meta.key)">
+                    <p class="text-xs text-gray-400 mb-3" x-text="meta.howto"></p>
+                  </template>
+
+                  <!-- Action buttons -->
+                  <div class="flex flex-wrap items-center gap-2">
+                    <template x-if="!getConfigByProvider(meta.key)">
+                      <button @click="openAddForm(meta.key)"
+                              class="inline-flex items-center gap-1.5 bg-accent text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-accent-hover transition-colors">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                        <span x-text="`${t('mp_add')} ${meta.name}`"></span>
+                      </button>
+                    </template>
+                    <template x-if="getConfigByProvider(meta.key)">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <button x-show="!getConfigByProvider(meta.key).is_active"
+                                @click="activateConfig(getConfigByProvider(meta.key).id)"
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-green-200 text-green-700 hover:bg-green-50 transition-colors">
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                          <span x-text="t('mp_set_active')"></span>
+                        </button>
+                        <button @click="openEditForm(getConfigByProvider(meta.key))"
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors">
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                          <span x-text="t('mp_edit_creds')"></span>
+                        </button>
+                        <button @click="openDefaultsModal(getConfigByProvider(meta.key))"
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors">
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                          <span x-text="t('mp_set_defaults')"></span>
+                        </button>
+                        <button @click="deleteConfig(getConfigByProvider(meta.key))"
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-red-100 text-red-600 hover:bg-red-50 transition-colors">
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                          <span x-text="t('btn_delete')"></span>
+                        </button>
+                      </div>
+                    </template>
+                    <a :href="meta.signupUrl" target="_blank" rel="noopener"
+                       class="text-xs text-accent hover:underline ml-auto">
+                      <span x-text="t('mp_get_credentials')"></span> →
+                    </a>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <!-- Error banner -->
+            <div x-show="mpError" x-cloak class="mt-3 text-xs text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
+                 x-text="mpError"></div>
+
+            <!-- Credentials modal -->
+            <div x-show="showForm" x-cloak
+                 class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+                 @click.self="cancelForm()">
+              <div class="bg-white rounded-2xl shadow-xl border border-gray-100 w-full max-w-md mx-4 p-6">
+                <h3 class="text-base font-semibold text-gray-900 mb-1"
+                    x-text="editingId ? t('mp_modal_edit_title') : t('mp_modal_add_title')"></h3>
+                <p class="text-xs text-gray-400 mb-5"
+                   x-text="editingId ? t('mp_modal_edit_subtitle') : t('mp_modal_add_subtitle')"></p>
+
+                <div class="space-y-4">
+                  <!-- Label -->
+                  <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('mp_label')"></label>
+                    <input type="text" x-model="form.label"
+                           :placeholder="t('mp_label_placeholder')"
+                           class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                  </div>
+
+                  <!-- Chanjing credentials -->
+                  <template x-if="form.provider === 'chanjing'">
+                    <div class="space-y-3">
+                      <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1.5">App ID</label>
+                        <input type="text" x-model="form.app_id"
+                               :placeholder="editingId ? t('mp_keep_unchanged') : 'cj_xxxxxxx'"
+                               autocomplete="off"
+                               class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                      </div>
+                      <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1.5">Secret Key</label>
+                        <input type="password" x-model="form.secret_key"
+                               :placeholder="editingId ? t('mp_keep_unchanged') : '••••••••••'"
+                               autocomplete="off"
+                               class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                      </div>
+                    </div>
+                  </template>
+
+                  <!-- Jogg credentials -->
+                  <template x-if="form.provider === 'jogg'">
+                    <div>
+                      <label class="block text-xs font-medium text-gray-500 mb-1.5">API Key</label>
+                      <input type="password" x-model="form.api_key"
+                             :placeholder="editingId ? t('mp_keep_unchanged') : 'jogg-xxxx...'"
+                             autocomplete="off"
+                             class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                    </div>
+                  </template>
+
+                  <!-- Validate status -->
+                  <div x-show="validateStatus" class="text-xs px-3 py-2 rounded-xl"
+                       :class="validateStatus === 'ok' ? 'bg-green-50 text-green-700' : validateStatus === 'error' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-500'">
+                    <span x-show="validateStatus === 'checking'" x-text="t('mp_validating')"></span>
+                    <span x-show="validateStatus === 'ok'" x-text="t('mp_validate_ok')"></span>
+                    <span x-show="validateStatus === 'error'" x-text="validateError || t('mp_validate_error')"></span>
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-3 mt-6 pt-4 border-t border-gray-100">
+                  <button @click="validateConnection()"
+                          :disabled="validateStatus === 'checking'"
+                          class="px-3 py-2 rounded-xl text-xs font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                          x-text="t('mp_validate_btn')">
+                  </button>
+                  <div class="flex-1"></div>
+                  <button @click="cancelForm()"
+                          class="px-4 py-2 rounded-xl text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                          x-text="t('btn_cancel')">
+                  </button>
+                  <button @click="saveForm()" :disabled="formSaving"
+                          class="bg-accent text-white px-5 py-2 rounded-xl text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50">
+                    <span x-text="formSaving ? t('saving') : t('btn_save')"></span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Defaults modal -->
+            <div x-show="showDefaultsModal" x-cloak
+                 class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+                 @click.self="closeDefaultsModal()">
+              <div class="bg-white rounded-2xl shadow-xl border border-gray-100 w-full max-w-lg mx-4 p-6 max-h-[85vh] flex flex-col">
+                <h3 class="text-base font-semibold text-gray-900 mb-1" x-text="t('mp_defaults_title')"></h3>
+                <p class="text-xs text-gray-400 mb-5" x-text="t('mp_defaults_subtitle')"></p>
+
+                <div x-show="defaultsLoading" class="flex items-center justify-center py-10">
+                  <svg class="animate-spin w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                </div>
+
+                <div x-show="!defaultsLoading" class="flex-1 overflow-y-auto space-y-5 pr-1">
+                  <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('mp_default_avatar')"></label>
+                    <select x-model="defaultsForm.avatar_id"
+                            class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                      <option value="" x-text="t('mp_no_default')"></option>
+                      <template x-for="a in defaultsAvatars" :key="a.id">
+                        <option :value="a.id" x-text="`${a.name}${a.gender ? ' (' + a.gender + ')' : ''}`"></option>
+                      </template>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('mp_default_voice')"></label>
+                    <select x-model="defaultsForm.voice_id"
+                            class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                      <option value="" x-text="t('mp_no_default')"></option>
+                      <template x-for="v in defaultsVoices" :key="v.id">
+                        <option :value="v.id" x-text="`${v.name}${v.language ? ' · ' + v.language : ''}${v.gender ? ' · ' + v.gender : ''}`"></option>
+                      </template>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('mp_default_aspect')"></label>
+                    <div class="grid grid-cols-3 gap-2">
+                      <template x-for="opt in aspectOptions" :key="opt.v">
+                        <button type="button"
+                                @click="defaultsForm.aspect_ratio = opt.v"
+                                class="py-2 px-2 rounded-xl border text-xs font-medium transition-all"
+                                :class="defaultsForm.aspect_ratio === opt.v
+                                  ? 'border-accent bg-accent/5 text-accent'
+                                  : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'">
+                          <span x-text="opt.l"></span>
+                        </button>
+                      </template>
+                    </div>
+                  </div>
+
+                  <div x-show="defaultsError" class="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-xl"
+                       x-text="defaultsError"></div>
+                </div>
+
+                <div class="flex justify-end gap-3 mt-5 pt-4 border-t border-gray-100">
+                  <button @click="closeDefaultsModal()"
+                          class="px-4 py-2 rounded-xl text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                          x-text="t('btn_cancel')">
+                  </button>
+                  <button @click="saveDefaults()" :disabled="defaultsSaving || defaultsLoading"
+                          class="bg-accent text-white px-5 py-2 rounded-xl text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50">
+                    <span x-text="defaultsSaving ? t('saving') : t('btn_save')"></span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Service -->
           <div x-show="section==='service'" x-cloak
                x-init="$watch('section', v => { if(v==='service') startLogPolling(); else stopLogPolling(); }); if(section==='service') startLogPolling();"
@@ -770,42 +1218,108 @@
   <div x-show="showSceneModal" x-cloak
        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
       >
-    <div class="bg-white rounded-2xl shadow-xl border border-gray-100 w-full max-w-lg mx-4 p-6 max-h-[80vh] flex flex-col">
+    <div class="bg-white rounded-2xl shadow-xl border border-gray-100 w-full max-w-xl mx-4 p-6 max-h-[85vh] flex flex-col">
       <h3 class="text-base font-semibold text-gray-900 mb-1" x-text="t('scene_modal_title')"></h3>
-      <p class="text-xs text-gray-400 mb-5" x-text="t('scene_modal_subtitle')"></p>
+      <p class="text-xs text-gray-400 mb-5" x-text="t('scene_modal_subtitle_v2')"></p>
 
-      <div class="flex-1 overflow-y-auto space-y-5 pr-1">
-        <template x-for="section in sceneSections" :key="section.scene_key">
-          <div>
-            <!-- Section header -->
-            <div class="flex items-center gap-2 mb-2.5">
-              <span class="text-base leading-none" x-text="section.icon"></span>
-              <span class="text-sm font-medium text-gray-800" x-text="section.label"></span>
-              <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full"
-                    :class="section.scene_type === 'system'
-                      ? 'bg-gray-100 text-gray-400'
-                      : 'bg-accent/10 text-accent'">
-                <span x-text="section.scene_type === 'system' ? t('scene_type_system') : t('scene_type_app')"></span>
-              </span>
+      <div class="flex-1 overflow-y-auto pr-1 space-y-4" x-data="{expandedCap: ''}">
+        <!-- TEXT LLM: unified default + collapsed per-scene overrides -->
+        <div class="rounded-xl border border-gray-100 p-4">
+          <div class="flex items-start gap-3 mb-2">
+            <span class="text-xl leading-none">📝</span>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-semibold text-gray-800" x-text="t('cap_text_title')"></div>
+              <div class="text-[11px] text-gray-400 mt-0.5" x-text="t('cap_text_desc')"></div>
             </div>
-            <!-- Model type rows -->
-            <template x-for="mc in section.model_configs" :key="mc.model_type">
-              <div class="flex items-center gap-3 pl-6 mb-2">
-                <span class="text-xs text-gray-500 w-20 shrink-0" x-text="mc.model_type_label"></span>
-                <select @change="sceneConfigs[sceneConfigKey(section.scene_key, mc.model_type)] = $event.target.value"
-                        class="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+          </div>
+          <select x-model="textLlmDefault"
+                  @change="applyTextLlmDefault()"
+                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent mb-2">
+            <option value="" x-text="t('default_model')"></option>
+            <template x-for="cfg in llmConfigs" :key="cfg.id">
+              <option :value="cfg.id" x-text="modelCapabilityLabel(cfg)"></option>
+            </template>
+          </select>
+          <!-- Per-scene overrides (collapsed) -->
+          <button type="button" @click="expandedCap = expandedCap === 'text' ? '' : 'text'"
+                  class="text-[11px] text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1">
+            <svg class="w-3 h-3 transition-transform" :class="expandedCap === 'text' ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            <span>
+              <span x-text="t('cap_overrides_label')"></span>
+              <span x-text="'(' + textOverrideCount + ')'"></span>
+            </span>
+          </button>
+          <div x-show="expandedCap === 'text'" x-cloak class="mt-3 space-y-2 pl-4 border-l-2 border-gray-100">
+            <template x-for="section in textLlmScenes" :key="section.scene_key">
+              <div class="flex items-center gap-2">
+                <span class="text-sm leading-none" x-text="section.icon"></span>
+                <span class="text-xs text-gray-600 flex-1 min-w-0 truncate" x-text="section.label"></span>
+                <select @change="sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')] = $event.target.value"
+                        class="flex-1 max-w-[200px] border border-gray-200 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
                   <option value=""
-                          :selected="!sceneConfigs[sceneConfigKey(section.scene_key, mc.model_type)]"
-                          x-text="t('default_model')">
-                  </option>
+                          :selected="!sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')]"
+                          x-text="t('use_default')"></option>
                   <template x-for="cfg in llmConfigs" :key="cfg.id">
                     <option :value="cfg.id"
-                            :selected="sceneConfigs[sceneConfigKey(section.scene_key, mc.model_type)] === cfg.id"
+                            :selected="sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')] === cfg.id"
                             x-text="modelCapabilityLabel(cfg)"></option>
                   </template>
                 </select>
               </div>
             </template>
+          </div>
+        </div>
+
+        <!-- VISION LLM: still per-scene (only asset_tagging) -->
+        <template x-for="section in visionLlmScenes" :key="section.scene_key">
+          <div class="rounded-xl border border-gray-100 p-4">
+            <div class="flex items-start gap-3 mb-2">
+              <span class="text-xl leading-none">👁️</span>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-semibold text-gray-800" x-text="t('cap_vision_title')"></div>
+                <div class="text-[11px] text-gray-400 mt-0.5" x-text="section.icon + ' ' + section.label"></div>
+              </div>
+            </div>
+            <select @change="sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')] = $event.target.value"
+                    class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+              <option value=""
+                      :selected="!sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')]"
+                      x-text="t('default_model')"></option>
+              <template x-for="cfg in llmConfigs" :key="cfg.id">
+                <option :value="cfg.id"
+                        :selected="sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')] === cfg.id"
+                        x-text="modelCapabilityLabel(cfg)"></option>
+              </template>
+            </select>
+          </div>
+        </template>
+
+        <!-- MEDIA CAPABILITIES: image_gen / video_gen / tts -->
+        <template x-for="cap in mediaCapabilities" :key="cap.capability">
+          <div class="rounded-xl border border-gray-100 p-4">
+            <div class="flex items-start gap-3 mb-2">
+              <span class="text-xl leading-none" x-text="cap.icon"></span>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-semibold text-gray-800" x-text="cap.label"></div>
+                <div class="text-[11px] text-gray-400 mt-0.5" x-text="cap.description"></div>
+              </div>
+            </div>
+            <template x-if="cap.options.length === 0">
+              <div class="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 text-[11px] text-amber-700 flex items-center justify-between gap-2">
+                <span x-text="t('cap_need_provider')"></span>
+                <a href="/setting.html?section=media-providers" class="font-medium text-amber-800 hover:underline whitespace-nowrap" x-text="t('cap_configure_provider')"></a>
+              </div>
+            </template>
+            <select x-show="cap.options.length > 0"
+                    @change="setMediaCapability(cap.capability, $event.target.value)"
+                    class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+              <option value="" x-text="t('default_model')"></option>
+              <template x-for="opt in cap.options" :key="opt.provider_config_id + '::' + (opt.model_code || opt.voice_id || '')">
+                <option :value="opt.provider_config_id + '::' + (opt.model_code || opt.voice_id || '')"
+                        :selected="isMediaCapabilitySelected(cap, opt)"
+                        x-text="opt.display_label"></option>
+              </template>
+            </select>
           </div>
         </template>
 
@@ -1055,6 +1569,310 @@
       };
     }
 
+    function mediaProvidersSection() {
+      return {
+        // Static metadata for the two known providers
+        get PROVIDER_META() {
+          return [
+            {
+              key: 'jogg',
+              name: 'Jogg.ai',
+              icon: '🎥',
+              bgClass: 'bg-indigo-50',
+              tagline: t('mp_jogg_tagline'),
+              howto: t('mp_jogg_howto'),
+              signupUrl: 'https://app.jogg.ai/',
+            },
+            {
+              key: 'chanjing',
+              name: 'Chanjing 蝉镜',
+              icon: '🎬',
+              bgClass: 'bg-rose-50',
+              tagline: t('mp_chanjing_tagline'),
+              howto: t('mp_chanjing_howto'),
+              signupUrl: 'https://chanjing.cc/openapi/login',
+            },
+          ];
+        },
+        get aspectOptions() {
+          return [
+            { v: 'portrait',  l: t('mp_aspect_portrait')  },
+            { v: 'landscape', l: t('mp_aspect_landscape') },
+            { v: 'square',    l: t('mp_aspect_square')    },
+          ];
+        },
+
+        // Loaded configs
+        providers: [],          // raw list from API
+        mpLoading: false,
+        mpError: '',
+
+        // Credentials form modal state
+        showForm: false,
+        editingId: null,
+        formSaving: false,
+        validateStatus: '',
+        validateError: '',
+        form: {
+          provider: 'chanjing',
+          label: '',
+          app_id: '',
+          secret_key: '',
+          api_key: '',
+        },
+
+        // Defaults modal state
+        showDefaultsModal: false,
+        defaultsConfigId: null,
+        defaultsConfigProvider: '',
+        defaultsAvatars: [],
+        defaultsVoices: [],
+        defaultsLoading: false,
+        defaultsSaving: false,
+        defaultsError: '',
+        defaultsForm: { avatar_id: '', voice_id: '', aspect_ratio: 'portrait' },
+
+        async loadMediaProviders() {
+          this.mpLoading = true;
+          this.mpError = '';
+          try {
+            const r = await fetch('/api/v1/media-providers');
+            if (!r.ok) throw new Error(await r.text());
+            this.providers = await r.json();
+          } catch (e) {
+            this.mpError = t('load_failed') + e.message;
+          } finally {
+            this.mpLoading = false;
+          }
+        },
+
+        getConfigByProvider(provider) {
+          return this.providers.find(p => p.provider === provider) || null;
+        },
+
+        formatDefaults(cfg) {
+          const d = cfg.defaults || {};
+          const parts = [];
+          if (d.avatar_id) parts.push(d.avatar_id.slice(0, 8));
+          if (d.voice_id) parts.push(d.voice_id.slice(0, 8));
+          if (d.aspect_ratio) parts.push(d.aspect_ratio);
+          return parts.length ? parts.join(' / ') : t('mp_no_defaults_set');
+        },
+
+        // ── Credentials form ──
+        openAddForm(providerKey) {
+          this.editingId = null;
+          this.validateStatus = '';
+          this.validateError = '';
+          this.form = {
+            provider: providerKey,
+            label: '',
+            app_id: '',
+            secret_key: '',
+            api_key: '',
+          };
+          this.showForm = true;
+        },
+
+        openEditForm(cfg) {
+          this.editingId = cfg.id;
+          this.validateStatus = '';
+          this.validateError = '';
+          this.form = {
+            provider: cfg.provider,
+            label: cfg.label,
+            app_id: '',
+            secret_key: '',
+            api_key: '',
+          };
+          this.showForm = true;
+        },
+
+        cancelForm() {
+          this.showForm = false;
+          this.editingId = null;
+          this.validateStatus = '';
+          this.validateError = '';
+        },
+
+        _buildCredentialsPayload() {
+          if (this.form.provider === 'chanjing') {
+            return { app_id: this.form.app_id, secret_key: this.form.secret_key };
+          }
+          if (this.form.provider === 'jogg') {
+            return { api_key: this.form.api_key };
+          }
+          return {};
+        },
+
+        async validateConnection() {
+          const creds = this._buildCredentialsPayload();
+          // For edit mode without entering creds, validate is a no-op (we don't have creds in the browser)
+          const hasAny = Object.values(creds).some(v => v && v.length);
+          if (!hasAny) {
+            this.validateStatus = 'error';
+            this.validateError = t('mp_fill_credentials');
+            return;
+          }
+          this.validateStatus = 'checking';
+          this.validateError = '';
+          try {
+            const r = await fetch('/api/v1/media-providers/validate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ provider: this.form.provider, credentials: creds }),
+            });
+            if (!r.ok) {
+              const d = await r.json().catch(() => ({}));
+              throw new Error(d.error?.message || d.detail || r.statusText);
+            }
+            this.validateStatus = 'ok';
+          } catch (e) {
+            this.validateStatus = 'error';
+            this.validateError = e.message;
+          }
+        },
+
+        async saveForm() {
+          this.formSaving = true;
+          this.mpError = '';
+          try {
+            const creds = this._buildCredentialsPayload();
+            const label = this.form.label || (this.form.provider === 'chanjing' ? 'Chanjing' : 'Jogg.ai');
+            let r;
+            if (this.editingId) {
+              const payload = { label };
+              // Only send credentials fields the user filled (empty = unchanged on backend)
+              if (Object.values(creds).some(v => v && v.length)) {
+                payload.credentials = creds;
+              }
+              r = await fetch(`/api/v1/media-providers/${this.editingId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              });
+            } else {
+              if (!Object.values(creds).every(v => v && v.length)) {
+                throw new Error(t('mp_fill_credentials'));
+              }
+              r = await fetch('/api/v1/media-providers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ provider: this.form.provider, label, credentials: creds }),
+              });
+            }
+            if (!r.ok) {
+              const d = await r.json().catch(() => ({}));
+              throw new Error(d.error?.message || d.detail || r.statusText);
+            }
+            this.showForm = false;
+            this.editingId = null;
+            await this.loadMediaProviders();
+            // If user came from the AI capability page, send them back so they
+            // can immediately see the new provider's models in the dropdowns.
+            const params = new URLSearchParams(location.search);
+            if (params.get('return_to') === 'llm') {
+              location.href = '/setting.html?section=llm';
+              return;
+            }
+          } catch (e) {
+            this.mpError = t('save_failed') + e.message;
+          } finally {
+            this.formSaving = false;
+          }
+        },
+
+        async deleteConfig(cfg) {
+          if (!confirm(t('mp_confirm_delete').replace('{label}', cfg.label))) return;
+          this.mpError = '';
+          try {
+            const r = await fetch(`/api/v1/media-providers/${cfg.id}`, { method: 'DELETE' });
+            if (!r.ok && r.status !== 204) {
+              const d = await r.json().catch(() => ({}));
+              throw new Error(d.error?.message || d.detail || r.statusText);
+            }
+            await this.loadMediaProviders();
+          } catch (e) {
+            this.mpError = t('delete_failed') + e.message;
+          }
+        },
+
+        async activateConfig(id) {
+          this.mpError = '';
+          try {
+            const r = await fetch(`/api/v1/media-providers/${id}/activate`, { method: 'POST' });
+            if (!r.ok) {
+              const d = await r.json().catch(() => ({}));
+              throw new Error(d.error?.message || d.detail || r.statusText);
+            }
+            await this.loadMediaProviders();
+          } catch (e) {
+            this.mpError = t('activate_failed') + e.message;
+          }
+        },
+
+        // ── Defaults modal ──
+        async openDefaultsModal(cfg) {
+          this.defaultsConfigId = cfg.id;
+          this.defaultsConfigProvider = cfg.provider;
+          this.defaultsForm = {
+            avatar_id: (cfg.defaults && cfg.defaults.avatar_id) || '',
+            voice_id: (cfg.defaults && cfg.defaults.voice_id) || '',
+            aspect_ratio: (cfg.defaults && cfg.defaults.aspect_ratio) || 'portrait',
+          };
+          this.defaultsAvatars = [];
+          this.defaultsVoices = [];
+          this.defaultsError = '';
+          this.showDefaultsModal = true;
+          this.defaultsLoading = true;
+          try {
+            const [ar, vr] = await Promise.all([
+              fetch(`/api/v1/media-providers/${cfg.id}/avatars?page=1&page_size=100`),
+              fetch(`/api/v1/media-providers/${cfg.id}/voices?page=1&page_size=100`),
+            ]);
+            if (!ar.ok) throw new Error('avatars: ' + (await ar.text()));
+            if (!vr.ok) throw new Error('voices: ' + (await vr.text()));
+            this.defaultsAvatars = await ar.json();
+            this.defaultsVoices = await vr.json();
+          } catch (e) {
+            this.defaultsError = t('mp_defaults_load_failed') + e.message;
+          } finally {
+            this.defaultsLoading = false;
+          }
+        },
+
+        closeDefaultsModal() {
+          this.showDefaultsModal = false;
+          this.defaultsConfigId = null;
+          this.defaultsError = '';
+        },
+
+        async saveDefaults() {
+          if (!this.defaultsConfigId) return;
+          this.defaultsSaving = true;
+          this.defaultsError = '';
+          try {
+            const r = await fetch(`/api/v1/media-providers/${this.defaultsConfigId}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ defaults: this.defaultsForm }),
+            });
+            if (!r.ok) {
+              const d = await r.json().catch(() => ({}));
+              throw new Error(d.error?.message || d.detail || r.statusText);
+            }
+            this.showDefaultsModal = false;
+            this.defaultsConfigId = null;
+            await this.loadMediaProviders();
+          } catch (e) {
+            this.defaultsError = t('save_failed') + e.message;
+          } finally {
+            this.defaultsSaving = false;
+          }
+        },
+      };
+    }
+
     function settingApp() {
       return {
         PROVIDER_PRESETS,
@@ -1083,6 +1901,13 @@
         sceneConfigs: {},   // flat map: "scene_key::model_type" → config_id_or_empty
         sceneSaving: false,
         sceneError: '',
+        // Capability grouping
+        textLlmDefault: '',
+        mediaCapabilities: [],
+        mediaCapabilitySelections: {},  // capability → "provider_id::model_code_or_voice_id"
+        capSaveStatus: '',  // '' | 'saving' | 'ok' | 'error'
+        capSaveError: '',
+        _capSaveDebounce: null,
 
         // Log viewer state
         logLines: [],
@@ -1436,10 +2261,10 @@
           this.sceneError = '';
           if (!this.llmConfigs.length) await this.loadLLMConfigs();
           try {
+            // Load LLM scene configs
             const r = await fetch('/api/v1/settings/llm/scenes');
             if (!r.ok) throw new Error(await r.text());
             const data = await r.json();
-            // 先重置为新对象，再用平铺 key 赋值，避免 Alpine 嵌套响应式问题
             const configs = {};
             for (const section of data.sections) {
               for (const mc of section.model_configs) {
@@ -1448,8 +2273,211 @@
             }
             this.sceneSections = data.sections;
             this.sceneConfigs = configs;
+            // Infer text_llm default: if all text scenes point to the same config, use that
+            const textKeys = this.textLlmScenes.map(s => this.sceneConfigKey(s.scene_key, 'text_llm'));
+            const textVals = [...new Set(textKeys.map(k => configs[k] || ''))];
+            this.textLlmDefault = textVals.length === 1 ? textVals[0] : '';
+
+            // Load media capabilities
+            const r2 = await fetch('/api/v1/settings/media-capabilities');
+            if (r2.ok) {
+              const md = await r2.json();
+              this.mediaCapabilities = md.capabilities || [];
+              const sel = {};
+              for (const cap of this.mediaCapabilities) {
+                if (cap.current_provider_config_id) {
+                  sel[cap.capability] = `${cap.current_provider_config_id}::${cap.current_model_code || cap.current_voice_id || ''}`;
+                } else {
+                  sel[cap.capability] = '';
+                }
+              }
+              this.mediaCapabilitySelections = sel;
+            }
           } catch (e) {
             this.sceneError = t('load_failed') + e.message;
+          }
+        },
+
+        get textLlmScenes() {
+          // All scenes that require text_llm (app + system)
+          return (this.sceneSections || []).filter(s =>
+            (s.model_configs || []).some(mc => mc.model_type === 'text_llm')
+          );
+        },
+
+        get visionLlmScenes() {
+          return (this.sceneSections || []).filter(s =>
+            (s.model_configs || []).some(mc => mc.model_type === 'vision_llm')
+          );
+        },
+
+        get textOverrideCount() {
+          let n = 0;
+          for (const s of this.textLlmScenes) {
+            const v = this.sceneConfigs[this.sceneConfigKey(s.scene_key, 'text_llm')] || '';
+            if (v && v !== this.textLlmDefault) n++;
+          }
+          return n;
+        },
+
+        applyTextLlmDefault() {
+          // When user changes "Text LLM default", propagate to all text scenes
+          // that haven't been explicitly overridden (currently matching old default or empty)
+          for (const s of this.textLlmScenes) {
+            const key = this.sceneConfigKey(s.scene_key, 'text_llm');
+            this.sceneConfigs[key] = this.textLlmDefault;
+          }
+        },
+
+        setMediaCapability(capability, value) {
+          this.mediaCapabilitySelections[capability] = value;
+        },
+
+        isMediaCapabilitySelected(cap, opt) {
+          const key = `${opt.provider_config_id}::${opt.model_code || opt.voice_id || ''}`;
+          return this.mediaCapabilitySelections[cap.capability] === key;
+        },
+
+        capProviderSummary(cap) {
+          // Group options by provider to show "Chanjing(6) · Google Veo(4)" hint
+          const counts = {};
+          for (const opt of (cap.options || [])) {
+            counts[opt.provider_label] = (counts[opt.provider_label] || 0) + 1;
+          }
+          return Object.entries(counts).map(([label, n]) => `${label}(${n})`).join(' · ');
+        },
+
+        capRecommendText(capability) {
+          // Capability-specific recommendation copy (honest about which provider
+          // actually supports each capability)
+          if (capability === 'image_gen') return t('cap_recommend_image');
+          if (capability === 'video_gen') return t('cap_recommend_video');
+          if (capability === 'tts') return t('cap_recommend_tts');
+          return t('cap_recommend_bundle');
+        },
+
+        // ── Inline capability view (no modal) ─────────────────
+        async loadCapabilityView() {
+          if (!this.llmConfigs.length) await this.loadLLMConfigs();
+          // Reuse the modal loader to populate sections + selections (no UI side effect)
+          try {
+            const r = await fetch('/api/v1/settings/llm/scenes');
+            if (r.ok) {
+              const data = await r.json();
+              const configs = {};
+              for (const section of data.sections) {
+                for (const mc of section.model_configs) {
+                  configs[this.sceneConfigKey(section.scene_key, mc.model_type)] = mc.config_id || '';
+                }
+              }
+              this.sceneSections = data.sections;
+              this.sceneConfigs = configs;
+              const textKeys = this.textLlmScenes.map(s => this.sceneConfigKey(s.scene_key, 'text_llm'));
+              const textVals = [...new Set(textKeys.map(k => configs[k] || ''))];
+              this.textLlmDefault = textVals.length === 1 ? textVals[0] : '';
+            }
+            const r2 = await fetch('/api/v1/settings/media-capabilities');
+            if (r2.ok) {
+              const md = await r2.json();
+              this.mediaCapabilities = md.capabilities || [];
+              const sel = {};
+              for (const cap of this.mediaCapabilities) {
+                if (cap.current_provider_config_id) {
+                  sel[cap.capability] = `${cap.current_provider_config_id}::${cap.current_model_code || cap.current_voice_id || ''}`;
+                } else {
+                  sel[cap.capability] = '';
+                }
+              }
+              this.mediaCapabilitySelections = sel;
+            }
+          } catch(e) { console.error('loadCapabilityView failed', e); }
+        },
+
+        applyTextLlmDefaultInline() {
+          // Propagate to all text scenes that haven't been individually overridden
+          for (const s of this.textLlmScenes) {
+            const key = this.sceneConfigKey(s.scene_key, 'text_llm');
+            this.sceneConfigs[key] = this.textLlmDefault;
+          }
+          this._scheduleCapSave();
+        },
+
+        onSceneOverrideChange(sceneKey, modelType, value) {
+          this.sceneConfigs[this.sceneConfigKey(sceneKey, modelType)] = value;
+          this._scheduleCapSave();
+        },
+
+        setMediaCapabilityInline(capability, value) {
+          this.mediaCapabilitySelections[capability] = value;
+          this._scheduleCapSave();
+        },
+
+        _scheduleCapSave() {
+          // Debounce so rapid changes don't fire multiple PUTs
+          if (this._capSaveDebounce) clearTimeout(this._capSaveDebounce);
+          this.capSaveStatus = 'saving';
+          this._capSaveDebounce = setTimeout(() => this._saveCapView(), 400);
+        },
+
+        async _saveCapView() {
+          this.capSaveStatus = 'saving';
+          this.capSaveError = '';
+          try {
+            // Save scene configs (text + vision)
+            const updates = [];
+            for (const section of this.sceneSections) {
+              for (const mc of section.model_configs) {
+                const key = this.sceneConfigKey(section.scene_key, mc.model_type);
+                updates.push({
+                  scene_key: section.scene_key,
+                  model_type: mc.model_type,
+                  config_id: this.sceneConfigs[key] || null,
+                });
+              }
+            }
+            const r = await fetch('/api/v1/settings/llm/scenes', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ updates }),
+            });
+            if (!r.ok) {
+              const d = await r.json().catch(() => ({}));
+              throw new Error(d.detail || r.statusText);
+            }
+            // Save media caps
+            const mediaUpdates = [];
+            for (const cap of this.mediaCapabilities) {
+              const v = this.mediaCapabilitySelections[cap.capability] || '';
+              let provider_id = null, model_code = null, voice_id = null;
+              if (v) {
+                const [pid, rest] = v.split('::', 2);
+                provider_id = pid;
+                if (cap.capability === 'tts') voice_id = rest || null;
+                else model_code = rest || null;
+              }
+              mediaUpdates.push({
+                capability: cap.capability,
+                provider_config_id: provider_id,
+                model_code: model_code,
+                voice_id: voice_id,
+              });
+            }
+            if (mediaUpdates.length) {
+              const r2 = await fetch('/api/v1/settings/media-capabilities', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ updates: mediaUpdates }),
+              });
+              if (!r2.ok) {
+                const d = await r2.json().catch(() => ({}));
+                throw new Error(d.detail || r2.statusText);
+              }
+            }
+            this.capSaveStatus = 'ok';
+            setTimeout(() => { if (this.capSaveStatus === 'ok') this.capSaveStatus = ''; }, 2000);
+          } catch (e) {
+            this.capSaveStatus = 'error';
+            this.capSaveError = e.message;
           }
         },
 
@@ -1476,6 +2504,35 @@
             if (!r.ok) {
               const d = await r.json().catch(() => ({}));
               throw new Error(d.detail || r.statusText);
+            }
+            // Save media capabilities
+            const mediaUpdates = [];
+            for (const cap of this.mediaCapabilities) {
+              const v = this.mediaCapabilitySelections[cap.capability] || '';
+              let provider_id = null, model_code = null, voice_id = null;
+              if (v) {
+                const [pid, rest] = v.split('::', 2);
+                provider_id = pid;
+                if (cap.capability === 'tts') voice_id = rest || null;
+                else model_code = rest || null;
+              }
+              mediaUpdates.push({
+                capability: cap.capability,
+                provider_config_id: provider_id,
+                model_code: model_code,
+                voice_id: voice_id,
+              });
+            }
+            if (mediaUpdates.length) {
+              const r2 = await fetch('/api/v1/settings/media-capabilities', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ updates: mediaUpdates }),
+              });
+              if (!r2.ok) {
+                const d = await r2.json().catch(() => ({}));
+                throw new Error(d.detail || r2.statusText);
+              }
             }
             this.showSceneModal = false;
           } catch (e) {

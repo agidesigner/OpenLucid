@@ -83,9 +83,9 @@ class KBQAAskResponse(BaseModel):
 class ScriptWriterRequest(BaseModel):
     offer_id: uuid.UUID
     strategy_unit_id: uuid.UUID | None = None
-    system_prompt: str = Field(..., min_length=1, max_length=20000)
+    system_prompt: str = Field("", max_length=20000)  # kept for backwards compat; ignored when composer fields set
     topic: str = Field("", max_length=2000)
-    goal: str = Field(..., pattern="^(reach_growth|lead_generation|conversion|education|traffic_redirect|other)$")
+    goal: str = Field("seeding", pattern="^(reach_growth|lead_generation|conversion|education|traffic_redirect|other|seeding|knowledge_sharing|brand_awareness)$")
     tone: str | None = None
     word_count: int = Field(150, ge=50, le=2000)
     cta: str | None = None
@@ -94,3 +94,9 @@ class ScriptWriterRequest(BaseModel):
     extra_req: str | None = Field(None, max_length=2000)
     language: str = "zh-CN"
     config_id: str | None = None
+    # ── Composer dimensions (new) ─────────────────────────────────
+    platform_id: str | None = None    # e.g. "douyin" — defaults to "douyin" if not set
+    persona_id: str | None = None     # e.g. "tech_founder"
+    goal_id: str | None = None        # e.g. "seeding" (replaces old `goal` enum eventually)
+    structure_id: str | None = None   # e.g. "hook_body_cta"
+    save_creation: bool = True        # whether to persist the result as a Creation

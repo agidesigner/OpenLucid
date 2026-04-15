@@ -11,6 +11,12 @@
   if (window.__odFeedbackMounted) return;
   window.__odFeedbackMounted = true;
 
+  // Only mount on Settings — keeps the global UI clean and surfaces the
+  // feedback entry point exactly where users likely hit configuration friction.
+  const pathname = location.pathname;
+  const isSettingsPage = pathname === '/setting.html' || pathname === '/setting/';
+  if (!isSettingsPage) return;
+
   document.addEventListener('alpine:init', () => {
     Alpine.data('odFeedbackWidget', () => ({
       // The button is ALWAYS visible. `enabled` only controls submit destination:

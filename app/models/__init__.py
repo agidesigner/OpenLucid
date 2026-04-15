@@ -17,6 +17,9 @@ from app.models.brandkit import BrandKit
 from app.models.brandkit_asset_link import BrandKitAssetLink
 from app.models.mcp_token import McpToken
 from app.models.creation import Creation
+from app.models.media_provider_config import MediaProviderConfig
+from app.models.video_generation_job import VideoGenerationJob
+from app.models.media_capability_default import MediaCapabilityDefault
 
 __all__ = [
     "Base",
@@ -39,4 +42,7 @@ __all__ = [
     "BrandKitAssetLink",
     "McpToken",
     "Creation",
+    "MediaProviderConfig",
+    "VideoGenerationJob",
+    "MediaCapabilityDefault",
 ]

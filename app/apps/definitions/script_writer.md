@@ -1,11 +1,11 @@
 ---
 app_id: script_writer
-name: 口播文案生成
+name: 视频脚本
 name_en: Script Writer
 slug: script-writer
-description: 生成数字人/真人口播短视频文案，支持自定义系统提示词
-description_en: Generate spoken-word video scripts for digital humans or live presenters
-icon: "🎙️"
+description: 生成数字人/真人口播短视频文案，支持 B-roll 自动编排
+description_en: Generate video scripts with auto B-roll planning for digital humans
+icon: "🎬"
 category: content_creation
 task_type: script_generation
 required_entities: [offer]

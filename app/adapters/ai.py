@@ -305,8 +305,42 @@ class OpenAICompatibleAdapter(AIAdapter):
                     await asyncio.sleep(wait)
         raise last_err  # type: ignore[misc]
 
+    async def _chat_json(self, system_prompt: str, user_prompt: str, temperature: float = 0.7) -> Any:
+        """Call the LLM requesting JSON output; parses and returns the JSON object.
+
+        Tries response_format=json_object first (supported by most modern models).
+        Falls back to plain _chat() + _parse_json_response() if the model rejects it.
+        """
+        import asyncio
+
+        # First attempt: use response_format for strict JSON
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=temperature,
+                response_format={"type": "json_object"},
+            )
+            raw = response.choices[0].message.content or ""
+            return self._parse_json_response(raw)
+        except Exception as e:
+            status = getattr(e, "status_code", None) or getattr(e, "status", 0)
+            # If the model doesn't support response_format, fall through to prompt-constrained mode
+            if status and 400 <= status < 500 and status != 429:
+                logger.info("_chat_json: response_format not supported (%s), falling back to prompt mode", e)
+            else:
+                raise
+
+        # Fallback: prompt-constrained mode (append reminder to output only JSON)
+        fallback_system = system_prompt + "\n\nREMINDER: Output ONLY valid JSON — no markdown, no explanation, no text before or after the JSON object."
+        raw = await self._chat(fallback_system, user_prompt, temperature=temperature)
+        return self._parse_json_response(raw)
+
     async def _chat_stream(self, system_prompt: str, user_prompt: str, temperature: float = 0.8,
-                           timeout: float = 180):
+                           timeout: float = 180, max_tokens: int = 16384):
         """Async generator that yields token strings as they arrive."""
         import asyncio
         last_err = None
@@ -320,14 +354,32 @@ class OpenAICompatibleAdapter(AIAdapter):
                         {"role": "user", "content": user_prompt},
                     ],
                     temperature=temperature,
+                    max_tokens=max_tokens,
                     stream=True,
                 )
+                thinking_open = False
                 async for chunk in stream:
                     if asyncio.get_running_loop().time() > deadline:
                         raise TimeoutError(f"LLM stream exceeded {timeout}s total timeout")
                     delta = chunk.choices[0].delta if chunk.choices else None
-                    if delta and delta.content:
+                    if not delta:
+                        continue
+                    # Some thinking models (Qwen3, DeepSeek-R1) stream reasoning in
+                    # reasoning_content rather than content. Wrap in synthetic <think> tags
+                    # so downstream state machines and _extract_thinking work uniformly.
+                    rc = getattr(delta, "reasoning_content", None)
+                    if rc:
+                        if not thinking_open:
+                            yield "<think>"
+                            thinking_open = True
+                        yield rc
+                    if delta.content:
+                        if thinking_open:
+                            yield "</think>"
+                            thinking_open = False
                         yield delta.content
+                if thinking_open:
+                    yield "</think>"
                 return  # stream completed successfully
             except Exception as e:
                 last_err = e
@@ -363,6 +415,45 @@ class OpenAICompatibleAdapter(AIAdapter):
         # Try direct parse
         try:
             return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # Try truncating at the last balanced brace (strips trailing prose)
+        def _truncate_at_balanced_end(s: str) -> str:
+            depth = 0
+            in_str = False
+            esc = False
+            last_close = -1
+            for i, ch in enumerate(s):
+                if esc:
+                    esc = False
+                    continue
+                if ch == "\\" and in_str:
+                    esc = True
+                    continue
+                if ch == '"':
+                    in_str = not in_str
+                    continue
+                if in_str:
+                    continue
+                if ch in "{[":
+                    depth += 1
+                elif ch in "}]":
+                    depth -= 1
+                    if depth == 0:
+                        last_close = i
+            return s[: last_close + 1] if last_close > 0 else s
+
+        truncated = _truncate_at_balanced_end(text)
+        try:
+            return json.loads(truncated)
+        except json.JSONDecodeError:
+            pass
+
+        # Fix trailing commas (common LLM error: {"a": 1,})
+        trailing_comma_fixed = re.sub(r",(\s*[}\]])", r"\1", truncated)
+        try:
+            return json.loads(trailing_comma_fixed)
         except json.JSONDecodeError:
             pass
 

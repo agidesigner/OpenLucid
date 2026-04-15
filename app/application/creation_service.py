@@ -11,6 +11,7 @@ from app.infrastructure.creation_repo import CreationRepository
 from app.models.creation import Creation
 from app.models.merchant import Merchant
 from app.models.offer import Offer
+from app.models.video_generation_job import VideoGenerationJob
 from app.schemas.creation import CreationCreate, CreationUpdate
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,41 @@ class CreationService:
             offset=offset,
             limit=page_size,
         )
+
+    async def get_video_summaries(
+        self, creation_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, dict]:
+        """Bulk-fetch video count + latest video per creation.
+
+        Returns: { creation_id: {"count": int, "latest": {status, cover_url, video_url} | None} }
+
+        One query, ordered DESC so the first job seen per creation is the latest.
+        """
+        if not creation_ids:
+            return {}
+        result = await self.session.execute(
+            select(VideoGenerationJob)
+            .where(VideoGenerationJob.creation_id.in_(creation_ids))
+            .order_by(
+                VideoGenerationJob.creation_id,
+                VideoGenerationJob.created_at.desc(),
+            )
+        )
+        jobs = result.scalars().all()
+        summary: dict[uuid.UUID, dict] = {}
+        for j in jobs:
+            cid = j.creation_id
+            if cid not in summary:
+                summary[cid] = {
+                    "count": 0,
+                    "latest": {
+                        "status": j.status,
+                        "cover_url": j.cover_url,
+                        "video_url": j.video_url,
+                    },
+                }
+            summary[cid]["count"] += 1
+        return summary
 
     async def update(self, creation_id: uuid.UUID, data: CreationUpdate) -> Creation:
         creation = await self.repo.update(
