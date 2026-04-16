@@ -34,6 +34,68 @@ def _extract_thinking(text: str) -> tuple[str, str]:
     return thinking, remaining
 
 
+def _build_infer_knowledge_system_prompt(language: str) -> str:
+    is_en = language.startswith("en")
+    if is_en:
+        return """You are an expert marketing analyst. Based on the product/service information provided, generate a comprehensive knowledge base.
+
+First, write a cleaned-up product description in the "description" field: remove navigation menus, footers, ads, boilerplate, and irrelevant UI text, but KEEP all product-related details — features, specs, pricing, case studies, customer quotes, competitive advantages. Aim for comprehensive coverage within 2000 characters.
+
+Then generate 2-4 entries for each of the following 5 categories:
+1. selling_point: differentiators, technical highlights, user value
+2. audience: user personas, traits, purchase motivations
+3. scenario: use cases, pain-point scenarios, discovery moments
+4. faq: most likely customer questions and answers
+5. objection: common hesitations and how to address them
+
+Return strictly valid JSON:
+{
+  "description": "Cleaned product description with all relevant details (up to 2000 chars)...",
+  "selling_point": [{"title": "...", "content_raw": "...", "confidence": 0.9}, ...],
+  "audience": [...],
+  "scenario": [...],
+  "faq": [...],
+  "objection": [...]
+}
+
+Rules:
+- Each entry must be specific and actionable, not generic
+- confidence: your certainty about the inference (0-1)
+- CRITICAL: If existing knowledge entries are provided below, do NOT generate entries that cover the same topic, even with different wording. Only generate entries for genuinely NEW information not already covered. If all dimensions are well covered, return empty arrays.
+- IMPORTANT: Write all description, title, and content_raw values in English.
+- Return JSON only, no other text
+- Do NOT include any thinking or reasoning process in your response. Output the JSON directly."""
+
+    return """你是一名资深营销分析师。请根据提供的商品/服务信息，生成一份完整的营销知识库。
+
+首先，在 "description" 字段中写一段清洗后的商品描述：去掉导航、页脚、广告、模板化文案和无关界面文字，但要保留所有与商品有关的关键信息，例如功能、规格、价格、案例、用户评价、竞争优势等。尽量完整，控制在 2000 字符以内。
+
+然后为以下 5 类知识分别生成 2-4 条候选：
+1. selling_point：差异化卖点、技术亮点、用户价值
+2. audience：目标人群画像、特征、购买动机
+3. scenario：使用场景、痛点场景、触发购买的时机
+4. faq：客户最可能提出的问题及回答
+5. objection：常见顾虑及应对话术
+
+严格返回合法 JSON：
+{
+  "description": "清洗后的商品描述（最多 2000 字符）",
+  "selling_point": [{"title": "...", "content_raw": "...", "confidence": 0.9}, ...],
+  "audience": [...],
+  "scenario": [...],
+  "faq": [...],
+  "objection": [...]
+}
+
+规则：
+- 每条内容都要具体、可执行，避免空泛
+- confidence 表示你对该推断的把握程度（0-1）
+- 如果下面已经提供了已有知识，请不要生成语义重复的内容；只有在确实补充了新信息时才生成新条目；如果各维度都已覆盖，可以返回空数组
+- IMPORTANT: Write all description, title, and content_raw values in Chinese.
+- 只返回 JSON，不要输出其他文字
+- 不要输出思考过程，直接输出 JSON。"""
+
+
 class AIAdapter(ABC):
     last_thinking: str | None = None  # populated after calls that produce <think> blocks
 
@@ -797,41 +859,9 @@ Return JSON: {"title": "...", "content_structured": {"key": "value"}, "confidenc
         offer_name = offer.get("name", "Product")
         knowledge_items = offer_data.get("knowledge_items", [])
 
-        existing_text = format_existing_knowledge(knowledge_items)
-        # Use English labels to match the English system prompt;
-        # actual data values stay in whatever language the user typed.
-
-
-        system = """You are an expert marketing analyst. Based on the product/service information provided, generate a comprehensive knowledge base.
-
-First, write a cleaned-up product description in the "description" field: remove navigation menus, footers, ads, boilerplate, and irrelevant UI text, but KEEP all product-related details — features, specs, pricing, case studies, customer quotes, competitive advantages. Aim for comprehensive coverage within 2000 characters.
-
-Then generate 2-4 entries for each of the following 5 categories:
-1. selling_point: differentiators, technical highlights, user value
-2. audience: user personas, traits, purchase motivations
-3. scenario: use cases, pain-point scenarios, discovery moments
-4. faq: most likely customer questions and answers
-5. objection: common hesitations and how to address them
-
-Return strictly valid JSON:
-{
-  "description": "Cleaned product description with all relevant details (up to 2000 chars)...",
-  "selling_point": [{"title": "...", "content_raw": "...", "confidence": 0.9}, ...],
-  "audience": [...],
-  "scenario": [...],
-  "faq": [...],
-  "objection": [...]
-}
-
-Rules:
-- Each entry must be specific and actionable, not generic
-- confidence: your certainty about the inference (0-1)
-- CRITICAL: If existing knowledge entries are provided below, do NOT generate entries that cover the same topic, even with different wording. Only generate entries for genuinely NEW information not already covered. If all dimensions are well covered, return empty arrays.
-- IMPORTANT: Write all title and content_raw values in the SAME language as the input material. Do NOT translate.
-- Return JSON only, no other text
-- Do NOT include any thinking or reasoning process in your response. Output the JSON directly."""
-
-        user = format_offer_summary(offer_data, language="en") + existing_text
+        existing_text = format_existing_knowledge(knowledge_items, language=language)
+        system = _build_infer_knowledge_system_prompt(language)
+        user = format_offer_summary(offer_data, language=language) + existing_text
 
         if user_hint:
             user += f"\nAdditional notes from user: {user_hint}"
@@ -867,36 +897,9 @@ Rules:
         offer = offer_data.get("offer", {})
         offer_name = offer.get("name", "Product")
         knowledge_items = offer_data.get("knowledge_items", [])
-        existing_text = format_existing_knowledge(knowledge_items)
-
-        system = """You are an expert marketing analyst. Based on the product/service information provided, generate a comprehensive knowledge base.
-
-First, write a cleaned-up product description in the "description" field: remove navigation menus, footers, ads, boilerplate, and irrelevant UI text, but KEEP all product-related details — features, specs, pricing, case studies, customer quotes, competitive advantages. Aim for comprehensive coverage within 2000 characters.
-
-Then generate 2-4 entries for each of the following 5 categories:
-1. selling_point: differentiators, technical highlights, user value
-2. audience: user personas, traits, purchase motivations
-3. scenario: use cases, pain-point scenarios, discovery moments
-4. faq: most likely customer questions and answers
-5. objection: common hesitations and how to address them
-
-Return strictly valid JSON:
-{
-  "description": "Cleaned product description with all relevant details (up to 2000 chars)...",
-  "selling_point": [{"title": "...", "content_raw": "...", "confidence": 0.9}, ...],
-  "audience": [...],
-  "scenario": [...],
-  "faq": [...],
-  "objection": [...]
-}
-
-Rules:
-- Each entry must be specific and actionable, not generic
-- confidence: your certainty about the inference (0-1)
-- CRITICAL: If existing knowledge entries are provided below, do NOT generate entries that cover the same topic, even with different wording. Only generate entries for genuinely NEW information not already covered. If all dimensions are well covered, return empty arrays.
-- IMPORTANT: Write all title and content_raw values in the SAME language as the input material. Do NOT translate."""
-
-        user = format_offer_summary(offer_data, language="en") + existing_text
+        existing_text = format_existing_knowledge(knowledge_items, language=language)
+        system = _build_infer_knowledge_system_prompt(language)
+        user = format_offer_summary(offer_data, language=language) + existing_text
         logger.info("Streaming infer-knowledge for '%s' via %s", offer_name, self.provider)
 
         full_text = ""

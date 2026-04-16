@@ -24,8 +24,10 @@
 
 | 接口 | 适用场景 | 方式 |
 |------|---------|------|
-| **MCP Server** | Claude Code、Cursor、AI IDE | 通过 MCP 协议连接，AI 直接读取营销数据 |
+| **MCP Server (SSE)** | Claude Code、Cursor、AI IDE（远程/Docker） | 通过 HTTP SSE 连接，AI 直接读取营销数据 |
+| **MCP Server (stdio)** | 本地开发、不暴露 HTTP 的场景 | 以本地进程运行，通过 stdin/stdout 通信 |
 | **RESTful API** | 自定义 Agent、自动化流程 | 完整 API，交互式文档见 `/docs` |
+| **CLI 工具** | Agent 脚本调用、运维查询 | 通过 HTTP 调用 REST API 的命令行工具，零依赖 |
 | **Web App** | 营销团队日常使用 | 可视化界面，管理知识、素材、品牌套件、选题 |
 
 ---
@@ -55,6 +57,11 @@ docker compose up -d
 1. 首次访问进入安装页面，创建管理员账号
 2. 进入「设置」页面，配置 LLM（支持任意 OpenAI 兼容 API）
 3. 创建第一个商品，开始使用
+4. （可选）安装 CLI 工具，让 AI Agent 查询营销数据：
+   ```bash
+   bash tools/install.sh
+   openlucid-cli setup
+   ```
 
 > 仅需 2 个容器（PostgreSQL + App），无需 Redis、消息队列等额外依赖。
 
@@ -149,6 +156,74 @@ uvicorn app.main:app --reload
 ```
 
 API 文档：http://localhost:8000/docs
+
+### MCP stdio 模式（本地 CLI）
+
+如需以 stdio 方式连接 MCP（无需 HTTP），在 Cursor 或 Claude Code 的 MCP 配置中添加：
+
+```json
+{
+  "mcpServers": {
+    "openlucid": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "app.mcp_cli"],
+      "env": {
+        "DATABASE_URL": "postgresql+asyncpg://openlucid:openlucid@localhost:5432/openlucid"
+      }
+    }
+  }
+}
+```
+
+也可通过 `pip install .` 后直接使用 `openlucid-mcp` 命令。
+
+### CLI 工具（通过 HTTP 调用 REST API）
+
+`tools/openlucid-cli` 是一个独立的 Python 脚本，通过 HTTP 调用 REST API，无需安装项目依赖。适合 Agent 脚本调用或运维查询。
+
+```bash
+# 一键安装（复制到 ~/.local/bin，自动加入 PATH）
+bash tools/install.sh
+
+# 首次配置（交互式引导：输入 URL、登录、验证连通）
+openlucid-cli setup
+
+# 使用
+openlucid-cli list-merchants
+openlucid-cli list-offers --merchant-id <id>
+openlucid-cli offer-context --id <offer_id>
+openlucid-cli extract-text --url "https://example.com/product-page"
+openlucid-cli create-offer --merchant-id <id> --name "商品名"
+openlucid-cli create-offer-from-url --merchant-id <id> --name "商品名" --url "https://example.com/product-page"  # 提取文本 + AI 推断 + 创建商品 + 保存知识
+openlucid-cli kb-qa --offer-id <id> --question "产品有哪些卖点？"
+openlucid-cli topic-studio --offer-id <id>
+```
+
+支持两种认证方式：
+- **Cookie 认证**：`openlucid-cli login`（会话制，168h 过期）
+- **API Token 认证**：在 Web 设置页 > MCP > 访问令牌 创建 token，写入 `~/.openlucid.json`（长期有效，推荐 Agent 使用）
+
+运行 `openlucid-cli --help` 查看全部子命令。
+
+### 让 AI Agent 在任意目录使用 CLI
+
+`install.sh` 会自动把 OpenLucid skill 安装到全局 skills 目录，这样 AI Agent **在任何项目目录下**都能发现并使用 `openlucid-cli`：
+
+| Agent | 自动安装的 skill |
+|-------|------------------|
+| Claude Code | `~/.claude/skills/openlucid-cli/SKILL.md` |
+| Cursor | `~/.cursor/skills/openlucid-cli/SKILL.md` |
+| Codex / OpenHands | `~/.agents/skills/openlucid-cli/SKILL.md` |
+
+项目中的唯一说明源文件位于 `skills/openlucid-cli/SKILL.md`。
+
+安装完成后，你可以在任何项目目录打开 Claude Code / Cursor / Codex，直接用自然语言指示 Agent 操作营销数据，例如：
+- "帮我查看所有商户和产品"
+- "这个产品的核心卖点有哪些？"
+- "为这个商品生成 5 个选题"
+
+Agent 会自动调用 `openlucid-cli` 完成操作。
 
 ## 许可证
 

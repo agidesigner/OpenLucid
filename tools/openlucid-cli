@@ -1,0 +1,796 @@
+#!/usr/bin/env python3
+"""
+OpenLucid CLI — query and operate your marketing data from the command line.
+
+Talks to the OpenLucid REST API over HTTP. Zero project dependencies required
+(uses only Python standard library).
+
+Configuration priority: --url flag > env vars > ~/.openlucid.json > defaults
+
+Environment variables:
+    OPENLUCID_URL     Base URL  (default: http://localhost)
+    OPENLUCID_TOKEN   Bearer token for auth (optional)
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+CLI_VERSION = "0.9.8.2"
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+_CONFIG_PATH = os.path.expanduser("~/.openlucid.json")
+_DEFAULTS = {"url": "http://localhost", "token": "", "cookie": ""}
+
+
+def _load_config_file() -> dict:
+    if os.path.isfile(_CONFIG_PATH):
+        try:
+            with open(_CONFIG_PATH) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def _save_config_file(cfg: dict) -> None:
+    with open(_CONFIG_PATH, "w") as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+
+def _resolve_config(cli_url: str | None = None) -> tuple[str, str, str]:
+    """Return (base_url, token, cookie) with correct priority."""
+    file_cfg = _load_config_file()
+    url = (
+        cli_url
+        or os.environ.get("OPENLUCID_URL")
+        or file_cfg.get("url")
+        or _DEFAULTS["url"]
+    )
+    token = os.environ.get("OPENLUCID_TOKEN") or file_cfg.get("token") or ""
+    cookie = file_cfg.get("cookie") or ""
+    return url.rstrip("/"), token, cookie
+
+
+# ---------------------------------------------------------------------------
+# HTTP helpers
+# ---------------------------------------------------------------------------
+
+
+def _request(base: str, token: str, cookie: str, method: str, path: str,
+             params: dict | None = None, body: dict | None = None) -> dict:
+    url = f"{base}/api/v1{path}"
+    if params:
+        qs = {k: v for k, v in params.items() if v is not None}
+        if qs:
+            url += "?" + urllib.parse.urlencode(qs)
+
+    data = json.dumps(body).encode("utf-8") if body else None
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if cookie:
+        headers["Cookie"] = f"od_access_token={cookie}"
+
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            raw = resp.read()
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as exc:
+        err_body = exc.read().decode("utf-8", errors="replace")
+        try:
+            detail = json.loads(err_body)
+        except json.JSONDecodeError:
+            detail = err_body
+        if exc.code == 401:
+            print(
+                json.dumps({"error": detail, "status": 401,
+                            "hint": "Run `openlucid-cli login` first."}, ensure_ascii=False, indent=2),
+                file=sys.stderr,
+            )
+        else:
+            print(
+                json.dumps({"error": detail, "status": exc.code}, ensure_ascii=False, indent=2),
+                file=sys.stderr,
+            )
+        sys.exit(1)
+    except urllib.error.URLError as exc:
+        print(
+            json.dumps({"error": str(exc.reason), "hint": "Is the OpenLucid server running?"}, ensure_ascii=False, indent=2),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def _request_form(base: str, token: str, cookie: str, method: str, path: str, form: dict) -> dict:
+    url = f"{base}/api/v1{path}"
+    data = urllib.parse.urlencode(form).encode("utf-8")
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if cookie:
+        headers["Cookie"] = f"od_access_token={cookie}"
+
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            raw = resp.read()
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as exc:
+        err_body = exc.read().decode("utf-8", errors="replace")
+        try:
+            detail = json.loads(err_body)
+        except json.JSONDecodeError:
+            detail = err_body
+        print(json.dumps({"error": detail, "status": exc.code}, ensure_ascii=False, indent=2), file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as exc:
+        print(
+            json.dumps({"error": str(exc.reason), "hint": "Is the OpenLucid server running?"}, ensure_ascii=False, indent=2),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def _out(data):
+    print(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def _csv_list(raw: str) -> list[str]:
+    return [item.strip() for item in (raw or "").split(",") if item.strip()]
+
+
+def _titles_from_suggestions(suggestions: dict, category: str) -> list[str]:
+    return [
+        item.get("title", "").strip()
+        for item in (suggestions or {}).get(category, [])
+        if item.get("title", "").strip()
+    ]
+
+
+def _create_offer_payload(
+    args,
+    description_override: str | None = None,
+    inferred_suggestions: dict | None = None,
+) -> dict:
+    payload = {
+        "merchant_id": args.merchant_id,
+        "name": args.name,
+        "offer_type": args.offer_type,
+        "locale": args.locale,
+    }
+    if args.offer_model:
+        payload["offer_model"] = args.offer_model
+    description = description_override if description_override is not None else args.description
+    if description:
+        payload["description"] = description
+    if args.positioning:
+        payload["positioning"] = args.positioning
+    selling_points = _csv_list(args.selling_points)
+    audiences = _csv_list(args.audiences)
+    scenarios = _csv_list(args.scenarios)
+    if not selling_points:
+        selling_points = _titles_from_suggestions(inferred_suggestions or {}, "selling_point")
+    if not audiences:
+        audiences = _titles_from_suggestions(inferred_suggestions or {}, "audience")
+    if not scenarios:
+        scenarios = _titles_from_suggestions(inferred_suggestions or {}, "scenario")
+    if selling_points:
+        payload["core_selling_points_json"] = {"points": selling_points}
+    if audiences:
+        payload["target_audience_json"] = {"items": audiences}
+    if scenarios:
+        payload["target_scenarios_json"] = {"items": scenarios}
+    return payload
+
+
+def _extract_text_from_url(base: str, token: str, cookie: str, url: str) -> dict:
+    return _request_form(base, token, cookie, "POST", "/ai/extract-text", {"url": url})
+
+
+def _infer_offer_knowledge(base: str, token: str, cookie: str, args, description: str) -> dict | None:
+    url = f"{base}/api/v1/ai/infer-offer-knowledge"
+    data = json.dumps(
+        {
+            "name": args.name,
+            "offer_type": args.offer_type,
+            "description": description,
+            "language": args.locale,
+        }
+    ).encode("utf-8")
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if cookie:
+        headers["Cookie"] = f"od_access_token={cookie}"
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req) as resp:
+            raw = resp.read()
+            return json.loads(raw) if raw else {}
+    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+        return None
+
+
+def _build_knowledge_batch(offer_id: str, locale: str, suggestions: dict | None) -> dict | None:
+    items = []
+    for category, raw_items in (suggestions or {}).items():
+        for item in raw_items or []:
+            title = (item.get("title") or "").strip()
+            if not title:
+                continue
+            items.append(
+                {
+                    "scope_type": "offer",
+                    "scope_id": offer_id,
+                    "knowledge_type": item.get("knowledge_type") or category,
+                    "title": title,
+                    "content_raw": item.get("content_raw") or "",
+                    "language": locale,
+                }
+            )
+    if not items:
+        return None
+    return {
+        "scope_type": "offer",
+        "scope_id": offer_id,
+        "items": items,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Subcommand handlers
+# ---------------------------------------------------------------------------
+
+# -- Login --
+
+def _do_login(base: str, email: str, password: str) -> tuple[bool, str, str]:
+    """Perform login. Returns (success, cookie_or_error, user_email)."""
+    url = f"{base}/api/v1/auth/signin"
+    data = json.dumps({"email": email, "password": password}).encode("utf-8")
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req) as resp:
+            set_cookies = resp.headers.get_all("Set-Cookie") or []
+            saved_token = ""
+            for sc in set_cookies:
+                if "od_access_token=" in sc:
+                    saved_token = sc.split("od_access_token=")[1].split(";")[0]
+                    break
+            if not saved_token:
+                return False, "Login succeeded but no cookie received", email
+            result = json.loads(resp.read())
+            return True, saved_token, result.get("email", email)
+    except urllib.error.HTTPError as exc:
+        err_body = exc.read().decode("utf-8", errors="replace")
+        try:
+            detail = json.loads(err_body)
+            msg = detail.get("detail", str(detail)) if isinstance(detail, dict) else str(detail)
+        except json.JSONDecodeError:
+            msg = err_body
+        return False, msg, email
+    except urllib.error.URLError as exc:
+        return False, f"Cannot connect to {base}: {exc.reason}", email
+
+
+def _prompt_input(prompt: str, default: str = "") -> str:
+    suffix = f" [{default}]" if default else ""
+    val = input(f"{prompt}{suffix}: ").strip()
+    return val or default
+
+
+def cmd_login(base, token, cookie, args):
+    """Authenticate and save session cookie to ~/.openlucid.json."""
+    import getpass
+    email = args.email or _prompt_input("Email")
+    if not email:
+        print("Error: email is required.", file=sys.stderr)
+        sys.exit(1)
+    password = args.password or getpass.getpass("Password: ")
+
+    ok, result, user_email = _do_login(base, email, password)
+    if not ok:
+        print(f"\n  Login failed: {result}", file=sys.stderr)
+        print("\n  Troubleshooting:", file=sys.stderr)
+        if "Cannot connect" in result:
+            print(f"    - Is the OpenLucid server running at {base}?", file=sys.stderr)
+            print(f"    - Try: curl {base}/health", file=sys.stderr)
+        else:
+            print("    - Check your email and password", file=sys.stderr)
+            print("    - If you forgot your password, reset it in the Web UI", file=sys.stderr)
+        print(f"    - Server URL: {base}", file=sys.stderr)
+        print(f"    - Override with: openlucid-cli --url <URL> login", file=sys.stderr)
+        sys.exit(1)
+
+    cfg = _load_config_file()
+    cfg["url"] = base
+    cfg["cookie"] = result
+    _save_config_file(cfg)
+
+    print(f"\n  Logged in as {user_email}")
+    print(f"  Config saved to {_CONFIG_PATH}")
+    print(f"  Server: {base}")
+    print(f"\n  Try: openlucid-cli list-merchants\n")
+
+
+# -- Setup --
+
+def cmd_setup(base, token, cookie, args):
+    """Interactive first-time setup: URL + login + verify connectivity."""
+    import getpass
+    print("=== OpenLucid CLI Setup ===\n")
+
+    url = _prompt_input("OpenLucid server URL", base)
+    url = url.rstrip("/")
+
+    # Verify server is reachable
+    print(f"\nChecking {url} ...", end=" ", flush=True)
+    try:
+        health_req = urllib.request.Request(f"{url}/health", method="GET")
+        with urllib.request.urlopen(health_req, timeout=10) as resp:
+            resp.read()
+        print("OK")
+    except Exception as exc:
+        print("FAILED")
+        print(f"\n  Cannot reach {url}: {exc}", file=sys.stderr)
+        print("  Make sure the OpenLucid server is running.", file=sys.stderr)
+        print(f"  Try: curl {url}/health\n", file=sys.stderr)
+        sys.exit(1)
+
+    # Ask for token or login
+    print("\nAuthentication:")
+    print("  1) Login with email/password (creates session cookie)")
+    print("  2) Use an MCP token (long-lived, from Web UI Settings > MCP > Access Tokens)")
+    choice = _prompt_input("Choose [1/2]", "1")
+
+    if choice == "2":
+        mcp_token = _prompt_input("MCP Token")
+        if not mcp_token:
+            print("Error: token is required.", file=sys.stderr)
+            sys.exit(1)
+        cfg = _load_config_file()
+        cfg["url"] = url
+        cfg["token"] = mcp_token
+        cfg.pop("cookie", None)
+        _save_config_file(cfg)
+        print(f"\n  Config saved to {_CONFIG_PATH}")
+    else:
+        email = _prompt_input("Email")
+        if not email:
+            print("Error: email is required.", file=sys.stderr)
+            sys.exit(1)
+        password = getpass.getpass("Password: ")
+
+        ok, result, user_email = _do_login(url, email, password)
+        if not ok:
+            print(f"\n  Login failed: {result}", file=sys.stderr)
+            sys.exit(1)
+        cfg = _load_config_file()
+        cfg["url"] = url
+        cfg["cookie"] = result
+        _save_config_file(cfg)
+        print(f"\n  Logged in as {user_email}")
+
+    # Verify connectivity with an actual API call
+    print("\nVerifying API access ...", end=" ", flush=True)
+    new_base, new_token, new_cookie = _resolve_config()
+    try:
+        _request(new_base, new_token, new_cookie, "GET", "/merchants", {"page": "1", "page_size": "1"})
+        print("OK")
+    except SystemExit:
+        print("FAILED")
+        print("\n  Authentication may have failed. Try running setup again.", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"\n=== Setup complete! ===")
+    print(f"  Config: {_CONFIG_PATH}")
+    print(f"  Server: {new_base}")
+    print(f"\n  Try: openlucid-cli list-merchants\n")
+
+
+# -- Version --
+
+def cmd_version(base, token, cookie, args):
+    """Print CLI version."""
+    print(f"openlucid-cli {CLI_VERSION}")
+
+
+# -- Data Insights --
+
+def cmd_list_merchants(base, token, cookie, args):
+    _out(_request(base, token, cookie, "GET", "/merchants", {
+        "page": args.page, "page_size": args.page_size,
+    }))
+
+
+def cmd_get_merchant(base, token, cookie, args):
+    _out(_request(base, token, cookie, "GET", f"/merchants/{args.id}"))
+
+
+def cmd_list_offers(base, token, cookie, args):
+    params = {"page": args.page, "page_size": args.page_size}
+    if args.merchant_id:
+        params["merchant_id"] = args.merchant_id
+    _out(_request(base, token, cookie, "GET", "/offers", params))
+
+
+def cmd_get_offer(base, token, cookie, args):
+    _out(_request(base, token, cookie, "GET", f"/offers/{args.id}"))
+
+
+def cmd_offer_context(base, token, cookie, args):
+    _out(_request(base, token, cookie, "GET", f"/offers/{args.id}/context"))
+
+
+def cmd_extract_text(base, token, cookie, args):
+    result = _request_form(base, token, cookie, "POST", "/ai/extract-text", {"url": args.page_url})
+    _out(result)
+    return result
+
+
+def cmd_create_offer(base, token, cookie, args):
+    result = _request(base, token, cookie, "POST", "/offers", body=_create_offer_payload(args))
+    _out(result)
+    return result
+
+
+def cmd_create_offer_from_url(base, token, cookie, args):
+    extracted = _extract_text_from_url(base, token, cookie, args.page_url)
+    inferred = _infer_offer_knowledge(base, token, cookie, args, extracted.get("text", ""))
+    result = _request(
+        base,
+        token,
+        cookie,
+        "POST",
+        "/offers",
+        body=_create_offer_payload(
+            args,
+            description_override=(inferred or {}).get("description") or extracted.get("text", ""),
+            inferred_suggestions=(inferred or {}).get("suggestions"),
+        ),
+    )
+    knowledge_batch = None
+    batch_body = _build_knowledge_batch(result["id"], args.locale, (inferred or {}).get("suggestions"))
+    if batch_body:
+        knowledge_batch = _request(base, token, cookie, "POST", "/knowledge/batch", body=batch_body)
+    output = {
+        "offer": result,
+        "extracted": extracted,
+        "inferred": inferred,
+        "knowledge_batch": knowledge_batch,
+    }
+    _out(output)
+    return output
+
+
+# -- Knowledge --
+
+def cmd_list_knowledge(base, token, cookie, args):
+    _out(_request(base, token, cookie, "GET", "/knowledge", {
+        "scope_type": args.scope_type, "scope_id": args.scope_id,
+        "page": args.page, "page_size": args.page_size,
+    }))
+
+
+def cmd_add_knowledge(base, token, cookie, args):
+    _out(_request(base, token, cookie, "POST", "/knowledge", body={
+        "scope_type": args.scope_type,
+        "scope_id": args.scope_id,
+        "title": args.title,
+        "content_raw": args.content or None,
+        "knowledge_type": args.type,
+        "language": args.language,
+    }))
+
+
+# -- Assets --
+
+def cmd_search_assets(base, token, cookie, args):
+    params = {
+        "scope_type": args.scope_type, "scope_id": args.scope_id,
+        "page": args.page, "page_size": args.page_size,
+    }
+    if args.q:
+        params["q"] = args.q
+    if args.tags:
+        params["tags"] = args.tags
+    if args.asset_type:
+        params["asset_type"] = args.asset_type
+    _out(_request(base, token, cookie, "GET", "/assets/search", params))
+
+
+# -- Strategy Units --
+
+def cmd_list_strategy_units(base, token, cookie, args):
+    params = {"page": args.page, "page_size": args.page_size}
+    if args.offer_id:
+        params["offer_id"] = args.offer_id
+    _out(_request(base, token, cookie, "GET", "/strategy-units", params))
+
+
+# -- Apps --
+
+def cmd_list_apps(base, token, cookie, args):
+    _out(_request(base, token, cookie, "GET", "/apps", {"lang": args.language}))
+
+
+def cmd_kb_qa(base, token, cookie, args):
+    _out(_request(base, token, cookie, "POST", "/apps/kb-qa/ask", body={
+        "offer_id": args.offer_id,
+        "question": args.question,
+        "style_id": args.style,
+        "language": args.language,
+    }))
+
+
+def cmd_topic_studio(base, token, cookie, args):
+    body = {"offer_id": args.offer_id, "count": args.count, "language": args.language}
+    if args.strategy_unit_id:
+        body["strategy_unit_id"] = args.strategy_unit_id
+    _out(_request(base, token, cookie, "POST", "/apps/topic-studio/run", body=body))
+
+
+def cmd_list_topic_plans(base, token, cookie, args):
+    params = {"page": args.page, "page_size": args.page_size}
+    if args.offer_id:
+        params["offer_id"] = args.offer_id
+    if args.strategy_unit_id:
+        params["strategy_unit_id"] = args.strategy_unit_id
+    _out(_request(base, token, cookie, "GET", "/topic-plans", params))
+
+
+# -- Creations --
+
+def cmd_list_creations(base, token, cookie, args):
+    params = {"page": args.page, "page_size": args.page_size}
+    if args.offer_id:
+        params["offer_id"] = args.offer_id
+    if args.merchant_id:
+        params["merchant_id"] = args.merchant_id
+    if args.content_type:
+        params["content_type"] = args.content_type
+    if args.source_app:
+        params["source_app"] = args.source_app
+    if args.q:
+        params["q"] = args.q
+    _out(_request(base, token, cookie, "GET", "/creations", params))
+
+
+def cmd_get_creation(base, token, cookie, args):
+    _out(_request(base, token, cookie, "GET", f"/creations/{args.id}"))
+
+
+def cmd_save_creation(base, token, cookie, args):
+    body = {"title": args.title, "content": args.content, "content_type": args.type}
+    if args.offer_id:
+        body["offer_id"] = args.offer_id
+    if args.merchant_id:
+        body["merchant_id"] = args.merchant_id
+    if args.tags:
+        body["tags"] = [t.strip() for t in args.tags.split(",") if t.strip()]
+    _out(_request(base, token, cookie, "POST", "/creations", body=body))
+
+
+# ---------------------------------------------------------------------------
+# Argument parser
+# ---------------------------------------------------------------------------
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="openlucid-cli",
+        description="Query and operate your OpenLucid marketing data via REST API.",
+        epilog="Config: --url flag > OPENLUCID_URL env > ~/.openlucid.json > http://localhost",
+    )
+    parser.add_argument("--url", help="Override the server URL")
+    parser.add_argument("--version", action="version", version=f"openlucid-cli {CLI_VERSION}")
+    sub = parser.add_subparsers(dest="command", required=True,
+                                metavar="COMMAND",
+                                help="Run `openlucid-cli COMMAND --help` for details")
+
+    # -- setup --
+    sub.add_parser("setup", help="Interactive first-time setup (URL + auth + verify)")
+
+    # -- version --
+    sub.add_parser("version", help="Print CLI version")
+
+    # -- login --
+    p = sub.add_parser("login", help="Authenticate and save session to ~/.openlucid.json")
+    p.add_argument("--email", help="Account email (or enter interactively)")
+    p.add_argument("--password", help="Account password (or enter interactively)")
+
+    # -- list-merchants --
+    p = sub.add_parser("list-merchants", help="List all merchants")
+    p.add_argument("--page", type=int, default=1)
+    p.add_argument("--page-size", type=int, default=20)
+
+    # -- get-merchant --
+    p = sub.add_parser("get-merchant", help="Get a merchant by ID")
+    p.add_argument("--id", required=True, help="Merchant UUID")
+
+    # -- list-offers --
+    p = sub.add_parser("list-offers", help="List offers (products/services)")
+    p.add_argument("--merchant-id", help="Filter by merchant UUID")
+    p.add_argument("--page", type=int, default=1)
+    p.add_argument("--page-size", type=int, default=20)
+
+    # -- get-offer --
+    p = sub.add_parser("get-offer", help="Get an offer by ID")
+    p.add_argument("--id", required=True, help="Offer UUID")
+
+    # -- offer-context --
+    p = sub.add_parser("offer-context", help="Get full context for an offer")
+    p.add_argument("--id", required=True, help="Offer UUID")
+
+    # -- extract-text --
+    p = sub.add_parser("extract-text", help="Extract text content from a URL")
+    p.add_argument("--url", dest="page_url", required=True, help="Page URL")
+
+    # -- create-offer --
+    p = sub.add_parser("create-offer", help="Create a product/service offer")
+    p.add_argument("--merchant-id", required=True, help="Merchant UUID")
+    p.add_argument("--name", required=True, help="Offer name")
+    p.add_argument("--offer-type", default="product", choices=["product", "service", "bundle", "solution"])
+    p.add_argument("--offer-model", help="Optional offer model")
+    p.add_argument("--description", default="", help="Offer description")
+    p.add_argument("--positioning", default="", help="Offer positioning")
+    p.add_argument("--selling-points", default="", help="Comma-separated selling points")
+    p.add_argument("--audiences", default="", help="Comma-separated target audiences")
+    p.add_argument("--scenarios", default="", help="Comma-separated target scenarios")
+    p.add_argument("--locale", default="zh-CN", help="Locale, default zh-CN")
+
+    # -- create-offer-from-url --
+    p = sub.add_parser("create-offer-from-url", help="Extract URL text and create a product/service offer")
+    p.add_argument("--merchant-id", required=True, help="Merchant UUID")
+    p.add_argument("--name", required=True, help="Offer name")
+    p.add_argument("--url", dest="page_url", required=True, help="Page URL to extract")
+    p.add_argument("--offer-type", default="product", choices=["product", "service", "bundle", "solution"])
+    p.add_argument("--offer-model", help="Optional offer model")
+    p.add_argument("--positioning", default="", help="Offer positioning")
+    p.add_argument("--selling-points", default="", help="Comma-separated selling points")
+    p.add_argument("--audiences", default="", help="Comma-separated target audiences")
+    p.add_argument("--scenarios", default="", help="Comma-separated target scenarios")
+    p.add_argument("--locale", default="zh-CN", help="Locale, default zh-CN")
+
+    # -- list-knowledge --
+    p = sub.add_parser("list-knowledge", help="List knowledge items")
+    p.add_argument("--scope-type", required=True, choices=["merchant", "offer"])
+    p.add_argument("--scope-id", required=True, help="Scope UUID")
+    p.add_argument("--page", type=int, default=1)
+    p.add_argument("--page-size", type=int, default=20)
+
+    # -- add-knowledge --
+    p = sub.add_parser("add-knowledge", help="Add a knowledge item")
+    p.add_argument("--scope-type", required=True, choices=["merchant", "offer"])
+    p.add_argument("--scope-id", required=True, help="Scope UUID")
+    p.add_argument("--title", required=True)
+    p.add_argument("--content", default="")
+    p.add_argument("--type", default="general",
+                   help="Type: brand|audience|scenario|selling_point|objection|proof|faq|general")
+    p.add_argument("--language", default="zh-CN")
+
+    # -- search-assets --
+    p = sub.add_parser("search-assets", help="Search assets (images, videos, docs)")
+    p.add_argument("--scope-type", required=True, choices=["merchant", "offer"])
+    p.add_argument("--scope-id", required=True, help="Scope UUID")
+    p.add_argument("--q", default="", help="Fuzzy search keyword")
+    p.add_argument("--tags", default="", help="Comma-separated exact tag match")
+    p.add_argument("--asset-type", default="", help="Filter: image|video|document")
+    p.add_argument("--page", type=int, default=1)
+    p.add_argument("--page-size", type=int, default=20)
+
+    # -- list-strategy-units --
+    p = sub.add_parser("list-strategy-units", help="List strategy units")
+    p.add_argument("--offer-id", help="Filter by offer UUID")
+    p.add_argument("--page", type=int, default=1)
+    p.add_argument("--page-size", type=int, default=20)
+
+    # -- list-apps --
+    p = sub.add_parser("list-apps", help="List available AI apps")
+    p.add_argument("--language", default="zh", help="Language: zh|en")
+
+    # -- kb-qa --
+    p = sub.add_parser("kb-qa", help="Ask a question against the knowledge base")
+    p.add_argument("--offer-id", required=True, help="Offer UUID")
+    p.add_argument("--question", required=True, help="Your question")
+    p.add_argument("--style", default="professional",
+                   help="Style: professional|friendly|expert")
+    p.add_argument("--language", default="zh-CN")
+
+    # -- topic-studio --
+    p = sub.add_parser("topic-studio", help="Generate topic plans")
+    p.add_argument("--offer-id", required=True, help="Offer UUID")
+    p.add_argument("--strategy-unit-id", help="Optional strategy unit UUID")
+    p.add_argument("--count", type=int, default=5, help="Number of topics")
+    p.add_argument("--language", default="zh-CN")
+
+    # -- list-topic-plans --
+    p = sub.add_parser("list-topic-plans", help="List topic plans generated by Topic Studio (history)")
+    p.add_argument("--offer-id", help="Filter by offer UUID")
+    p.add_argument("--strategy-unit-id", help="Filter by strategy unit UUID")
+    p.add_argument("--page", type=int, default=1)
+    p.add_argument("--page-size", type=int, default=20)
+
+    # -- list-creations --
+    p = sub.add_parser("list-creations", help="List saved creations (topics, scripts, posts)")
+    p.add_argument("--offer-id", help="Filter by offer UUID")
+    p.add_argument("--merchant-id", help="Filter by merchant UUID")
+    p.add_argument("--content-type", help="Filter: post|script|email|caption|hook|general")
+    p.add_argument("--source-app", help="Filter by source app (e.g. topic-studio)")
+    p.add_argument("--q", help="Search in title and content")
+    p.add_argument("--page", type=int, default=1)
+    p.add_argument("--page-size", type=int, default=20)
+
+    # -- get-creation --
+    p = sub.add_parser("get-creation", help="Get a creation by ID")
+    p.add_argument("--id", required=True, help="Creation UUID")
+
+    # -- save-creation --
+    p = sub.add_parser("save-creation", help="Save a finished content piece")
+    p.add_argument("--title", required=True)
+    p.add_argument("--content", required=True)
+    p.add_argument("--type", default="general",
+                   help="Type: post|script|email|caption|hook|general")
+    p.add_argument("--offer-id", help="Offer UUID")
+    p.add_argument("--merchant-id", help="Merchant UUID")
+    p.add_argument("--tags", default="", help="Comma-separated tags")
+
+    return parser
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+_DISPATCH = {
+    "setup": cmd_setup,
+    "version": cmd_version,
+    "login": cmd_login,
+    "list-merchants": cmd_list_merchants,
+    "get-merchant": cmd_get_merchant,
+    "list-offers": cmd_list_offers,
+    "get-offer": cmd_get_offer,
+    "offer-context": cmd_offer_context,
+    "extract-text": cmd_extract_text,
+    "create-offer": cmd_create_offer,
+    "create-offer-from-url": cmd_create_offer_from_url,
+    "list-knowledge": cmd_list_knowledge,
+    "add-knowledge": cmd_add_knowledge,
+    "search-assets": cmd_search_assets,
+    "list-strategy-units": cmd_list_strategy_units,
+    "list-apps": cmd_list_apps,
+    "kb-qa": cmd_kb_qa,
+    "topic-studio": cmd_topic_studio,
+    "list-topic-plans": cmd_list_topic_plans,
+    "list-creations": cmd_list_creations,
+    "get-creation": cmd_get_creation,
+    "save-creation": cmd_save_creation,
+}
+
+
+def main():
+    parser = _build_parser()
+    args = parser.parse_args()
+
+    base, token, cookie = _resolve_config(cli_url=args.url)
+    handler = _DISPATCH.get(args.command)
+    if handler is None:
+        parser.print_help()
+        sys.exit(1)
+    handler(base, token, cookie, args)
+
+
+if __name__ == "__main__":
+    main()

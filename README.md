@@ -24,8 +24,10 @@ Three interfaces, pick what fits:
 
 | Interface | For | How |
 |-----------|-----|-----|
-| **MCP Server** | Claude Code, Cursor, AI IDEs | Connect via MCP protocol, AI reads your marketing data directly |
+| **MCP Server (SSE)** | Claude Code, Cursor, AI IDEs (remote/Docker) | Connect via HTTP SSE, AI reads your marketing data directly |
+| **MCP Server (stdio)** | Local development, no HTTP exposure | Runs as a local process, communicates via stdin/stdout |
 | **RESTful API** | Custom agents, automation | Full API with interactive docs at `/docs` |
+| **CLI Tool** | Agent scripting, ops queries | Command-line tool that calls the REST API, zero dependencies |
 | **Web App** | Marketing teams | Visual UI for managing knowledge, assets, brand kits, and topics |
 
 ---
@@ -55,6 +57,11 @@ Once started, open **http://localhost**:
 1. First visit lands on the setup page — create your admin account
 2. Go to **Settings** to configure your LLM (any OpenAI-compatible API)
 3. Create your first product and start planning
+4. (Optional) Install the CLI tool so AI agents can query your marketing data:
+   ```bash
+   bash tools/install.sh
+   openlucid-cli setup
+   ```
 
 > Only 2 containers (PostgreSQL + App). No Redis, no message queue, no extra dependencies.
 
@@ -149,6 +156,66 @@ uvicorn app.main:app --reload
 ```
 
 API docs: http://localhost:8000/docs
+
+### MCP stdio mode (local CLI)
+
+To connect via stdio (no HTTP required), add this to your Cursor or Claude Code MCP config:
+
+```json
+{
+  "mcpServers": {
+    "openlucid": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "app.mcp_cli"],
+      "env": {
+        "DATABASE_URL": "postgresql+asyncpg://openlucid:openlucid@localhost:5432/openlucid"
+      }
+    }
+  }
+}
+```
+
+Alternatively, after `pip install .` you can use the `openlucid-mcp` command directly.
+
+### CLI tool (HTTP-based)
+
+`tools/openlucid-cli` is a standalone Python script that calls the REST API over HTTP. No project dependencies required — ideal for agent scripting or ops queries.
+
+```bash
+# One-line install (copies to ~/.local/bin, auto-adds to PATH)
+bash tools/install.sh
+
+# First-time setup (interactive: URL + login + verify)
+openlucid-cli setup
+
+# Use
+openlucid-cli list-merchants
+openlucid-cli list-offers --merchant-id <id>
+openlucid-cli offer-context --id <offer_id>
+openlucid-cli kb-qa --offer-id <id> --question "What are the key selling points?"
+openlucid-cli topic-studio --offer-id <id>
+```
+
+Two authentication methods:
+- **Cookie auth**: `openlucid-cli login` (session-based, expires in 168h)
+- **API Token auth**: Create a token in Web UI Settings > MCP > Access Tokens, then store in `~/.openlucid.json` (long-lived, recommended for agents)
+
+Run `openlucid-cli --help` for all available subcommands.
+
+### Let AI Agents Use CLI from Any Directory
+
+`install.sh` automatically installs the OpenLucid skill into global skill directories so AI agents discover `openlucid-cli` regardless of the current working directory:
+
+| Agent | Skill installed |
+|-------|-----------------|
+| Claude Code | `~/.claude/skills/openlucid-cli/SKILL.md` |
+| Cursor | `~/.cursor/skills/openlucid-cli/SKILL.md` |
+| Codex / OpenHands | `~/.agents/skills/openlucid-cli/SKILL.md` |
+
+The single source of truth lives in the repository at `skills/openlucid-cli/SKILL.md`.
+
+After installation, you can open Claude Code / Cursor / Codex in **any project directory** and ask your agent to work with marketing data — the installed skill will guide it to use `openlucid-cli`.
 
 ## License
 

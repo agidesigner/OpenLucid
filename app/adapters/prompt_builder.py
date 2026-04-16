@@ -379,14 +379,16 @@ def format_offer_for_tagging(
 def format_existing_knowledge(
     knowledge_items: list[dict[str, Any]],
     *,
+    language: str = "zh-CN",
     max_items: int = 15,
 ) -> str:
-    """Format existing knowledge for dedup in the infer-knowledge prompt.
-    Uses English header since infer_knowledge prompt is English."""
+    """Format existing knowledge for dedup in the infer-knowledge prompt."""
     if not knowledge_items:
         return ""
+    is_en = language.startswith("en")
     lines = [
         f"- [{k.get('knowledge_type')}] {k.get('title')}: {k.get('content_raw', '')}"
         for k in knowledge_items[:max_items]
     ]
-    return "\n\nExisting entries (do NOT repeat):\n" + "\n".join(lines)
+    header = "\n\nExisting entries (do NOT repeat):\n" if is_en else "\n\n已有知识（不要重复生成）：\n"
+    return header + "\n".join(lines)
