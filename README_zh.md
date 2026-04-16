@@ -204,6 +204,9 @@ openlucid-cli topic-studio --offer-id <id>
 - **Cookie 认证**：`openlucid-cli login`（会话制，168h 过期）
 - **API Token 认证**：在 Web 设置页 > MCP > 访问令牌 创建 token，写入 `~/.openlucid.json`（长期有效，推荐 Agent 使用）
 
+配置优先级：`--url` 参数 > 环境变量 `OPENLUCID_URL` > `~/.openlucid.json` > 默认 `http://localhost`  
+可选：环境变量 `OPENLUCID_TOKEN` 用于 Bearer 认证（与 `~/.openlucid.json` 中的 token 一致）。
+
 运行 `openlucid-cli --help` 查看全部子命令。
 
 ### 让 AI Agent 在任意目录使用 CLI
