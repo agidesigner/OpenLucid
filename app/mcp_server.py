@@ -1541,9 +1541,3 @@ async def content_brief(offer_id: str, channel: str = "general", language: str =
         "5. Recommend which topic to prioritize and outline next steps."
     )
 
-
-if __name__ == "__main__":
-    from dotenv import load_dotenv
-
-    load_dotenv()
-    mcp.run(transport="stdio")

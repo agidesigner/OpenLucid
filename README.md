@@ -25,7 +25,6 @@ Three interfaces, pick what fits:
 | Interface | For | How |
 |-----------|-----|-----|
 | **MCP Server (SSE)** | Claude Code, Cursor, AI IDEs (remote/Docker) | Connect via HTTP SSE, AI reads your marketing data directly |
-| **MCP Server (stdio)** | Local development, no HTTP exposure | Runs as a local process, communicates via stdin/stdout |
 | **RESTful API** | Custom agents, automation | Full API with interactive docs at `/docs` |
 | **CLI Tool** | Agent scripting, ops queries | Command-line tool that calls the REST API, zero dependencies |
 | **Web App** | Marketing teams | Visual UI for managing knowledge, assets, brand kits, and topics |
@@ -156,27 +155,6 @@ uvicorn app.main:app --reload
 ```
 
 API docs: http://localhost:8000/docs
-
-### MCP stdio mode (local CLI)
-
-To connect via stdio (no HTTP required), add this to your Cursor or Claude Code MCP config:
-
-```json
-{
-  "mcpServers": {
-    "openlucid": {
-      "type": "stdio",
-      "command": "python",
-      "args": ["-m", "app.mcp_cli"],
-      "env": {
-        "DATABASE_URL": "postgresql+asyncpg://openlucid:openlucid@localhost:5432/openlucid"
-      }
-    }
-  }
-}
-```
-
-Alternatively, after `pip install .` you can use the `openlucid-mcp` command directly.
 
 ### CLI tool (HTTP-based)
 

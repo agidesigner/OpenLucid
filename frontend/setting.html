@@ -1514,21 +1514,6 @@
           { name: 'login', desc: t('cli_cmd_login') },
           { name: 'setup', desc: t('cli_cmd_setup') },
         ],
-        get mcpStdioConfigJson() {
-          const config = {
-            mcpServers: {
-              openlucid: {
-                type: "stdio",
-                command: "python",
-                args: ["-m", "app.mcp_cli"],
-                env: {
-                  DATABASE_URL: "postgresql+asyncpg://openlucid:openlucid@localhost:5432/openlucid"
-                }
-              }
-            }
-          };
-          return JSON.stringify(config, null, 2);
-        },
         capabilityGroups: [
           { key: 'insights', icon: '\u{1F4CA}', label: t('mcp_cap_insights'), desc: t('mcp_cap_insights_desc'), tools: [
             { name: 'get_merchant_overview', desc: t('mcp_tool_get_merchant_overview') },

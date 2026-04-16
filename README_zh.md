@@ -25,7 +25,6 @@
 | 接口 | 适用场景 | 方式 |
 |------|---------|------|
 | **MCP Server (SSE)** | Claude Code、Cursor、AI IDE（远程/Docker） | 通过 HTTP SSE 连接，AI 直接读取营销数据 |
-| **MCP Server (stdio)** | 本地开发、不暴露 HTTP 的场景 | 以本地进程运行，通过 stdin/stdout 通信 |
 | **RESTful API** | 自定义 Agent、自动化流程 | 完整 API，交互式文档见 `/docs` |
 | **CLI 工具** | Agent 脚本调用、运维查询 | 通过 HTTP 调用 REST API 的命令行工具，零依赖 |
 | **Web App** | 营销团队日常使用 | 可视化界面，管理知识、素材、品牌套件、选题 |
@@ -156,27 +155,6 @@ uvicorn app.main:app --reload
 ```
 
 API 文档：http://localhost:8000/docs
-
-### MCP stdio 模式（本地 CLI）
-
-如需以 stdio 方式连接 MCP（无需 HTTP），在 Cursor 或 Claude Code 的 MCP 配置中添加：
-
-```json
-{
-  "mcpServers": {
-    "openlucid": {
-      "type": "stdio",
-      "command": "python",
-      "args": ["-m", "app.mcp_cli"],
-      "env": {
-        "DATABASE_URL": "postgresql+asyncpg://openlucid:openlucid@localhost:5432/openlucid"
-      }
-    }
-  }
-}
-```
-
-也可通过 `pip install .` 后直接使用 `openlucid-mcp` 命令。
 
 ### CLI 工具（通过 HTTP 调用 REST API）
 

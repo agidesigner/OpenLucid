@@ -1076,10 +1076,6 @@ window.I18N = {
       cli_cmd_list_apps: 'List available AI applications',
       cli_cmd_login: 'Authenticate with email/password',
       cli_cmd_setup: 'Interactive first-time setup',
-      mcp_connect_stdio_title: 'Local (stdio)',
-      mcp_connect_stdio_subtitle: 'Run MCP as a local process — no HTTP needed, ideal for local development',
-      mcp_connect_stdio_json: 'stdio JSON config',
-      mcp_connect_stdio_hint: 'Paste into your client\'s MCP config. The command runs a local process that communicates via stdin/stdout.',
       mcp_auth_token_hint: 'Replace <your-token> with a token from Access Tokens below.',
       // Capabilities
       mcp_cap_title: 'Capabilities',
@@ -1335,10 +1331,6 @@ window.I18N = {
       cli_cmd_list_apps: '列出可用的 AI 应用',
       cli_cmd_login: '用邮箱/密码登录认证',
       cli_cmd_setup: '交互式首次配置',
-      mcp_connect_stdio_title: '本地模式 (stdio)',
-      mcp_connect_stdio_subtitle: '以本地进程方式运行 MCP — 无需 HTTP，适合本地开发',
-      mcp_connect_stdio_json: 'stdio JSON 配置',
-      mcp_connect_stdio_hint: '粘贴到客户端的 MCP 配置中。命令会启动一个通过 stdin/stdout 通信的本地进程。',
       mcp_auth_token_hint: '将 <your-token> 替换为下方「访问令牌」中创建的值。',
       // Capabilities
       mcp_cap_title: '能力概览',
