@@ -237,16 +237,39 @@ async def auth_middleware(request: Request, call_next):
     if settings.DISABLE_AUTH:
         return await call_next(request)
 
+    # 1. Try cookie-based JWT auth
     token = request.cookies.get("od_access_token")
-    if not token:
-        return JSONResponse({"detail": "Not authenticated"}, status_code=401)
-    try:
-        payload = decode_token(token)
-        request.state.user_id = payload["user_id"]
-    except Exception:
-        return JSONResponse({"detail": "Invalid token"}, status_code=401)
+    if token:
+        try:
+            payload = decode_token(token)
+            request.state.user_id = payload["user_id"]
+            return await call_next(request)
+        except Exception:
+            return JSONResponse({"detail": "Invalid token"}, status_code=401)
 
-    return await call_next(request)
+    # 2. Try Bearer token auth (reuse MCP tokens table for CLI / API key access)
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        import hashlib
+        from sqlalchemy import select
+        from app.database import async_session_factory
+        from app.models.mcp_token import McpToken
+
+        raw_token = auth_header[7:]
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        try:
+            async with async_session_factory() as session:
+                match = await session.scalar(
+                    select(McpToken).where(McpToken.token_hash == token_hash)
+                )
+            if match:
+                request.state.user_id = "api-token"
+                return await call_next(request)
+        except Exception:
+            pass
+        return JSONResponse({"detail": "Invalid API token"}, status_code=401)
+
+    return JSONResponse({"detail": "Not authenticated"}, status_code=401)
 
 
 register_exception_handlers(_fastapi_app)

@@ -1543,4 +1543,7 @@ async def content_brief(offer_id: str, channel: str = "general", language: str =
 
 
 if __name__ == "__main__":
-    mcp.run()
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    mcp.run(transport="stdio")
