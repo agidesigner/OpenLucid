@@ -21,6 +21,13 @@ ENV/
 .env.*
 !.env.example
 
+# OpenLucid CLI local config (never commit real tokens/cookies)
+.openlucid.json
+.openlucid.*.json
+
+# Accidental symlinks from running `ln -s tools/openlucid-cli <command-name>` in repo root
+list-merchants
+
 # IDE
 .idea/
 .vscode/
