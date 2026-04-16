@@ -193,6 +193,9 @@ openlucid-cli setup
 openlucid-cli list-merchants
 openlucid-cli list-offers --merchant-id <id>
 openlucid-cli offer-context --id <offer_id>
+openlucid-cli extract-text --url "https://example.com/product-page"
+openlucid-cli create-offer --merchant-id <id> --name "Product name"
+openlucid-cli create-offer-from-url --merchant-id <id> --name "Product name" --url "https://example.com/product-page"  # extract + AI infer + create offer + save knowledge
 openlucid-cli kb-qa --offer-id <id> --question "What are the key selling points?"
 openlucid-cli topic-studio --offer-id <id>
 ```
@@ -200,6 +203,9 @@ openlucid-cli topic-studio --offer-id <id>
 Two authentication methods:
 - **Cookie auth**: `openlucid-cli login` (session-based, expires in 168h)
 - **API Token auth**: Create a token in Web UI Settings > MCP > Access Tokens, then store in `~/.openlucid.json` (long-lived, recommended for agents)
+
+Config priority: `--url` flag > `OPENLUCID_URL` env > `~/.openlucid.json` > `http://localhost`  
+Optional: `OPENLUCID_TOKEN` for Bearer auth (same token as in `~/.openlucid.json`).
 
 Run `openlucid-cli --help` for all available subcommands.
 
@@ -216,6 +222,11 @@ Run `openlucid-cli --help` for all available subcommands.
 The single source of truth lives in the repository at `skills/openlucid-cli/SKILL.md`.
 
 After installation, you can open Claude Code / Cursor / Codex in **any project directory** and ask your agent to work with marketing data — the installed skill will guide it to use `openlucid-cli`.
+
+Example prompts:
+- "List all merchants and offers for my workspace"
+- "What are the core selling points for this product?"
+- "Import this product URL into OpenLucid and create the offer"
 
 ## License
 
