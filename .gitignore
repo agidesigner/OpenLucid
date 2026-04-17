@@ -72,6 +72,7 @@ logs/
 
 # Internal dev docs
 instruct.md
+docs/
 
 # Override global gitignore (config.py is needed by the app)
 !app/config.py
