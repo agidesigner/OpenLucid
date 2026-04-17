@@ -8,7 +8,7 @@ description_en: Generate structured topic plans based on strategy units, knowled
 icon: "💡"
 category: content_creation
 task_type: topic_generation
-required_entities: [offer, strategy_unit]
+required_entities: [offer]
 required_capabilities: [retrieve_context, select_knowledge, generate_topics]
 entry_modes: [global, strategy_unit]
 status: active

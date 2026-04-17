@@ -154,6 +154,7 @@ class BrandKitStatus(str, Enum):
 class BrandKitAssetRole(str, Enum):
     REFERENCE_IMAGE = "reference_image"
     REFERENCE_VIDEO = "reference_video"
+    LOGO = "logo"
     PRODUCT_REFERENCE = "product_reference"
     SCENE_REFERENCE = "scene_reference"
     PERSONA_REFERENCE = "persona_reference"

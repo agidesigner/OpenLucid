@@ -26,6 +26,7 @@
   <script src="/js/pinned-apps.js"></script>
   <script src="/js/avatar.js"></script>
   <script src="/js/feedback.js"></script>
+  <script src="/js/shared.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
     [x-cloak]{display:none!important}
@@ -55,9 +56,9 @@
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
         <span x-text="t('sidebar_offers')"></span>
       </a>
-      <a href="/apps.html" class="sidebar-item">
-        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
-        <span x-text="t('sidebar_apps')"></span>
+      <a href="/brandkit-list.html" class="sidebar-item active">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
       </a>
       <a href="/creations.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
@@ -66,10 +67,6 @@
       <a href="/video-studio.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
         <span x-text="t('sidebar_videos')"></span>
-      </a>
-      <a href="/brandkit-list.html" class="sidebar-item active">
-        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
-        <span x-text="t('sidebar_brandkit')"></span>
       </a>
     </nav>
     <div class="px-3 pb-3 mt-auto">
@@ -83,7 +80,7 @@
     <header class="h-14 bg-white border-b flex items-center px-6 shrink-0 gap-3">
       <a href="/brandkit-list.html" class="text-sm text-gray-400 hover:text-accent" x-text="t('breadcrumb')"></a>
       <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-      <span class="text-sm font-medium text-gray-800" x-text="kit.name || '...'"></span>
+      <span class="text-sm font-medium text-gray-800" x-text="parentName || '...'"></span>
       <div class="flex-1"></div>
 
       <!-- Delete -->
@@ -115,24 +112,59 @@
       <div x-show="loading" class="text-center py-12 text-gray-400 text-sm" x-text="t('loading')"></div>
 
       <div x-show="!loading && kit.id">
-        <!-- Kit Info -->
+        <!-- Kit Info — name/description are read-only, derived from the scope parent
+             (merchant.name or offer.name). To rename, user goes to the parent entity. -->
         <div class="px-6 py-5 bg-white border-b">
-          <div class="flex items-center gap-3 mb-2">
-            <div class="w-10 h-10 rounded-xl flex items-center justify-center"
-                 :class="kit.scope_type === 'merchant' ? 'bg-purple-50' : 'bg-blue-50'">
-              <svg class="w-5 h-5" :class="kit.scope_type === 'merchant' ? 'text-purple-500' : 'text-blue-500'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
-            </div>
-            <div class="flex-1">
-              <input type="text" x-model="kit.name" @change="saveField('name', kit.name)"
-                     class="text-lg font-semibold text-gray-800 bg-transparent border-none outline-none w-full hover:bg-gray-50 rounded px-1 -ml-1 transition">
-              <div class="flex items-center gap-2 mt-0.5">
+          <!-- Logo tile — dual state:
+               Empty  = dashed-border drop zone with image icon + persistent "+" badge
+                        (clearly a place to add something, not a decorative icon).
+               Filled = solid tile with the uploaded logo as the brand's visual mark.
+               Stored as a role=logo BrandKitAssetLink for downstream AI to consume. -->
+          <div class="flex items-center gap-3">
+            <label class="relative w-10 h-10 rounded-xl flex items-center justify-center shrink-0 cursor-pointer overflow-hidden group transition-colors"
+                   :class="logoThumbUrl
+                            ? 'bg-white border border-gray-200 hover:border-accent'
+                            : 'bg-gray-50 border-2 border-dashed border-gray-300 hover:border-accent hover:bg-accent/5'"
+                   :title="t('brandkit_logo_tooltip')">
+              <!-- Filled state: actual logo -->
+              <img x-show="logoThumbUrl" :src="logoThumbUrl" alt="logo"
+                   class="absolute inset-0 w-full h-full object-contain p-0.5">
+              <!-- Empty state: generic "image" icon, muted — signals "this is a slot for an image" -->
+              <svg x-show="!logoThumbUrl && uploadingRole !== 'logo'"
+                   class="w-4 h-4 text-gray-400 group-hover:text-accent transition-colors"
+                   fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+              </svg>
+              <!-- Persistent "+" badge in the corner — empty state only, always visible -->
+              <span x-show="!logoThumbUrl && uploadingRole !== 'logo'"
+                    class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-accent text-white flex items-center justify-center shadow-sm ring-2 ring-white">
+                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 4v16m8-8H4"/></svg>
+              </span>
+              <!-- Filled state hover: pencil overlay, replacing the logo briefly -->
+              <div x-show="logoThumbUrl && uploadingRole !== 'logo'"
+                   class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              </div>
+              <!-- Uploading spinner -->
+              <svg x-show="uploadingRole === 'logo'" class="w-4 h-4 text-accent animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+              <input type="file" class="hidden" accept="image/*"
+                     @change="uploadForRole($event, 'logo')">
+            </label>
+            <div class="flex-1 min-w-0">
+              <!-- Parent name — the single editable rename entry point. PATCHes the
+                   merchant/offer itself (brandkit has no editable name of its own). -->
+              <input type="text" x-model="parentNameDraft"
+                     @blur="saveParentName()"
+                     @keydown.enter="$el.blur()"
+                     :placeholder="t('loading')"
+                     class="text-lg font-semibold text-gray-800 bg-transparent border border-transparent hover:border-gray-200 focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none rounded px-2 -ml-2 py-0.5 w-full transition-colors">
+              <div class="flex items-center gap-2 mt-1 ml-0.5">
                 <span class="text-xs text-gray-400" x-text="kit.scope_type === 'merchant' ? t('scope_merchant') : t('scope_offer')"></span>
+                <span x-show="parentDescription" class="text-xs text-gray-400">·</span>
+                <span class="text-xs text-gray-500 truncate" x-text="parentDescription"></span>
               </div>
             </div>
           </div>
-          <input type="text" x-model="kit.description" @change="saveField('description', kit.description)"
-                 :placeholder="t('add_description')"
-                 class="text-sm text-gray-500 bg-transparent border-none outline-none w-full hover:bg-gray-50 rounded px-1 -ml-1 transition mt-1">
         </div>
 
         <!-- AI Extract Panel -->
@@ -199,18 +231,22 @@
           </div>
         </div>
 
-        <!-- Tabs -->
+        <!-- Tabs — 2 tabs reflect the "minimum brandkit = 3 things" model:
+             Identity  = Essence (Style Profile) + Voice (Persona) as primary,
+                         other fields folded into "More details (optional)"
+             References = Assets (media — the third "thing": 3 reference images) -->
         <div class="px-6 py-3 bg-white border-b flex items-center gap-2">
-          <button @click="tab='style'" :class="tab==='style' && 'active'" class="tab-btn" x-text="t('tab_style')"></button>
-          <button @click="tab='visual'" :class="tab==='visual' && 'active'" class="tab-btn" x-text="t('tab_visual')"></button>
-          <button @click="tab='rules'" :class="tab==='rules' && 'active'" class="tab-btn" x-text="t('tab_rules')"></button>
-          <button @click="tab='prompts'" :class="tab==='prompts' && 'active'" class="tab-btn" x-text="t('tab_prompts')"></button>
-          <button @click="tab='assets'; fetchAssetLinks()" :class="tab==='assets' && 'active'" class="tab-btn" x-text="t('tab_assets')"></button>
+          <button @click="tab='identity'" :class="tab==='identity' && 'active'" class="tab-btn" x-text="t('tab_identity')"></button>
+          <button @click="tab='assets'; fetchAssetLinks()" :class="tab==='assets' && 'active'" class="tab-btn" x-text="t('tab_references')"></button>
         </div>
 
         <div class="p-6">
-          <!-- Style Tab -->
-          <div x-show="tab==='style'">
+          <!-- Identity Tab: primary (Essence + Voice) + collapsible More details. -->
+          <div x-show="tab==='identity'" x-data="{ moreOpen: false }" class="space-y-5">
+            <!-- Primary hint -->
+            <p class="text-xs text-gray-500 -mt-2" x-text="t('brandkit_primary_hint')"></p>
+
+            <!-- PRIMARY · Style Profile (as brand essence) -->
             <div class="bg-white rounded-xl border p-5">
               <div class="flex items-center gap-2 mb-3">
                 <h3 class="font-semibold text-gray-800" x-text="t('style_profile')"></h3>
@@ -220,6 +256,16 @@
                 <template x-if="isOverridden('style_profile_json')">
                   <span class="field-tag overridden" x-text="t('overridden')"></span>
                 </template>
+                <div class="flex-1"></div>
+                <!-- Fill-from-Offer: scaffold from parent offer's name + selling points + audience + scenarios.
+                     Only shown for offer-scoped brandkits. Pure frontend stitching — no AI call. -->
+                <button x-show="kit.scope_type === 'offer'"
+                        @click="fillEssenceFromOffer()"
+                        :disabled="fillingEssence"
+                        class="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:text-accent-hover border border-accent/30 hover:bg-accent/5 rounded-md px-2 py-1 transition-colors disabled:opacity-50">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                  <span x-text="t('brandkit_fill_from_offer')"></span>
+                </button>
               </div>
               <p class="text-xs text-gray-400 mb-3" x-text="t('style_profile_hint')"></p>
               <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[200px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
@@ -227,42 +273,8 @@
                         @blur="saveTextField('style_profile_json')"
                         :placeholder="t('style_profile_placeholder')"></textarea>
             </div>
-          </div>
 
-          <!-- Visual Tab -->
-          <div x-show="tab==='visual'" class="space-y-5">
-            <div class="bg-white rounded-xl border p-5">
-              <div class="flex items-center gap-2 mb-3">
-                <h3 class="font-semibold text-gray-800" x-text="t('product_visual')"></h3>
-                <template x-if="isInherited('product_visual_profile_json')">
-                  <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
-                </template>
-                <template x-if="isOverridden('product_visual_profile_json')">
-                  <span class="field-tag overridden" x-text="t('overridden')"></span>
-                </template>
-              </div>
-              <p class="text-xs text-gray-400 mb-3" x-text="t('product_visual_hint')"></p>
-              <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
-                        x-model="jsonFields.product_visual_profile_json"
-                        @blur="saveTextField('product_visual_profile_json')"
-                        :placeholder="t('product_visual_placeholder')"></textarea>
-            </div>
-            <div class="bg-white rounded-xl border p-5">
-              <div class="flex items-center gap-2 mb-3">
-                <h3 class="font-semibold text-gray-800" x-text="t('service_scene')"></h3>
-                <template x-if="isInherited('service_scene_profile_json')">
-                  <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
-                </template>
-                <template x-if="isOverridden('service_scene_profile_json')">
-                  <span class="field-tag overridden" x-text="t('overridden')"></span>
-                </template>
-              </div>
-              <p class="text-xs text-gray-400 mb-3" x-text="t('service_scene_hint')"></p>
-              <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
-                        x-model="jsonFields.service_scene_profile_json"
-                        @blur="saveTextField('service_scene_profile_json')"
-                        :placeholder="t('service_scene_placeholder')"></textarea>
-            </div>
+            <!-- PRIMARY · Persona Profile (as brand voice) -->
             <div class="bg-white rounded-xl border p-5">
               <div class="flex items-center gap-2 mb-3">
                 <h3 class="font-semibold text-gray-800" x-text="t('persona')"></h3>
@@ -273,67 +285,121 @@
                   <span class="field-tag overridden" x-text="t('overridden')"></span>
                 </template>
               </div>
-              <p class="text-xs text-gray-400 mb-3" x-text="t('persona_hint')"></p>
+              <p class="text-xs text-gray-400 mb-2" x-text="t('persona_hint')"></p>
+              <!-- Preset chips — click to scaffold the textarea with a named voice template.
+                   Addresses "user doesn't know how to describe brand voice" by offering starting
+                   points. User is expected to edit after picking. -->
+              <div class="flex flex-wrap gap-1.5 mb-3">
+                <span class="text-[11px] text-gray-400 mr-1 self-center" x-text="t('brandkit_voice_presets') + ':'"></span>
+                <template x-for="p in voicePresets" :key="p.key">
+                  <button type="button" @click="applyVoicePreset(p.key)"
+                          class="od-chip od-chip-info hover:brightness-95 cursor-pointer transition-all"
+                          x-text="p.label"></button>
+                </template>
+              </div>
               <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
                         x-model="jsonFields.persona_profile_json"
                         @blur="saveTextField('persona_profile_json')"
                         :placeholder="t('persona_placeholder')"></textarea>
             </div>
-          </div>
 
-          <!-- Rules Tab -->
-          <div x-show="tab==='rules'" class="space-y-5">
-            <div class="bg-white rounded-xl border p-5">
-              <div class="flex items-center gap-2 mb-3">
-                <h3 class="font-semibold text-gray-800 text-green-600" x-text="t('visual_do')"></h3>
-                <template x-if="isInherited('visual_do_json')">
-                  <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
-                </template>
-                <template x-if="isOverridden('visual_do_json')">
-                  <span class="field-tag overridden" x-text="t('overridden')"></span>
-                </template>
-              </div>
-              <p class="text-xs text-gray-400 mb-3" x-text="t('visual_do_hint')"></p>
-              <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
-                        x-model="jsonFields.visual_do_json"
-                        @blur="saveTextField('visual_do_json')"
-                        :placeholder="t('visual_do_placeholder')"></textarea>
-            </div>
-            <div class="bg-white rounded-xl border p-5">
-              <div class="flex items-center gap-2 mb-3">
-                <h3 class="font-semibold text-gray-800 text-red-500" x-text="t('visual_dont')"></h3>
-                <template x-if="isInherited('visual_dont_json')">
-                  <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
-                </template>
-                <template x-if="isOverridden('visual_dont_json')">
-                  <span class="field-tag overridden" x-text="t('overridden')"></span>
-                </template>
-              </div>
-              <p class="text-xs text-gray-400 mb-3" x-text="t('visual_dont_hint')"></p>
-              <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
-                        x-model="jsonFields.visual_dont_json"
-                        @blur="saveTextField('visual_dont_json')"
-                        :placeholder="t('visual_dont_placeholder')"></textarea>
-            </div>
-          </div>
+            <!-- SECONDARY · collapsible "More details" — the other 5 fields. -->
+            <div class="border-t border-gray-100 pt-4">
+              <button type="button" @click="moreOpen = !moreOpen"
+                      class="w-full flex items-center gap-2 text-left text-gray-500 hover:text-gray-700 transition-colors">
+                <svg class="w-4 h-4 transition-transform" :class="moreOpen && 'rotate-90'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <span class="text-sm font-medium" x-text="t('brandkit_more_details')"></span>
+                <span class="text-[11px] text-gray-400">(5)</span>
+              </button>
+              <p x-show="moreOpen" x-cloak class="text-[11px] text-gray-400 mt-2 mb-4 ml-6" x-text="t('brandkit_more_details_hint')"></p>
 
-          <!-- Prompts Tab -->
-          <div x-show="tab==='prompts'">
-            <div class="bg-white rounded-xl border p-5">
-              <div class="flex items-center gap-2 mb-3">
-                <h3 class="font-semibold text-gray-800" x-text="t('reference_prompt')"></h3>
-                <template x-if="isInherited('reference_prompt_json')">
-                  <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
-                </template>
-                <template x-if="isOverridden('reference_prompt_json')">
-                  <span class="field-tag overridden" x-text="t('overridden')"></span>
-                </template>
+              <div x-show="moreOpen" x-cloak x-transition.opacity class="space-y-5 mt-3">
+                <!-- Product Visual -->
+                <div class="bg-white rounded-xl border p-5">
+                  <div class="flex items-center gap-2 mb-3">
+                    <h3 class="font-semibold text-gray-800" x-text="t('product_visual')"></h3>
+                    <template x-if="isInherited('product_visual_profile_json')">
+                      <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
+                    </template>
+                    <template x-if="isOverridden('product_visual_profile_json')">
+                      <span class="field-tag overridden" x-text="t('overridden')"></span>
+                    </template>
+                  </div>
+                  <p class="text-xs text-gray-400 mb-3" x-text="t('product_visual_hint')"></p>
+                  <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
+                            x-model="jsonFields.product_visual_profile_json"
+                            @blur="saveTextField('product_visual_profile_json')"
+                            :placeholder="t('product_visual_placeholder')"></textarea>
+                </div>
+                <!-- Service Scene -->
+                <div class="bg-white rounded-xl border p-5">
+                  <div class="flex items-center gap-2 mb-3">
+                    <h3 class="font-semibold text-gray-800" x-text="t('service_scene')"></h3>
+                    <template x-if="isInherited('service_scene_profile_json')">
+                      <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
+                    </template>
+                    <template x-if="isOverridden('service_scene_profile_json')">
+                      <span class="field-tag overridden" x-text="t('overridden')"></span>
+                    </template>
+                  </div>
+                  <p class="text-xs text-gray-400 mb-3" x-text="t('service_scene_hint')"></p>
+                  <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
+                            x-model="jsonFields.service_scene_profile_json"
+                            @blur="saveTextField('service_scene_profile_json')"
+                            :placeholder="t('service_scene_placeholder')"></textarea>
+                </div>
+                <!-- Visual Do -->
+                <div class="bg-white rounded-xl border p-5">
+                  <div class="flex items-center gap-2 mb-3">
+                    <h3 class="font-semibold text-gray-800 text-green-600" x-text="t('visual_do')"></h3>
+                    <template x-if="isInherited('visual_do_json')">
+                      <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
+                    </template>
+                    <template x-if="isOverridden('visual_do_json')">
+                      <span class="field-tag overridden" x-text="t('overridden')"></span>
+                    </template>
+                  </div>
+                  <p class="text-xs text-gray-400 mb-3" x-text="t('visual_do_hint')"></p>
+                  <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
+                            x-model="jsonFields.visual_do_json"
+                            @blur="saveTextField('visual_do_json')"
+                            :placeholder="t('visual_do_placeholder')"></textarea>
+                </div>
+                <!-- Visual Don't -->
+                <div class="bg-white rounded-xl border p-5">
+                  <div class="flex items-center gap-2 mb-3">
+                    <h3 class="font-semibold text-gray-800 text-red-500" x-text="t('visual_dont')"></h3>
+                    <template x-if="isInherited('visual_dont_json')">
+                      <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
+                    </template>
+                    <template x-if="isOverridden('visual_dont_json')">
+                      <span class="field-tag overridden" x-text="t('overridden')"></span>
+                    </template>
+                  </div>
+                  <p class="text-xs text-gray-400 mb-3" x-text="t('visual_dont_hint')"></p>
+                  <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
+                            x-model="jsonFields.visual_dont_json"
+                            @blur="saveTextField('visual_dont_json')"
+                            :placeholder="t('visual_dont_placeholder')"></textarea>
+                </div>
+                <!-- Reference Prompt -->
+                <div class="bg-white rounded-xl border p-5">
+                  <div class="flex items-center gap-2 mb-3">
+                    <h3 class="font-semibold text-gray-800" x-text="t('reference_prompt')"></h3>
+                    <template x-if="isInherited('reference_prompt_json')">
+                      <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
+                    </template>
+                    <template x-if="isOverridden('reference_prompt_json')">
+                      <span class="field-tag overridden" x-text="t('overridden')"></span>
+                    </template>
+                  </div>
+                  <p class="text-xs text-gray-400 mb-3" x-text="t('reference_prompt_hint')"></p>
+                  <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[200px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
+                            x-model="jsonFields.reference_prompt_json"
+                            @blur="saveTextField('reference_prompt_json')"
+                            :placeholder="t('reference_prompt_placeholder')"></textarea>
+                </div>
               </div>
-              <p class="text-xs text-gray-400 mb-3" x-text="t('reference_prompt_hint')"></p>
-              <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[200px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
-                        x-model="jsonFields.reference_prompt_json"
-                        @blur="saveTextField('reference_prompt_json')"
-                        :placeholder="t('reference_prompt_placeholder')"></textarea>
             </div>
           </div>
 
@@ -421,10 +487,15 @@
       return {
         kitId: new URLSearchParams(location.search).get('id'),
         kit: {},
-        tab: 'style',
+        parent: null,          // merchant or offer the kit is scoped to
+        parentLoading: false,
+        parentNameDraft: '',   // editable buffer for the parent's display name
+        parentSaving: false,
+        tab: 'identity',
         loading: true,
         saving: false,
         saved: false,
+        fillingEssence: false,
         inheritedFields: [],
         overriddenFields: [],
 
@@ -477,6 +548,15 @@
           this.inheritedFields = data.inherited_fields || [];
           this.overriddenFields = data.overridden_fields || [];
 
+          // Fetch the scope parent (merchant or offer) so we can display its name
+          // as the kit's display identity. brandkit.name/description are no longer
+          // user-editable — they're derived from the parent entity.
+          await this.loadParent();
+
+          // Pre-fetch asset links so the header logo tile shows the current logo
+          // on page load (not just after opening the Assets tab).
+          await this.fetchAssetLinks();
+
           // Initialize text fields (plain text or JSON stringified for legacy data)
           const fields = ['style_profile_json','product_visual_profile_json','service_scene_profile_json',
                           'persona_profile_json','visual_do_json','visual_dont_json','reference_prompt_json'];
@@ -489,6 +569,73 @@
 
           document.title = t('page_title') + ' - OpenLucid';
           this.loading = false;
+        },
+
+        // Fetch the scope parent for display. Silent failure — parentName falls back to
+        // whatever the legacy kit.name holds so existing rows still render something.
+        async loadParent() {
+          if (!this.kit?.scope_type || !this.kit?.scope_id) return;
+          this.parentLoading = true;
+          try {
+            const url = this.kit.scope_type === 'merchant'
+              ? `${API}/merchants/${this.kit.scope_id}`
+              : `${API}/offers/${this.kit.scope_id}`;
+            const r = await fetch(url);
+            if (r.ok) {
+              this.parent = await r.json();
+              this.parentNameDraft = this.parent?.name || '';
+            }
+          } catch {}
+          this.parentLoading = false;
+        },
+
+        get parentName() {
+          return this.parent?.name || this.kit?.name || '';
+        },
+        get parentDescription() {
+          return this.parent?.description || this.kit?.description || '';
+        },
+        // The single LOGO asset linked to this brandkit (first one if multiple).
+        // The header icon tile doubles as the logo upload zone — if a logo
+        // exists, it renders as the tile background; otherwise the tile is an
+        // empty drop target that opens a file picker on click.
+        get logoLink() {
+          return this.assetLinks.find(l => l.role === 'logo') || null;
+        },
+        get logoThumbUrl() {
+          return this.logoLink ? this.linkThumb(this.logoLink) : null;
+        },
+
+        // Rename the parent entity (merchant or offer) — PATCH the parent itself, not the
+        // brandkit. BrandKit has no editable name anymore; this is the single place to
+        // rename the brand (and the workspace switcher in index.html shows the result).
+        async saveParentName() {
+          const v = (this.parentNameDraft || '').trim();
+          if (!v || !this.kit?.scope_type || !this.kit?.scope_id) return;
+          if (this.parent?.name === v) return;  // no change
+          this.parentSaving = true;
+          try {
+            const url = this.kit.scope_type === 'merchant'
+              ? `${API}/merchants/${this.kit.scope_id}`
+              : `${API}/offers/${this.kit.scope_id}`;
+            const r = await fetch(url, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: v }),
+            });
+            if (r.ok) {
+              this.parent = await r.json();
+              this.parentNameDraft = this.parent.name || '';
+              this.showSaved();
+            } else {
+              toast.error(t('save_failed'));
+              this.parentNameDraft = this.parent?.name || '';  // revert buffer
+            }
+          } catch {
+            toast.error(t('save_failed'));
+            this.parentNameDraft = this.parent?.name || '';
+          }
+          this.parentSaving = false;
         },
 
         isInherited(field) {
@@ -538,6 +685,63 @@
           setTimeout(() => this.saved = false, 1500);
         },
 
+        // Voice presets — fast-start templates for the Persona textarea. Keyed by preset id;
+        // labels and bodies both live in i18n so they localize with the UI.
+        get voicePresets() {
+          return [
+            { key: 'casual',    label: t('brandkit_voice_preset_casual'),    tpl: t('brandkit_voice_tpl_casual') },
+            { key: 'authority', label: t('brandkit_voice_preset_authority'), tpl: t('brandkit_voice_tpl_authority') },
+            { key: 'humor',     label: t('brandkit_voice_preset_humor'),     tpl: t('brandkit_voice_tpl_humor') },
+            { key: 'expert',    label: t('brandkit_voice_preset_expert'),    tpl: t('brandkit_voice_tpl_expert') },
+            { key: 'friend',    label: t('brandkit_voice_preset_friend'),    tpl: t('brandkit_voice_tpl_friend') },
+          ];
+        },
+
+        applyVoicePreset(key) {
+          const preset = this.voicePresets.find(p => p.key === key);
+          if (!preset) return;
+          const existing = (this.jsonFields.persona_profile_json || '').trim();
+          if (existing && !confirm(t('brandkit_fill_confirm'))) return;
+          this.jsonFields.persona_profile_json = preset.tpl;
+          this.saveTextField('persona_profile_json');
+        },
+
+        // Scaffold Style Profile from the parent offer's name + selling points + audience +
+        // scenarios. Pure frontend stitching — not an AI call. If the field already has
+        // content, we confirm before overwriting. Silent no-op for merchant-scoped kits.
+        async fillEssenceFromOffer() {
+          if (this.kit.scope_type !== 'offer' || !this.kit.scope_id || this.fillingEssence) return;
+          const existing = (this.jsonFields.style_profile_json || '').trim();
+          if (existing && !confirm(t('brandkit_fill_confirm'))) return;
+
+          this.fillingEssence = true;
+          try {
+            const res = await fetch(`${API}/offers/${this.kit.scope_id}`);
+            if (!res.ok) { toast.error(t('brandkit_fill_no_data')); return; }
+            const offer = await res.json();
+            const sp = (offer.core_selling_points_json?.points || []).filter(Boolean);
+            const aud = (offer.target_audience_json?.items || []).filter(Boolean);
+            const scn = (offer.target_scenarios_json?.items || []).filter(Boolean);
+            if (!offer.description && !sp.length && !aud.length && !scn.length) {
+              toast.error(t('brandkit_fill_no_data'));
+              return;
+            }
+            const sep = (window._odLang === 'zh') ? '、' : ', ';
+            const lines = [`${t('brandkit_fill_tpl_brand')}: ${offer.name || ''}`.trim()];
+            if (sp.length)  lines.push(`${t('brandkit_fill_tpl_sp')}: ${sp.join(sep)}`);
+            if (aud.length) lines.push(`${t('brandkit_fill_tpl_audience')}: ${aud.join(sep)}`);
+            if (scn.length) lines.push(`${t('brandkit_fill_tpl_scenario')}: ${scn.join(sep)}`);
+            if (offer.description) lines.push('', offer.description.trim());
+            this.jsonFields.style_profile_json = lines.join('\n');
+            await this.saveTextField('style_profile_json');
+            toast.success(t('brandkit_fill_filled'));
+          } catch (e) {
+            toast.error(e.message || String(e));
+          } finally {
+            this.fillingEssence = false;
+          }
+        },
+
         async fetchAssetLinks() {
           const res = await fetch(`${API}/brandkits/${this.kitId}/asset-links?page_size=100`);
           if (res.ok) {
@@ -560,6 +764,13 @@
           const file = event.target.files[0];
           if (!file) return;
           this.uploadingRole = role;
+          // Singleton roles (logo) should replace, not accumulate. Capture the
+          // existing links to delete after the new one is successfully linked —
+          // delete-on-success keeps the old logo visible if the upload fails.
+          const singletonRoles = new Set(['logo']);
+          const staleLinks = singletonRoles.has(role)
+            ? this.assetLinks.filter(l => l.role === role)
+            : [];
           try {
             // 1. Upload file
             const fd = new FormData();
@@ -568,7 +779,7 @@
             fd.append('scope_id', this.kit.scope_id);
             fd.append('asset_type', file.type.startsWith('video') ? 'video' : 'image');
             const uploadRes = await fetch(`${API}/assets/upload`, { method: 'POST', body: fd });
-            if (!uploadRes.ok) { alert(t('save_failed')); return; }
+            if (!uploadRes.ok) { toast.error(t('save_failed')); return; }
             const asset = await uploadRes.json();
 
             // 2. Link to brandkit
@@ -577,11 +788,16 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ asset_id: asset.id, role, priority: 0 }),
             });
-            if (!linkRes.ok) { alert(t('save_failed')); return; }
+            if (!linkRes.ok) { toast.error(t('save_failed')); return; }
 
-            // 3. Refresh
+            // 3. Clean up stale singleton links (e.g. the previous logo).
+            for (const stale of staleLinks) {
+              await fetch(`${API}/brandkits/${this.kitId}/asset-links/${stale.id}`, { method: 'DELETE' });
+            }
+
+            // 4. Refresh
             await this.fetchAssetLinks();
-          } catch { alert(t('save_failed')); }
+          } catch { toast.error(t('save_failed')); }
           this.uploadingRole = null;
           event.target.value = '';
         },
@@ -640,7 +856,7 @@
           if (!confirm(t('confirm_delete_kit'))) return;
           const res = await fetch(`${API}/brandkits/${this.kitId}`, { method: 'DELETE' });
           if (res.ok) location.href = '/brandkit-list.html';
-          else alert(t('delete_failed'));
+          else toast.error(t('delete_failed'));
         },
       };
     }

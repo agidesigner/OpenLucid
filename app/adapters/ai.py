@@ -9,6 +9,7 @@ from app.adapters.prompt_builder import (
     KNOWLEDGE_TYPE_LABELS_ZH,
     OBJECTIVE_LABELS_ZH,
     format_asset_context,
+    format_closed_vocab_for_tagging,
     format_existing_knowledge,
     format_knowledge_flat,
     format_knowledge_grouped,
@@ -785,6 +786,7 @@ Generate {count} topic plans that honor the Creative Brief above. The brief shou
         existing_sample = asset_metadata.pop("existing_tags_sample", [])
 
         offer_section = format_offer_for_tagging(offer_context, language=language)
+        closed_vocab_section = format_closed_vocab_for_tagging(language=language)
 
         existing_hint = ""
         if existing_sample:
@@ -792,42 +794,44 @@ Generate {count} topic plans that honor the Creative Brief above. The brief shou
 
         if is_en:
             system = f"""You are an asset tag analyst. Extract structured marketing tags from asset information and product context.
-{offer_section}
+{offer_section}{closed_vocab_section}
 ## Tag requirements
 1. subject (content subject): specific objects/people/elements in the visual, 2-5 tags
 2. usage (usage tags): marketing purpose of this asset, 1-3 tags
-3. selling_point (selling point association): selling points this asset supports, **prefer exact phrases from core selling points above**, 1-3 tags
-4. scenario (scenario association): scenarios this asset fits, **prefer exact phrases from target scenarios above**, 1-3 tags
+3. selling_point (selling point association): selling points this asset supports, **prefer exact phrases from core selling points above**, 1-3 tags (can be empty if asset is brand/generic and doesn't support a specific feature)
+4. scenario (scenario association): scenarios this asset fits, **prefer exact phrases from target scenarios above**, 1-3 tags (can be empty)
 5. channel_fit (channel fit): suitable platforms, 1-2 tags
-6. style (style tags): visual/tonal style, 1-2 tags
-7. emotion (emotion tags): emotional atmosphere, 1 tag
+6. content_form (production form): **pick 1-2 ids from the closed vocabulary above**, never invent new ids
+7. campaign_type (promotional mechanic): **pick 0-2 ids from the closed vocabulary above, or empty** if no promotional mechanic is visibly featured
 
 ## Consistency requirements
 - selling_point and scenario MUST reuse original text from the product context when applicable
-- Reuse existing tags when possible: {existing_hint or 'N/A'}
-- Tag language: English
+- content_form / campaign_type MUST use ids from the closed vocabulary exactly — no paraphrasing, no new ids
+- Reuse existing free-form tags when possible: {existing_hint or 'N/A'}
+- Tag language (for free-form fields): English
 
 Return JSON only:
-{{"subject": [...], "usage": [...], "selling_point": [...], "scenario": [...], "channel_fit": [...], "style": [...], "emotion": [...], "hook_score": 0.8, "reuse_score": 0.7, "confidence": 0.9}}"""
+{{"subject": [...], "usage": [...], "selling_point": [...], "scenario": [...], "channel_fit": [...], "content_form": [...], "campaign_type": [...], "hook_score": 0.8, "reuse_score": 0.7, "confidence": 0.9}}"""
         else:
             system = f"""你是素材标签分析师。根据素材信息和商品知识库，提取结构化营销标签。
-{offer_section}
+{offer_section}{closed_vocab_section}
 ## 标签要求
 1. subject（内容主体）：画面中的具体物体/人物/场景元素，2-5 个
 2. usage（用途标签）：素材的营销用途，1-3 个
-3. selling_point（卖点关联）：此素材能支持的卖点，**优先从上方核心卖点中选择**，1-3 个
-4. scenario（场景关联）：此素材适配的场景，**优先从上方目标场景中选择**，1-3 个
+3. selling_point（卖点关联）：此素材能支持的卖点，**优先从上方核心卖点中选择**，1-3 个（如果素材是品牌/通用类，无明确卖点对应，可以留空）
+4. scenario（场景关联）：此素材适配的场景，**优先从上方目标场景中选择**，1-3 个（可以留空）
 5. channel_fit（渠道适配）：适合发布的平台，1-2 个
-6. style（风格标签）：视觉/调性风格，1-2 个
-7. emotion（情绪标签）：情绪氛围，1 个
+6. content_form（内容形态）：**从上方受控词典里选 1-2 个 id**，不允许发明新 id
+7. campaign_type（促销机制）：**从上方受控词典里选 0-2 个 id，如画面无明显促销机制则留空**
 
 ## 一致性要求
 - selling_point 和 scenario 必须优先复用商品知识库中的原文
-- 其他标签尽量复用已有标签：{existing_hint or '无'}
-- 标签语言：中文
+- content_form / campaign_type 必须使用受控词典里的 id 原文——不允许近义替换、不允许发明新 id
+- 其他自由标签尽量复用已有标签：{existing_hint or '无'}
+- 自由标签语言：中文
 
 仅返回 JSON：
-{{"subject": [...], "usage": [...], "selling_point": [...], "scenario": [...], "channel_fit": [...], "style": [...], "emotion": [...], "hook_score": 0.8, "reuse_score": 0.7, "confidence": 0.9}}"""
+{{"subject": [...], "usage": [...], "selling_point": [...], "scenario": [...], "channel_fit": [...], "content_form": [...], "campaign_type": [...], "hook_score": 0.8, "reuse_score": 0.7, "confidence": 0.9}}"""
 
         user_text = f"{'Asset metadata' if is_en else '素材元数据'}：\n{json.dumps(asset_metadata, ensure_ascii=False, indent=2)}"
 
@@ -1159,6 +1163,60 @@ class AnthropicMessagesAdapter(OpenAICompatibleAdapter):
                     logger.warning("Anthropic call failed (attempt %d/3), retrying in %ds: %s", attempt + 1, wait, e)
                     await asyncio.sleep(wait)
         raise last_err  # type: ignore[misc]
+
+    async def _chat_json(self, system_prompt: str, user_prompt: str, temperature: float = 0.7) -> Any:
+        """Anthropic Messages API does not support OpenAI's
+        `response_format={"type":"json_object"}`. Go directly to prompt-
+        constrained JSON mode — same as the OpenAI adapter's fallback path.
+
+        Previously this inherited the OpenAI implementation, which tried to
+        access `self.client` and raised AttributeError — causing every Script
+        Writer JSON generation to silently fall through to plain text.
+        """
+        fallback_system = system_prompt + (
+            "\n\nREMINDER: Output ONLY valid JSON — no markdown, no explanation, "
+            "no text before or after the JSON object."
+        )
+        raw = await self._chat(fallback_system, user_prompt, temperature=temperature)
+        return self._parse_json_response(raw)
+
+    async def _chat_vision(self, system_prompt: str, user_text: str, image_path: str, temperature: float = 0.8) -> str:
+        """Anthropic vision via Messages API — image is a content block with
+        base64 data, not an OpenAI-style `image_url`.
+        """
+        import base64
+        import mimetypes
+        import httpx
+
+        mime, _ = mimetypes.guess_type(image_path)
+        mime = mime or "image/jpeg"
+        with open(image_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{self.base_url}/v1/messages",
+                headers=self._headers,
+                json={
+                    "model": self.model,
+                    "max_tokens": 4096,
+                    "temperature": temperature,
+                    "system": system_prompt,
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "image", "source": {
+                                "type": "base64", "media_type": mime, "data": b64,
+                            }},
+                            {"type": "text", "text": user_text},
+                        ],
+                    }],
+                },
+                timeout=120,
+            )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["content"][0]["text"]
 
     async def _chat_stream(self, system_prompt: str, user_prompt: str, temperature: float = 0.8, timeout: float = 180):
         """Stream tokens via Anthropic Messages SSE."""

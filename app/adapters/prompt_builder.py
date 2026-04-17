@@ -374,6 +374,45 @@ def format_offer_for_tagging(
 """
 
 
+# ── Closed-vocabulary enums for asset tagging ───────────────────────
+
+def format_closed_vocab_for_tagging(language: str = "zh-CN") -> str:
+    """Emit the valid `content_form` + `campaign_type` id catalogues for the
+    vision-LLM asset-tagging prompt. AI must pick ids from these lists; the
+    service layer filters out any id that isn't in the catalogue.
+    """
+    from app.application.campaign_types import list_campaign_types
+    from app.application.content_forms import list_content_forms
+
+    is_en = language.startswith("en")
+    lang_key = "en" if is_en else "zh"
+
+    cf_lines = [f"  - `{cf.id}` — {cf.localized_name(lang_key)}: {cf.localized_description(lang_key)}"
+                for cf in list_content_forms()]
+    ct_lines = [f"  - `{ct.id}` — {ct.localized_name(lang_key)}: {ct.localized_description(lang_key)}"
+                for ct in list_campaign_types()]
+
+    if is_en:
+        return (
+            "\n## Closed vocabulary — use exact ids only\n"
+            "\n### content_form (pick 1, occasionally 2 — describes the production form)\n"
+            + "\n".join(cf_lines)
+            + "\n\n### campaign_type (pick 0-2 — only if a promotional mechanic is visibly featured; "
+              "leave empty for brand/lifestyle/product-demo assets without promo)\n"
+            + "\n".join(ct_lines)
+            + "\n"
+        )
+    return (
+        "\n## 受控词典 —— 必须使用以下 id 原文\n"
+        "\n### content_form（选 1，偶尔 2 —— 描述内容产出形态）\n"
+        + "\n".join(cf_lines)
+        + "\n\n### campaign_type（选 0-2 —— 只有画面里明显体现促销机制时才选；"
+          "品牌/生活方式/纯产品展示类素材留空）\n"
+        + "\n".join(ct_lines)
+        + "\n"
+    )
+
+
 # ── Existing-knowledge dedup block ───────────────────────────────────
 
 def format_existing_knowledge(

@@ -1,11 +1,13 @@
 import logging
 import uuid
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import NotFoundError
 from app.infrastructure.merchant_repo import MerchantRepository
 from app.infrastructure.offer_repo import OfferRepository
+from app.models.creation import Creation
 from app.models.offer import Offer
 from app.schemas.offer import OfferCreate, OfferUpdate
 
@@ -62,3 +64,35 @@ class OfferService:
         if not update_data:
             return offer
         return await self.repo.update(offer, **update_data)
+
+    async def get_consumption_summary(self, offer_id: uuid.UUID) -> dict:
+        """How has this offer's knowledge been consumed?
+
+        Aggregates Creation rows linked to the offer — total count, breakdown
+        by source_app, and last-used timestamp. Feeds the Offer page's
+        "Consumption" card so users can see whether agents / apps are using
+        the world they've built.
+        """
+        await self.get(offer_id)  # 404 if offer missing
+
+        stmt = (
+            select(Creation.source_app, func.count(Creation.id), func.max(Creation.created_at))
+            .where(Creation.offer_id == offer_id)
+            .group_by(Creation.source_app)
+        )
+        rows = (await self.session.execute(stmt)).all()
+
+        by_source: dict[str, int] = {}
+        total = 0
+        last_used_at = None
+        for source_app, count, max_created in rows:
+            by_source[source_app or "unknown"] = int(count)
+            total += int(count)
+            if max_created is not None and (last_used_at is None or max_created > last_used_at):
+                last_used_at = max_created
+
+        return {
+            "creations_total": total,
+            "by_source": by_source,
+            "last_used_at": last_used_at.isoformat() if last_used_at else None,
+        }

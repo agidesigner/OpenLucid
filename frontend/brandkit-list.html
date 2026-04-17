@@ -26,6 +26,7 @@
   <script src="/js/pinned-apps.js"></script>
   <script src="/js/avatar.js"></script>
   <script src="/js/feedback.js"></script>
+  <script src="/js/shared.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
     [x-cloak]{display:none!important}
@@ -48,9 +49,9 @@
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
         <span x-text="t('sidebar_offers')"></span>
       </a>
-      <a href="/apps.html" class="sidebar-item">
-        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
-        <span x-text="t('sidebar_apps')"></span>
+      <a href="/brandkit-list.html" class="sidebar-item active">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
       </a>
       <a href="/creations.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
@@ -59,10 +60,6 @@
       <a href="/video-studio.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
         <span x-text="t('sidebar_videos')"></span>
-      </a>
-      <a href="/brandkit-list.html" class="sidebar-item active">
-        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
-        <span x-text="t('sidebar_brandkit')"></span>
       </a>
     </nav>
     <div class="px-3 pb-3 mt-auto">
@@ -94,12 +91,17 @@
             <a :href="'/brandkit.html?id=' + merchantKit.id" class="block bg-white rounded-xl border p-5 hover:shadow-md transition-shadow cursor-pointer">
               <div class="flex items-center justify-between mb-2">
                 <div class="flex items-center gap-3">
-                  <div class="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
-                    <svg class="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+                  <!-- Tile shows uploaded logo if present; falls back to default icon. -->
+                  <div class="w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden shrink-0"
+                       :class="logoUrls[merchantKit.id] ? 'bg-white border border-gray-200' : 'bg-purple-50'">
+                    <img x-show="logoUrls[merchantKit.id]" :src="logoUrls[merchantKit.id]" alt="logo"
+                         class="w-full h-full object-contain p-0.5">
+                    <svg x-show="!logoUrls[merchantKit.id]" class="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
                   </div>
                   <div>
-                    <div class="font-semibold text-gray-800" x-text="merchantKit.name"></div>
-                    <div class="text-xs text-gray-400" x-text="merchantKit.description || t('no_description')"></div>
+                    <!-- Display identity = merchant.name (not the legacy kit.name which is deprecated). -->
+                    <div class="font-semibold text-gray-800" x-text="merchant?.name || ''"></div>
+                    <div class="text-xs text-gray-400" x-text="t('scope_merchant')"></div>
                   </div>
                 </div>
                 <span class="text-xs text-gray-400" x-text="new Date(merchantKit.updated_at).toLocaleDateString()"></span>
@@ -130,12 +132,17 @@
               <a :href="'/brandkit.html?id=' + kit.id" class="block bg-white rounded-xl border p-4 hover:shadow-md transition-shadow cursor-pointer">
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-                      <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+                    <!-- Tile shows uploaded logo if present; falls back to default icon. -->
+                    <div class="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden shrink-0"
+                         :class="logoUrls[kit.id] ? 'bg-white border border-gray-200' : 'bg-blue-50'">
+                      <img x-show="logoUrls[kit.id]" :src="logoUrls[kit.id]" alt="logo"
+                           class="w-full h-full object-contain p-0.5">
+                      <svg x-show="!logoUrls[kit.id]" class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
                     </div>
                     <div>
-                      <div class="font-medium text-gray-800" x-text="kit.name"></div>
-                      <div class="text-xs text-gray-400" x-text="offers[kit.scope_id] ? (t('linked_to') + offers[kit.scope_id]) : ''"></div>
+                      <!-- Display identity = the offer's name (not the legacy kit.name). -->
+                      <div class="font-medium text-gray-800" x-text="offers[kit.scope_id] || ''"></div>
+                      <div class="text-xs text-gray-400" x-text="t('scope_offer')"></div>
                     </div>
                   </div>
                   <span class="text-xs text-gray-400" x-text="new Date(kit.updated_at).toLocaleDateString()"></span>
@@ -158,14 +165,17 @@
         merchantKit: null,
         offerKits: [],
         offers: {},
+        merchant: null,            // full merchant record — provides display name
         merchantId: null,
+        logoUrls: {},              // kit.id → logo thumbnail URL (if uploaded)
 
         async init() {
           document.title = t('page_title') + ' - OpenLucid';
           const mRes = await fetch(`${API}/merchants?page_size=1`);
           const mData = await mRes.json();
           if (mData.items && mData.items.length > 0) {
-            this.merchantId = mData.items[0].id;
+            this.merchant = mData.items[0];
+            this.merchantId = this.merchant.id;
             await this.fetchKits();
           }
           this.loading = false;
@@ -178,7 +188,27 @@
             this.merchantKit = data.merchant_kit;
             this.offerKits = data.offer_kits || [];
             this.offers = data.offers || {};
+            await this.fetchLogoThumbs();
           }
+        },
+
+        // For each kit (merchant + offers), fetch its asset-links and find the LOGO one.
+        // Runs in parallel. Missing/absent logos just leave the slot empty.
+        async fetchLogoThumbs() {
+          const allKits = [this.merchantKit, ...this.offerKits].filter(Boolean);
+          const results = await Promise.all(allKits.map(async (kit) => {
+            try {
+              const r = await fetch(`${API}/brandkits/${kit.id}/asset-links?page_size=50`);
+              if (!r.ok) return [kit.id, null];
+              const data = await r.json();
+              const logoLink = (data.items || []).find(l => l.role === 'logo');
+              if (!logoLink?.asset?.storage_uri) return [kit.id, null];
+              return [kit.id, `${API}/assets/${logoLink.asset.id}/file`];
+            } catch { return [kit.id, null]; }
+          }));
+          const next = {};
+          for (const [id, url] of results) if (url) next[id] = url;
+          this.logoUrls = next;
         },
 
         async createMerchantKit() {
@@ -191,7 +221,7 @@
               body: JSON.stringify({
                 scope_type: 'merchant',
                 scope_id: this.merchantId,
-                name: t('company_brandkit_name'),
+                // name omitted — backend derives it from merchant.name
               }),
             });
             if (res.ok) {
@@ -199,9 +229,9 @@
               location.href = `/brandkit.html?id=${kit.id}`;
             } else {
               const err = await res.json();
-              alert(err.error?.message || t('save_failed'));
+              toast.error(err.error?.message || t('save_failed'));
             }
-          } catch { alert(t('save_failed')); }
+          } catch { toast.error(t('save_failed')); }
           this.creating = false;
         },
       };

@@ -1,22 +1,24 @@
 /**
- * Sidebar navigation restructure — runs on every page.
+ * Sidebar navigation grouping — runs on every page.
  *
- * Transforms the hardcoded sidebar into a grouped structure:
+ * HTML source already lays out the KB + Library tier:
  *
  *   🏠 Offers
  *   🎨 Brand Kit
+ *   📁 Creations     ← anchor for section insertion
+ *   🎬 Videos
  *
+ * This script inserts the "Create" tools + section headers, producing:
+ *
+ *   🏠 Offers
+ *   🎨 Brand Kit
  *   — CREATE —
  *   🎬 Script Writer
  *   📝 Content Studio
  *   💡 Topic Studio
- *
  *   — LIBRARY —
  *   📁 Creations
  *   🎬 Videos
- *
- * Removes: Apps (redundant middle-tier) and KB Q&A (low-frequency,
- * accessed from offer detail instead).
  */
 
 // Tools shown in the "Create" section — always visible, not user-toggleable
@@ -48,45 +50,25 @@ function restructureSidebar() {
   const nav = document.querySelector('aside.bg-sidebar nav, aside nav');
   if (!nav) return;
 
-  // Prevent double-run
+  // Idempotent: safe on re-entry / page reloads
   if (nav.getAttribute('data-sidebar-restructured') === '1') return;
 
   const currentPath = location.pathname;
 
-  // 1. Remove the "Apps" link (redundant middle tier)
-  nav.querySelectorAll('a[href="/apps.html"]').forEach(a => a.remove());
-
-  // 1b. Move Brand Kit to sit directly under Offers (top-level peer of Offers)
-  const brandkitLink = nav.querySelector('a[href="/brandkit-list.html"]');
-  const offersLink = nav.querySelector('a[href="/"]');
-  if (brandkitLink && offersLink && brandkitLink.previousElementSibling !== offersLink) {
-    nav.insertBefore(brandkitLink, offersLink.nextSibling);
-  }
-
-  // 2. Find anchor: the Creations link (everyone has it)
+  // Anchor: the Creations link must exist in the HTML source.
   const creationsLink = nav.querySelector('a[href="/creations.html"]');
   if (!creationsLink) return;
 
-  // 3. Build and insert "Create" section before Creations link
-  const createHeader = _makeSectionHeader('nav_group_create');
-  nav.insertBefore(createHeader, creationsLink);
-
+  // Insert CREATE section header + tools before Creations.
+  nav.insertBefore(_makeSectionHeader('nav_group_create'), creationsLink);
   for (const tool of CREATE_TOOLS) {
-    const item = _makeNavItem({ ...tool, currentPath });
-    nav.insertBefore(item, creationsLink);
+    nav.insertBefore(_makeNavItem({ ...tool, currentPath }), creationsLink);
   }
 
-  // 4. Insert "Library" section header before Creations
-  const libraryHeader = _makeSectionHeader('nav_group_library');
-  nav.insertBefore(libraryHeader, creationsLink);
+  // Insert LIBRARY section header before Creations.
+  nav.insertBefore(_makeSectionHeader('nav_group_library'), creationsLink);
 
   nav.setAttribute('data-sidebar-restructured', '1');
 }
-
-// ── Legacy pinned-app helpers kept for apps.html compatibility ─────────────
-// (apps.html still has pin/unpin UI; these are no-ops now but keep the API)
-function getPinnedApps() { return []; }
-function isAppPinned() { return false; }
-function togglePinnedApp() { return false; }
 
 document.addEventListener('DOMContentLoaded', restructureSidebar);

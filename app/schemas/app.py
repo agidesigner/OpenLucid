@@ -100,3 +100,6 @@ class ScriptWriterRequest(BaseModel):
     goal_id: str | None = None        # e.g. "seeding" (replaces old `goal` enum eventually)
     structure_id: str | None = None   # e.g. "hook_body_cta"
     save_creation: bool = True        # whether to persist the result as a Creation
+    # ── Invocation-context fields (Wave 5) ────────────────────────
+    source_app: str = "script_writer"         # attribution when the service auto-saves; MCP callers set "mcp:external"
+    topic_plan_id: uuid.UUID | None = None    # if set and `topic` is empty, the plan's title/hook/angle/key_points drive the prompt

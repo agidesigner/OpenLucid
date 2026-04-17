@@ -118,6 +118,7 @@ async def list_mcp_tokens(db: AsyncSession = Depends(get_db)):
             label=t.label,
             token_preview=f"••••{t.token_hash[:8]}",
             created_at=t.created_at.isoformat() if t.created_at else "",
+            last_used_at=t.last_used_at.isoformat() if t.last_used_at else None,
         )
         for t in tokens
     ]

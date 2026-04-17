@@ -368,6 +368,31 @@ class ScriptWriterService:
             context.assets, language=request.language
         )
 
+        # If topic is empty but a topic_plan_id was provided, compose topic text
+        # from the plan's title/angle/hook/key_points. Gives the prompt rich
+        # direction without the agent needing to paste fields manually.
+        if request.topic_plan_id and not (request.topic or "").strip():
+            try:
+                from app.models.topic_plan import TopicPlan
+                plan = await self.session.get(TopicPlan, request.topic_plan_id)
+                if plan:
+                    parts: list[str] = []
+                    if plan.title:
+                        parts.append(f"选题标题: {plan.title}")
+                    if plan.angle:
+                        parts.append(f"切入角度: {plan.angle}")
+                    if plan.hook:
+                        parts.append(f"开场钩子: {plan.hook}")
+                    if plan.key_points_json:
+                        kp = plan.key_points_json if isinstance(plan.key_points_json, list) else []
+                        if kp:
+                            parts.append("要点:\n- " + "\n- ".join(str(p) for p in kp))
+                    if parts:
+                        request.topic = "\n".join(parts)
+                        logger.info("ScriptWriter: injected topic from plan %s", request.topic_plan_id)
+            except Exception as e:
+                logger.warning("ScriptWriter: failed to load topic_plan %s: %s", request.topic_plan_id, e)
+
         user_message = _build_user_message(
             request,
             knowledge_text=knowledge_text,
@@ -476,7 +501,7 @@ class ScriptWriterService:
                 title=title,
                 content=content,
                 content_type=content_type,
-                source_app="script_writer",
+                source_app=request.source_app or "script_writer",
                 structured_content=structured_content,
             )
             await self.session.commit()

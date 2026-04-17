@@ -98,6 +98,8 @@ class AssetService:
         status: str | None = None,
         scope_type: str | None = None,
         scope_id: uuid.UUID | None = None,
+        content_form: list[str] | None = None,
+        campaign_type: list[str] | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[Asset], int]:
@@ -109,6 +111,8 @@ class AssetService:
             status=status,
             scope_type=scope_type,
             scope_id=scope_id,
+            content_form=content_form,
+            campaign_type=campaign_type,
             offset=offset,
             limit=page_size,
         )
@@ -304,10 +308,29 @@ class AssetService:
         )
 
         # 5. Store structured tags + scores
+        # Wave 4: style/emotion dropped (0 consumers, generic noise);
+        # content_form + campaign_type added as closed-vocabulary enums loaded
+        # from app/apps/{content_forms,campaign_types}/*.md.
         tag_categories = ("subject", "usage", "selling_point", "scenario",
-                          "channel_fit", "style", "emotion")
+                          "channel_fit", "content_form", "campaign_type")
         tags_dict = {k: v for k, v in result.items()
                      if k in tag_categories and isinstance(v, list)}
+
+        # Filter closed-vocabulary fields to valid ids only — AI occasionally
+        # paraphrases or invents ids even when instructed not to.
+        from app.application.campaign_types import list_campaign_types
+        from app.application.content_forms import list_content_forms
+        valid_content_form_ids = {cf.id for cf in list_content_forms()}
+        valid_campaign_type_ids = {ct.id for ct in list_campaign_types()}
+        if "content_form" in tags_dict:
+            tags_dict["content_form"] = [
+                x for x in tags_dict["content_form"] if x in valid_content_form_ids
+            ]
+        if "campaign_type" in tags_dict:
+            tags_dict["campaign_type"] = [
+                x for x in tags_dict["campaign_type"] if x in valid_campaign_type_ids
+            ]
+
         confidence = result.get("confidence", 0.0)
         hook_score = result.get("hook_score")
         reuse_score = result.get("reuse_score")

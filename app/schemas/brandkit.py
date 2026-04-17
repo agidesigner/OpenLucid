@@ -11,7 +11,10 @@ from app.schemas.asset import AssetResponse
 class BrandKitCreate(BaseModel):
     scope_type: ScopeType
     scope_id: uuid.UUID
-    name: str = Field(..., min_length=1, max_length=255)
+    # name / description are optional — if omitted, the service derives them
+    # from the scope parent (merchant.name / offer.name). Retained in the
+    # schema only for back-compat with external callers (e.g. older MCP).
+    name: str | None = Field(None, max_length=255)
     description: str | None = None
     style_profile_json: Any = None
     product_visual_profile_json: Any = None
@@ -40,7 +43,8 @@ class BrandKitResponse(BaseModel):
     id: uuid.UUID
     scope_type: str
     scope_id: uuid.UUID
-    name: str
+    # Nullable — frontend derives display from the scope parent when missing.
+    name: str | None = None
     description: str | None = None
     style_profile_json: Any = None
     product_visual_profile_json: Any = None

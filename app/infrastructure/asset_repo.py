@@ -67,6 +67,8 @@ class AssetRepository:
         status: str | None = None,
         scope_type: str | None = None,
         scope_id: uuid.UUID | None = None,
+        content_form: list[str] | None = None,
+        campaign_type: list[str] | None = None,
         offset: int = 0,
         limit: int = 20,
     ) -> tuple[list[Asset], int]:
@@ -105,6 +107,24 @@ class AssetRepository:
                 ).bindparams(**{param_name: tag})
                 base = base.where(tag_exists)
                 count_base = count_base.where(tag_exists)
+
+        # Wave 5 — closed-vocab filters: check a specific category key contains
+        # any of the given ids. Uses JSONB ?| (any-of) on the category's array.
+        # Example: content_form=["unboxing","review"] matches assets whose
+        # tags_json.content_form includes at least one of those.
+        for category_key, values in [
+            ("content_form", content_form),
+            ("campaign_type", campaign_type),
+        ]:
+            if values:
+                cat_filter = text(
+                    f"(assets.tags_json -> :{category_key}_key) ?| :{category_key}_ids"
+                ).bindparams(**{
+                    f"{category_key}_key": category_key,
+                    f"{category_key}_ids": list(values),
+                })
+                base = base.where(cat_filter)
+                count_base = count_base.where(cat_filter)
 
         total = (await self.session.execute(count_base)).scalar_one()
         stmt = base.offset(offset).limit(limit).order_by(Asset.created_at.desc())

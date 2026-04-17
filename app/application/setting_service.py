@@ -361,6 +361,14 @@ async def update_media_capability_configs(
 async def get_llm_config_for_scene(
     db: AsyncSession, scene_key: str, model_type: str = "text_llm"
 ) -> LLMConfig | None:
+    """Return the scene-override LLM config, **only if it's active**.
+
+    If the override row points to a deactivated config (common when users
+    change their LLM lineup without touching the old scene bindings), this
+    returns None — which lets get_ai_adapter fall through to the default
+    active LLM. Keeps agent/script generation working even when the Settings
+    UI has been simplified to default-text/video/image/speech.
+    """
     result = await db.execute(
         select(ModelSceneConfig).where(
             ModelSceneConfig.scene_key == scene_key,
@@ -370,7 +378,12 @@ async def get_llm_config_for_scene(
     row = result.scalar_one_or_none()
     if not row or not row.config_id:
         return None
-    config_result = await db.execute(select(LLMConfig).where(LLMConfig.id == row.config_id))
+    config_result = await db.execute(
+        select(LLMConfig).where(
+            LLMConfig.id == row.config_id,
+            LLMConfig.is_active == True,  # noqa: E712 — SQL boolean, not Python
+        )
+    )
     return config_result.scalar_one_or_none()
 
 

@@ -26,6 +26,7 @@
   <script src="/js/pinned-apps.js"></script>
   <script src="/js/avatar.js"></script>
   <script src="/js/feedback.js"></script>
+  <script src="/js/shared.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
     [x-cloak]{display:none!important}
@@ -33,10 +34,7 @@
     .sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;color:#A0A0B0;font-size:14px;cursor:pointer;transition:all .15s}
     .sidebar-item:hover{background:#2A2A3C;color:#E0E0EE}
     .sidebar-item.active{background:#2D2D40;color:#fff}
-    .source-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px;border-radius:9999px;font-weight:500}
-    .src-mcp{background:#EFF4FF;color:#155EEF}
-    .src-internal{background:#F0FDF4;color:#16A34A}
-    .src-manual{background:#F3F4F6;color:#6B7280}
+    /* source badges now use shared .od-chip tokens (see js/shared.js) */
   </style>
 </head>
 <body class="bg-gray-50 h-screen flex overflow-hidden" x-data="creationsPage()" x-init="init()">
@@ -52,9 +50,9 @@
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
         <span x-text="t('sidebar_offers')"></span>
       </a>
-      <a href="/apps.html" class="sidebar-item">
-        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
-        <span x-text="t('sidebar_apps')"></span>
+      <a href="/brandkit-list.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
       </a>
       <a href="/creations.html" class="sidebar-item active">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
@@ -63,10 +61,6 @@
       <a href="/video-studio.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
         <span x-text="t('sidebar_videos')"></span>
-      </a>
-      <a href="/brandkit-list.html" class="sidebar-item">
-        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
-        <span x-text="t('sidebar_brandkit')"></span>
       </a>
     </nav>
     <div class="px-3 pb-3 mt-auto">
@@ -114,30 +108,33 @@
           <option value="topic_studio">Topic Studio</option>
           <option value="manual" x-text="t('creations_source_manual')"></option>
         </select>
+        <!-- Clear-filters shortcut — shown only when any filter is active. -->
+        <button x-show="searchQ || filterType || filterSource"
+                x-cloak
+                @click="searchQ = ''; filterType = ''; filterSource = ''; reload()"
+                class="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-accent transition-colors px-2 py-2">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          <span x-text="t('creations_filters_clear')"></span>
+        </button>
       </div>
 
       <!-- Loading / Empty -->
       <div x-show="loading" class="text-center py-12 text-gray-400 text-sm" x-text="t('loading')"></div>
-      <div x-show="!loading && items.length === 0" class="bg-white rounded-xl border border-dashed border-gray-200 py-12 px-6 text-center">
-        <div class="text-5xl mb-3">✨</div>
+      <!-- Empty state — compact one-liner with inline CTAs. -->
+      <div x-show="!loading && items.length === 0" class="bg-white rounded-xl border border-dashed border-gray-200 py-10 px-6 text-center">
+        <div class="text-3xl mb-2">✨</div>
         <h3 class="text-base font-semibold text-gray-800 mb-1" x-text="t('creations_empty_cta_title')"></h3>
-        <p class="text-xs text-gray-400 mb-6" x-text="t('creations_empty_cta_hint')"></p>
-        <div class="flex gap-3 justify-center flex-wrap">
+        <p class="text-xs text-gray-400 mb-5" x-text="t('creations_empty_cta_hint')"></p>
+        <div class="flex gap-2 justify-center flex-wrap">
           <a href="/script-writer.html"
-             class="inline-flex items-center gap-2 bg-white border border-gray-200 hover:border-accent hover:bg-accent/5 rounded-xl px-5 py-3 transition-all group">
-            <span class="text-2xl">🎬</span>
-            <div class="text-left">
-              <div class="text-sm font-semibold text-gray-800 group-hover:text-accent" x-text="t('creations_empty_cta_video')"></div>
-              <div class="text-[11px] text-gray-400" x-text="t('creations_empty_cta_video_desc')"></div>
-            </div>
+             class="inline-flex items-center gap-1.5 bg-white border border-gray-200 hover:border-accent hover:text-accent text-gray-700 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors">
+            <span>🎬</span>
+            <span x-text="t('creations_empty_cta_video')"></span>
           </a>
           <a href="/content-studio.html"
-             class="inline-flex items-center gap-2 bg-white border border-gray-200 hover:border-accent hover:bg-accent/5 rounded-xl px-5 py-3 transition-all group">
-            <span class="text-2xl">📝</span>
-            <div class="text-left">
-              <div class="text-sm font-semibold text-gray-800 group-hover:text-accent" x-text="t('creations_empty_cta_text')"></div>
-              <div class="text-[11px] text-gray-400" x-text="t('creations_empty_cta_text_desc')"></div>
-            </div>
+             class="inline-flex items-center gap-1.5 bg-white border border-gray-200 hover:border-accent hover:text-accent text-gray-700 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors">
+            <span>📝</span>
+            <span x-text="t('creations_empty_cta_text')"></span>
           </a>
         </div>
       </div>
@@ -145,17 +142,19 @@
       <!-- List -->
       <div x-show="!loading && items.length > 0" class="space-y-2">
         <template x-for="c in items" :key="c.id">
-          <div class="bg-white rounded-xl border hover:shadow-sm transition-shadow">
+          <div :data-creation-id="c.id"
+               class="bg-white rounded-xl border hover:shadow-sm transition-all"
+               :class="flashCreationId === c.id ? 'ring-2 ring-accent/40 bg-accent/5' : ''">
             <div class="p-4 cursor-pointer" @click="openDetail(c)">
               <div class="flex items-start gap-3">
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 mb-1">
-                    <span class="text-[11px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded font-medium" x-text="c.content_type"></span>
-                    <span class="source-badge"
-                          :class="c.source_app === 'mcp:external' ? 'src-mcp' : (c.source_app === 'manual' ? 'src-manual' : 'src-internal')"
+                    <span class="od-chip od-chip-neutral" x-text="c.content_type"></span>
+                    <span class="od-chip"
+                          :class="c.source_app === 'mcp:external' ? 'od-chip-primary' : (c.source_app === 'manual' ? 'od-chip-neutral' : 'od-chip-success')"
                           x-text="c.source_app"></span>
                     <template x-for="tag in (c.tags || [])">
-                      <span class="text-[11px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded" x-text="tag"></span>
+                      <span class="od-chip od-chip-info" x-text="tag"></span>
                     </template>
                   </div>
                   <h3 class="text-[15px] font-semibold text-gray-800 leading-snug" x-text="c.title"></h3>
@@ -198,29 +197,32 @@
                   </button>
                 </template>
 
-                <div class="flex flex-col items-end gap-2 shrink-0">
-                  <span class="text-[11px] text-gray-400 tabular-nums" x-text="new Date(c.created_at).toLocaleDateString()"></span>
-                  <div class="flex items-center gap-1">
-                    <!-- Generate Video: only for video-ready scripts -->
-                    <button x-show="_isVideoReady(c.content_type)"
-                            @click.stop="openVideoModal(c)"
-                            class="inline-flex items-center gap-1 text-[11px] font-medium text-accent border border-accent/30 hover:bg-accent/5 rounded-md px-2 py-1 transition-colors"
-                            :title="t('vg_button_tooltip')">
-                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                      <span x-text="t('vg_button')"></span>
-                    </button>
-                    <!-- Recreate as Script: for non-video, non-text-post content -->
-                    <button x-show="_isRecreatable(c.content_type)"
-                            @click.stop="goRecreate(c)"
-                            class="inline-flex items-center gap-1 text-[11px] font-medium text-gray-500 border border-gray-200 hover:bg-gray-50 rounded-md px-2 py-1 transition-colors"
-                            :title="t('recreate_tooltip')">
-                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-                      <span x-text="t('recreate_btn')"></span>
-                    </button>
-                    <button @click.stop="confirmDelete(c)" class="text-gray-300 hover:text-red-500 transition-colors p-1">
-                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                    </button>
-                  </div>
+                <!-- Single-row meta column: date + actions inline (was 2 stacked rows). -->
+                <div class="flex items-center gap-2 shrink-0 self-start">
+                  <span class="text-[11px] text-gray-400 tabular-nums hidden sm:inline"
+                        x-text="new Date(c.created_at).toLocaleDateString()"></span>
+                  <!-- Generate Video: only for video-ready scripts, and only when no videos yet
+                       (once c.video_count > 0 the thumbnail is the single entry point to the same modal). -->
+                  <button x-show="_isVideoReady(c.content_type) && !c.video_count"
+                          @click.stop="openVideoModal(c)"
+                          class="inline-flex items-center gap-1 text-[11px] font-medium text-accent border border-accent/30 hover:bg-accent/5 rounded-md px-2 py-1 transition-colors"
+                          :title="t('vg_button_tooltip')">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                    <span x-text="t('vg_button')"></span>
+                  </button>
+                  <!-- Open in Creator: for non-video-ready content -->
+                  <button x-show="_isRecreatable(c.content_type)"
+                          @click.stop="goRecreate(c)"
+                          class="inline-flex items-center gap-1 text-[11px] font-medium text-gray-500 border border-gray-200 hover:bg-gray-50 rounded-md px-2 py-1 transition-colors"
+                          :title="t('recreate_tooltip')">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    <span x-text="t('recreate_btn')"></span>
+                  </button>
+                  <button @click.stop="confirmDelete(c)"
+                          class="text-gray-300 hover:text-red-500 transition-colors p-1"
+                          :title="t('btn_delete')">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                  </button>
                 </div>
               </div>
             </div>
@@ -356,7 +358,6 @@
                 <span x-text="t('vg_jobs_in_progress').replace('{n}', activeJobsCount)"></span>
               </span>
             </div>
-            <span class="text-[10px] text-gray-400" x-text="videoModal.pastVideosExpanded ? t('vg_collapse') : t('vg_expand')"></span>
           </button>
 
           <div x-show="videoModal.pastVideosExpanded" x-collapse class="space-y-3 mt-3" x-ref="pastVideosContainer">
@@ -434,15 +435,10 @@
           <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3"
                x-text="t('vg_generate_section')"></div>
 
-          <!-- Provider: always visible — readonly label (1 provider) or switcher (2+) -->
-          <div class="mb-4">
+          <!-- Provider switcher — only shown when 2+ providers configured -->
+          <div x-show="videoModal.providers.length > 1" class="mb-4">
             <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('vg_provider')"></label>
-            <!-- Single provider: readonly label -->
-            <div x-show="videoModal.providers.length === 1" class="inline-flex items-center gap-1.5 border border-gray-200 bg-gray-50 rounded-xl px-3 py-2 text-xs text-gray-600">
-              <span x-text="(videoModal.providers[0]?.provider === 'chanjing' ? '🎬' : '🎥') + ' ' + (videoModal.providers[0]?.label || '')"></span>
-            </div>
-            <!-- Multiple providers: switcher -->
-            <div x-show="videoModal.providers.length > 1" class="flex gap-2">
+            <div class="flex gap-2">
               <template x-for="p in videoModal.providers" :key="p.id">
                 <button type="button"
                         @click="onProviderChange(p.id)"
@@ -466,53 +462,39 @@
 
           <div x-show="!videoModal.listsLoading && !videoModal.listsError && (uniqueAvatars.length > 0 || uniqueVoices.length > 0)" class="space-y-5">
 
-            <!-- ── 1 · Script (collapsed preview — most users don't edit) ── -->
-            <details class="group/script">
-              <summary class="flex items-center justify-between cursor-pointer select-none hover:bg-gray-50 -mx-1 px-1 py-1 rounded-lg transition-colors">
-                <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 pointer-events-none">
-                  <span class="text-accent">1 ·</span>
-                  <span x-text="t('vg_section_script')"></span>
-                </label>
-                <div class="flex items-center gap-2">
-                  <span class="text-[11px] text-gray-400 max-w-[200px] truncate"
-                        x-text="videoModal.form.script ? videoModal.form.script.slice(0, 30) + '…' : ''"></span>
-                  <span class="text-[11px] tabular-nums"
-                        :class="videoModal.form.script.length > 4000 ? 'text-red-500' : 'text-gray-400'"
-                        x-text="`${videoModal.form.script.length}`"></span>
-                  <svg class="w-3 h-3 text-gray-400 transition-transform group-open/script:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                </div>
-              </summary>
-              <div class="mt-2">
-                <textarea x-model="videoModal.form.script" rows="6"
-                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
-                          :placeholder="t('vg_script_placeholder')"></textarea>
-                <!-- Visual Direction (from structured_content, Phase 1: read-only) -->
-                <template x-if="videoModal.creation?.structured_content?.sections">
-                  <details class="mt-2">
-                    <summary class="text-[11px] text-gray-400 cursor-pointer hover:text-gray-600 select-none flex items-center gap-1">
-                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                      <span x-text="t('vg_visual_dir_label')"></span>
-                    </summary>
-                    <div class="mt-2 space-y-1.5 pl-1">
-                      <template x-for="[sid, sec] in Object.entries(videoModal.creation.structured_content.sections)" :key="sid">
-                        <div x-show="sec.visual_direction" class="text-[11px] text-gray-400">
-                          <span class="font-medium text-gray-500 uppercase" x-text="sid + ': '"></span>
-                          <span class="italic" x-text="sec.visual_direction"></span>
-                        </div>
-                      </template>
-                    </div>
-                  </details>
-                </template>
-              </div>
-            </details>
-
-            <!-- ── 2 · Avatar ── -->
+            <!-- ── Primary: Script (the content — users need to preview/edit) ── -->
             <div>
               <div class="flex items-center justify-between mb-2">
-                <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                  <span class="text-accent">2 ·</span>
-                  <span x-text="t('vg_section_avatar')"></span>
-                </label>
+                <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400" x-text="t('vg_section_script')"></label>
+                <span class="text-[11px] tabular-nums"
+                      :class="videoModal.form.script.length > 4000 ? 'text-red-500' : 'text-gray-400'"
+                      x-text="`${videoModal.form.script.length}`"></span>
+              </div>
+              <textarea x-model="videoModal.form.script" rows="5"
+                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
+                        :placeholder="t('vg_script_placeholder')"></textarea>
+              <template x-if="videoModal.creation?.structured_content?.sections">
+                <details class="mt-2">
+                  <summary class="text-[11px] text-gray-400 cursor-pointer hover:text-gray-600 select-none flex items-center gap-1">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                    <span x-text="t('vg_visual_dir_label')"></span>
+                  </summary>
+                  <div class="mt-2 space-y-1.5 pl-1">
+                    <template x-for="[sid, sec] in Object.entries(videoModal.creation.structured_content.sections)" :key="sid">
+                      <div x-show="sec.visual_direction" class="text-[11px] text-gray-400">
+                        <span class="font-medium text-gray-500 uppercase" x-text="sid + ': '"></span>
+                        <span class="italic" x-text="sec.visual_direction"></span>
+                      </div>
+                    </template>
+                  </div>
+                </details>
+              </template>
+            </div>
+
+            <!-- ── Primary: Avatar (the one real decision — highest visual weight) ── -->
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <label class="text-sm font-semibold text-gray-800" x-text="t('vg_section_avatar')"></label>
                 <div class="flex items-center gap-2">
                   <span class="text-[10px] text-gray-400" x-text="filteredAvatars.length + ' / ' + uniqueAvatars.length"></span>
                   <button type="button"
@@ -525,8 +507,8 @@
                 </div>
               </div>
 
-              <!-- Filter pills -->
-              <div x-show="uniqueAvatars.length > 0" class="flex items-center gap-1.5 mb-2 flex-wrap">
+              <!-- Filter chips (subtle) -->
+              <div x-show="uniqueAvatars.length > 0" class="flex items-center gap-1 mb-2 flex-wrap">
                 <template x-for="opt in [
                   {v:'all',    l:t('vg_filter_all'),    n:avatarCounts.all},
                   {v:'male',   l:'♂ '+t('vg_filter_male'),   n:avatarCounts.male},
@@ -535,10 +517,10 @@
                   <button type="button"
                           x-show="opt.n > 0"
                           @click="videoModal.avatarFilter = opt.v"
-                          class="px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors"
+                          class="px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors"
                           :class="videoModal.avatarFilter === opt.v
-                            ? 'border-accent bg-accent/5 text-accent'
-                            : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50'">
+                            ? 'bg-accent/10 text-accent'
+                            : 'text-gray-500 hover:bg-gray-100'">
                     <span x-text="opt.l + ' (' + opt.n + ')'"></span>
                   </button>
                 </template>
@@ -551,32 +533,28 @@
               </div>
 
               <!-- Grid -->
-              <div x-show="uniqueAvatars.length > 0" class="grid grid-cols-4 gap-2 max-h-72 overflow-y-auto pr-1">
+              <div x-show="uniqueAvatars.length > 0" class="grid grid-cols-4 gap-2 max-h-[22rem] overflow-y-auto pr-1">
                 <template x-for="(a, idx) in filteredAvatars" :key="a.id || ('idx_' + idx)">
                   <button type="button"
                           @click="selectAvatar(a)"
                           @mouseenter="$el.querySelector('video')?.play().catch(()=>{})"
                           @mouseleave="const _v = $el.querySelector('video'); if (_v) { _v.pause(); _v.currentTime = 0; }"
                           class="group relative rounded-xl border-2 overflow-hidden transition-all aspect-square bg-gray-100"
-                          :class="videoModal.form.avatar_id === a.id ? 'border-accent ring-2 ring-accent/20' : 'border-gray-100 hover:border-gray-300'">
-                    <!-- Image (default state) -->
+                          :class="videoModal.form.avatar_id === a.id ? 'border-accent ring-1 ring-accent/30' : 'border-gray-100 hover:border-gray-300'">
                     <img x-show="a.preview_image_url"
                          :src="a.preview_image_url" :alt="a.name"
                          class="absolute inset-0 w-full h-full object-cover transition-opacity group-hover:opacity-0"
                          loading="lazy"
                          @error="$event.target.style.display='none'">
-                    <!-- Hover preview video (replaces image on hover) -->
                     <video x-show="a.preview_video_url"
                            :src="a.preview_video_url"
                            class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
                            muted loop playsinline preload="none">
                     </video>
-                    <!-- Name fallback when no image -->
                     <div class="absolute inset-0 flex items-center justify-center px-1 text-center text-[10px] text-gray-400 pointer-events-none"
                          x-show="!a.preview_image_url">
                       <span x-text="a.name"></span>
                     </div>
-                    <!-- Gender/age badges -->
                     <div class="absolute top-1 right-1 flex gap-0.5 pointer-events-none">
                       <span x-show="a.gender"
                             class="text-[9px] font-semibold px-1 py-0.5 rounded backdrop-blur-sm"
@@ -594,122 +572,10 @@
               </div>
             </div>
 
-            <!-- ── 3 · Voice (collapsed — auto-matched from Avatar) ── -->
-            <details class="group/voice">
-              <summary class="flex items-center justify-between cursor-pointer select-none hover:bg-gray-50 -mx-1 px-1 py-1 rounded-lg transition-colors">
-                <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 pointer-events-none">
-                  <span class="text-accent">3 ·</span>
-                  <span x-text="t('vg_section_voice')"></span>
-                </label>
-                <div class="flex items-center gap-2">
-                  <span x-show="videoModal.form.voice_id" class="text-[11px] text-gray-500"
-                        x-text="uniqueVoices.find(v => v.id === videoModal.form.voice_id)?.name || ''"></span>
-                  <span x-show="selectedAvatar && videoModal.form.voice_id" class="text-[10px] text-accent/60" x-text="t('vg_voice_match_hint')"></span>
-                  <svg class="w-3 h-3 text-gray-400 transition-transform group-open/voice:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                </div>
-              </summary>
-              <div class="mt-2">
-
-              <!-- Search + filter row -->
-              <div class="flex items-center gap-2 mb-2 flex-wrap">
-                <!-- Search box -->
-                <div class="relative flex-1 min-w-[160px]">
-                  <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                  <input type="text" x-model="videoModal.voiceSearch"
-                         :placeholder="t('vg_search_voice')"
-                         class="w-full pl-8 pr-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
-                </div>
-                <!-- Filter pills -->
-                <div class="flex items-center gap-1.5 flex-wrap">
-                  <button type="button"
-                          x-show="selectedAvatar"
-                          @click="videoModal.voiceFilter = 'best'"
-                          class="px-2 py-1 rounded-full text-[11px] font-medium border transition-colors"
-                          :class="videoModal.voiceFilter === 'best'
-                            ? 'border-accent bg-accent/5 text-accent'
-                            : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50'">
-                    <span x-text="'✨ ' + t('vg_filter_best')"></span>
-                  </button>
-                  <template x-for="opt in [
-                    {v:'all',    l:t('vg_filter_all'),    n:voiceCounts.all},
-                    {v:'male',   l:'♂', n:voiceCounts.male},
-                    {v:'female', l:'♀', n:voiceCounts.female},
-                  ]" :key="opt.v">
-                    <button type="button"
-                            x-show="opt.n > 0"
-                            @click="videoModal.voiceFilter = opt.v"
-                            class="px-2 py-1 rounded-full text-[11px] font-medium border transition-colors"
-                            :class="videoModal.voiceFilter === opt.v
-                              ? 'border-accent bg-accent/5 text-accent'
-                              : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50'">
-                      <span x-text="opt.l + ' (' + opt.n + ')'"></span>
-                    </button>
-                  </template>
-                </div>
-              </div>
-
-              <!-- Voice list -->
-              <div class="border border-gray-200 rounded-lg max-h-72 overflow-y-auto divide-y divide-gray-100">
-                <template x-for="(v, idx) in filteredVoices" :key="v.id || ('idx_' + idx)">
-                  <div class="flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors"
-                       :class="videoModal.form.voice_id === v.id ? 'bg-accent/5' : 'hover:bg-gray-50'"
-                       @click="videoModal.form.voice_id = v.id">
-                    <!-- Selection indicator -->
-                    <div class="w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center"
-                         :class="videoModal.form.voice_id === v.id ? 'border-accent' : 'border-gray-300'">
-                      <div x-show="videoModal.form.voice_id === v.id" class="w-2 h-2 rounded-full bg-accent"></div>
-                    </div>
-                    <!-- Match badge with tooltip -->
-                    <span x-show="voiceMatchLabel(v)"
-                          class="text-sm shrink-0 cursor-help"
-                          :title="voiceMatchTooltip(v)"
-                          x-text="voiceMatchLabel(v)"></span>
-                    <!-- Name + meta -->
-                    <div class="flex-1 min-w-0">
-                      <div class="text-sm font-medium text-gray-800 truncate" x-text="v.name"></div>
-                      <div class="text-[11px] text-gray-400 flex items-center gap-1.5">
-                        <span x-show="v.gender" x-text="v.gender === 'male' ? '♂' : '♀'"></span>
-                        <span x-show="v.age" x-text="t('vg_age_' + v.age)"></span>
-                        <span x-show="v.language" x-text="voiceLangLabel(v.language)"></span>
-                      </div>
-                    </div>
-                    <!-- Per-row audition button -->
-                    <button type="button"
-                            @click.stop="auditionVoice(v)"
-                            :disabled="videoModal.auditionLoadingId === v.id || !auditionCanPlay"
-                            :title="!auditionCanPlay ? t('vg_audition_no_text') : ''"
-                            class="shrink-0 inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                            :class="videoModal.auditionPlayingId === v.id
-                              ? 'border-accent bg-accent/5 text-accent'
-                              : 'border-gray-200 text-gray-600 hover:border-accent hover:text-accent'">
-                      <svg x-show="videoModal.auditionLoadingId === v.id" class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
-                      <svg x-show="videoModal.auditionLoadingId !== v.id && videoModal.auditionPlayingId === v.id" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
-                      <svg x-show="videoModal.auditionLoadingId !== v.id && videoModal.auditionPlayingId !== v.id" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                      <span x-text="t('vg_audition_short')"></span>
-                    </button>
-                  </div>
-                </template>
-                <!-- Empty filter state -->
-                <div x-show="filteredVoices.length === 0" class="py-6 text-center text-xs text-gray-400">
-                  <span x-text="t('vg_voices_no_match')"></span>
-                </div>
-              </div>
-              <p class="mt-1 text-[10px] text-gray-400">
-                <span x-show="auditionCanPlay" x-text="t('vg_audition_hint').replace('{n}', auditionPreviewText.length).replace('{text}', auditionPreviewText)"></span>
-                <span x-show="!auditionCanPlay" x-text="t('vg_audition_no_text')"></span>
-              </p>
-              <audio x-ref="auditionAudio" class="hidden" @ended="videoModal.auditionPlayingId = ''"></audio>
-              </div>
-            </details>
-
-            <!-- ── 4 · Format ── -->
+            <!-- ── Primary: Aspect ratio ── -->
             <div>
-              <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 block mb-2">
-                <span class="text-accent">4 ·</span>
-                <span x-text="t('vg_section_format')"></span>
-              </label>
-              <div class="grid grid-cols-3 gap-2 mb-3">
-                <!-- Portrait 9:16 -->
+              <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 block mb-2" x-text="t('vg_section_format')"></label>
+              <div class="grid grid-cols-3 gap-2">
                 <button type="button" @click="videoModal.form.aspect_ratio = 'portrait'"
                         class="py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center gap-1.5"
                         :class="videoModal.form.aspect_ratio === 'portrait'
@@ -723,7 +589,6 @@
                     <span class="text-[9px] text-gray-400 ml-1">9:16</span>
                   </div>
                 </button>
-                <!-- Landscape 16:9 -->
                 <button type="button" @click="videoModal.form.aspect_ratio = 'landscape'"
                         class="py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center gap-1.5"
                         :class="videoModal.form.aspect_ratio === 'landscape'
@@ -737,7 +602,6 @@
                     <span class="text-[9px] text-gray-400 ml-1">16:9</span>
                   </div>
                 </button>
-                <!-- Square 1:1 -->
                 <button type="button" @click="videoModal.form.aspect_ratio = 'square'"
                         class="py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center gap-1.5"
                         :class="videoModal.form.aspect_ratio === 'square'
@@ -752,78 +616,191 @@
                   </div>
                 </button>
               </div>
-              <!-- B-roll toggle (only when structured_content has visual_direction) -->
-              <template x-if="videoModal.creation?.structured_content?.sections && Object.values(videoModal.creation.structured_content.sections).some(s => s.visual_direction)">
-                <div class="mb-3 rounded-lg border border-dashed border-gray-200 p-2.5">
-                  <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-                    <input type="checkbox" x-model="videoModal.form.broll" class="accent-accent w-4 h-4">
-                    <span class="font-medium">穿插 B-roll 画面</span>
-                  </label>
-                  <p class="mt-1 ml-6 text-[11px] text-gray-400">
-                    在口播正文段自动插入 1-2 个 AI 生成的画面片段（每段约 5 秒），让叙述更生动。
-                    开头和结尾保持数字人出镜。
-                    <span class="text-amber-500">额外耗时约 3-5 分钟。</span>
-                  </p>
-                </div>
-              </template>
+            </div>
 
-              <!-- Caption toggle + style selector -->
-              <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-                <input type="checkbox" x-model="videoModal.form.caption" class="accent-accent w-4 h-4">
-                <span x-text="t('vg_caption')"></span>
-              </label>
-              <!-- Subtitle style + color (shown when caption enabled) -->
-              <div x-show="videoModal.form.caption" x-collapse class="mt-3 space-y-3">
-                <!-- Style presets with inline preview -->
-                <div class="flex gap-2">
-                  <template x-for="s in [
-                    {id:'classic', label:'经典',  desc:'标准白字',     color:'#FFFFFF', stroke:'#000000', size:'text-sm'},
-                    {id:'bold',    label:'醒目',  desc:'大字强调',     color:'#FFE033', stroke:'#1A1A1A', size:'text-base font-bold'},
-                    {id:'minimal', label:'简约',  desc:'细体低调',     color:'#E8E8E8', stroke:'#555555', size:'text-xs'},
-                  ]" :key="s.id">
-                    <button type="button"
-                            @click="videoModal.form.subtitle_style = s.id; videoModal.form.subtitle_color = ''; videoModal.form.subtitle_stroke = ''"
-                            class="flex-1 rounded-xl border-2 p-2.5 transition-all text-center"
-                            :class="videoModal.form.subtitle_style === s.id
-                              ? 'border-accent bg-accent/5'
-                              : 'border-gray-200 hover:border-gray-300'">
-                      <!-- Live preview bar -->
-                      <div class="bg-gray-800 rounded-md px-2 py-1.5 mb-1.5 flex items-center justify-center min-h-[28px]">
-                        <span :class="s.size"
-                              :style="`color:${videoModal.form.subtitle_color || s.color}; text-shadow: -1px -1px 0 ${videoModal.form.subtitle_stroke || s.stroke}, 1px -1px 0 ${videoModal.form.subtitle_stroke || s.stroke}, -1px 1px 0 ${videoModal.form.subtitle_stroke || s.stroke}, 1px 1px 0 ${videoModal.form.subtitle_stroke || s.stroke};`"
-                              >示例文字</span>
-                      </div>
-                      <div class="text-[11px] font-medium" :class="videoModal.form.subtitle_style === s.id ? 'text-accent' : 'text-gray-600'" x-text="s.label"></div>
-                      <div class="text-[10px] text-gray-400" x-text="s.desc"></div>
-                    </button>
-                  </template>
-                </div>
-                <!-- Custom color overrides -->
-                <div class="flex items-center gap-4 px-1">
-                  <label class="flex items-center gap-1.5 text-[11px] text-gray-500">
-                    <span>文字</span>
-                    <input type="color"
-                           :value="videoModal.form.subtitle_color || ({classic:'#FFFFFF',bold:'#FFE033',minimal:'#E8E8E8'}[videoModal.form.subtitle_style] || '#FFFFFF')"
-                           @input="videoModal.form.subtitle_color = $event.target.value"
-                           class="w-6 h-6 rounded border border-gray-300 cursor-pointer p-0"
-                           style="padding:1px;">
-                  </label>
-                  <label class="flex items-center gap-1.5 text-[11px] text-gray-500">
-                    <span>描边</span>
-                    <input type="color"
-                           :value="videoModal.form.subtitle_stroke || ({classic:'#000000',bold:'#1A1A1A',minimal:'#555555'}[videoModal.form.subtitle_style] || '#000000')"
-                           @input="videoModal.form.subtitle_stroke = $event.target.value"
-                           class="w-6 h-6 rounded border border-gray-300 cursor-pointer p-0"
-                           style="padding:1px;">
-                  </label>
-                  <button x-show="videoModal.form.subtitle_color || videoModal.form.subtitle_stroke"
-                          @click="videoModal.form.subtitle_color = ''; videoModal.form.subtitle_stroke = ''"
-                          class="text-[10px] text-gray-400 hover:text-accent transition-colors">
-                    重置颜色
-                  </button>
-                </div>
+            <!-- ── Primary: Enhancements (B-roll + Caption toggles) ── -->
+            <div class="space-y-2">
+              <!-- B-roll (conditional — only when structured_content has visual_direction) -->
+              <template x-if="videoModal.creation?.structured_content?.sections && Object.values(videoModal.creation.structured_content.sections).some(s => s.visual_direction)">
+                <label class="flex items-start gap-2 text-sm text-gray-600 cursor-pointer rounded-lg border border-gray-200 hover:border-gray-300 px-3 py-2.5 transition-colors">
+                  <input type="checkbox" x-model="videoModal.form.broll" class="accent-accent w-4 h-4 mt-0.5">
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span class="font-medium" x-text="t('vg_broll_label')"></span>
+                      <span class="text-[11px] text-gray-400 font-normal" x-text="t('vg_broll_time_suffix')"></span>
+                    </div>
+                    <p class="text-[11px] text-gray-400 mt-0.5" x-text="t('vg_broll_desc')"></p>
+                  </div>
+                </label>
+              </template>
+              <!-- Caption -->
+              <div class="flex items-center gap-2 rounded-lg border border-gray-200 hover:border-gray-300 px-3 py-2.5 transition-colors">
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer flex-1 min-w-0">
+                  <input type="checkbox" x-model="videoModal.form.caption" class="accent-accent w-4 h-4">
+                  <span class="font-medium" x-text="t('vg_caption')"></span>
+                </label>
+                <button type="button" x-show="videoModal.form.caption"
+                        @click="const d = document.getElementById('vg-advanced'); if (d) { d.open = true; d.scrollIntoView({behavior:'smooth', block:'nearest'}); }"
+                        class="text-[11px] text-accent/70 hover:text-accent transition-colors shrink-0"
+                        x-text="t('vg_caption_customize_hint')"></button>
               </div>
             </div>
+
+            <!-- ── Advanced (Voice + Caption style details) ── -->
+            <details class="group/advanced border-t border-gray-100 pt-4" id="vg-advanced">
+              <summary class="flex items-center justify-between cursor-pointer select-none hover:bg-gray-50 -mx-1 px-1 py-1 rounded-lg transition-colors">
+                <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 pointer-events-none"
+                       x-text="t('vg_advanced')"></label>
+                <div class="flex items-center gap-2 text-[11px] text-gray-400">
+                  <span x-show="videoModal.form.voice_id && uniqueVoices.find(v => v.id === videoModal.form.voice_id)"
+                        x-text="uniqueVoices.find(v => v.id === videoModal.form.voice_id)?.name || ''"></span>
+                  <svg class="w-3 h-3 transition-transform group-open/advanced:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </div>
+              </summary>
+              <div class="mt-4 space-y-5">
+
+                <!-- Voice -->
+                <div>
+                  <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 block mb-2" x-text="t('vg_section_voice')"></label>
+                  <div class="flex items-center gap-2 mb-2 flex-wrap">
+                    <div class="relative flex-1 min-w-[160px]">
+                      <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                      <input type="text" x-model="videoModal.voiceSearch"
+                             :placeholder="t('vg_search_voice')"
+                             class="w-full pl-8 pr-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+                    </div>
+                    <div class="flex items-center gap-1 flex-wrap">
+                      <button type="button"
+                              x-show="selectedAvatar"
+                              @click="videoModal.voiceFilter = 'best'"
+                              class="px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors"
+                              :class="videoModal.voiceFilter === 'best'
+                                ? 'bg-accent/10 text-accent'
+                                : 'text-gray-500 hover:bg-gray-100'">
+                        <span x-text="'✨ ' + t('vg_filter_best')"></span>
+                      </button>
+                      <template x-for="opt in [
+                        {v:'all',    l:t('vg_filter_all'),    n:voiceCounts.all},
+                        {v:'male',   l:'♂', n:voiceCounts.male},
+                        {v:'female', l:'♀', n:voiceCounts.female},
+                      ]" :key="opt.v">
+                        <button type="button"
+                                x-show="opt.n > 0"
+                                @click="videoModal.voiceFilter = opt.v"
+                                class="px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors"
+                                :class="videoModal.voiceFilter === opt.v
+                                  ? 'bg-accent/10 text-accent'
+                                  : 'text-gray-500 hover:bg-gray-100'">
+                          <span x-text="opt.l + ' (' + opt.n + ')'"></span>
+                        </button>
+                      </template>
+                    </div>
+                  </div>
+                  <div class="border border-gray-200 rounded-lg max-h-60 overflow-y-auto divide-y divide-gray-100">
+                    <template x-for="(v, idx) in filteredVoices" :key="v.id || ('idx_' + idx)">
+                      <div class="flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors"
+                           :class="videoModal.form.voice_id === v.id ? 'bg-accent/5' : 'hover:bg-gray-50'"
+                           @click="videoModal.form.voice_id = v.id">
+                        <div class="w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center"
+                             :class="videoModal.form.voice_id === v.id ? 'border-accent' : 'border-gray-300'">
+                          <div x-show="videoModal.form.voice_id === v.id" class="w-2 h-2 rounded-full bg-accent"></div>
+                        </div>
+                        <span x-show="voiceMatchLabel(v)"
+                              class="text-sm shrink-0 cursor-help"
+                              :title="voiceMatchTooltip(v)"
+                              x-text="voiceMatchLabel(v)"></span>
+                        <div class="flex-1 min-w-0">
+                          <div class="text-sm font-medium text-gray-800 truncate" x-text="v.name"></div>
+                          <div class="text-[11px] text-gray-400 flex items-center gap-1.5">
+                            <span x-show="v.gender" x-text="v.gender === 'male' ? '♂' : '♀'"></span>
+                            <span x-show="v.age" x-text="t('vg_age_' + v.age)"></span>
+                            <span x-show="v.language" x-text="voiceLangLabel(v.language)"></span>
+                          </div>
+                        </div>
+                        <button type="button"
+                                @click.stop="auditionVoice(v)"
+                                :disabled="videoModal.auditionLoadingId === v.id || !auditionCanPlay"
+                                :title="!auditionCanPlay ? t('vg_audition_no_text') : ''"
+                                class="shrink-0 inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                :class="videoModal.auditionPlayingId === v.id
+                                  ? 'border-accent bg-accent/5 text-accent'
+                                  : 'border-gray-200 text-gray-600 hover:border-accent hover:text-accent'">
+                          <svg x-show="videoModal.auditionLoadingId === v.id" class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                          <svg x-show="videoModal.auditionLoadingId !== v.id && videoModal.auditionPlayingId === v.id" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+                          <svg x-show="videoModal.auditionLoadingId !== v.id && videoModal.auditionPlayingId !== v.id" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                          <span x-text="t('vg_audition_short')"></span>
+                        </button>
+                      </div>
+                    </template>
+                    <div x-show="filteredVoices.length === 0" class="py-6 text-center text-xs text-gray-400">
+                      <span x-text="t('vg_voices_no_match')"></span>
+                    </div>
+                  </div>
+                  <p class="mt-1 text-[10px] text-gray-400">
+                    <span x-show="auditionCanPlay" x-text="t('vg_audition_hint').replace('{n}', auditionPreviewText.length).replace('{text}', auditionPreviewText)"></span>
+                    <span x-show="!auditionCanPlay" x-text="t('vg_audition_no_text')"></span>
+                  </p>
+                  <audio x-ref="auditionAudio" class="hidden" @ended="videoModal.auditionPlayingId = ''"></audio>
+                </div>
+
+                <!-- Caption style (shown only when caption enabled above) -->
+                <div x-show="videoModal.form.caption" x-collapse>
+                  <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 block mb-2" x-text="t('vg_caption_style')"></label>
+                  <div class="flex gap-2">
+                    <template x-for="s in [
+                      {id:'classic', label:t('vg_subtitle_classic'),  desc:t('vg_subtitle_classic_desc'), color:'#FFFFFF', stroke:'#000000', size:'text-sm'},
+                      {id:'bold',    label:t('vg_subtitle_bold'),     desc:t('vg_subtitle_bold_desc'),    color:'#FFE033', stroke:'#1A1A1A', size:'text-base font-bold'},
+                      {id:'minimal', label:t('vg_subtitle_minimal'),  desc:t('vg_subtitle_minimal_desc'), color:'#E8E8E8', stroke:'#555555', size:'text-xs'},
+                    ]" :key="s.id">
+                      <button type="button"
+                              @click="videoModal.form.subtitle_style = s.id; videoModal.form.subtitle_color = ''; videoModal.form.subtitle_stroke = ''"
+                              class="flex-1 rounded-xl border-2 p-2.5 transition-all text-center"
+                              :class="videoModal.form.subtitle_style === s.id
+                                ? 'border-accent bg-accent/5'
+                                : 'border-gray-200 hover:border-gray-300'">
+                        <div class="bg-gray-800 rounded-md px-2 py-1.5 mb-1.5 flex items-center justify-center min-h-[28px]">
+                          <span :class="s.size"
+                                :style="`color:${videoModal.form.subtitle_color || s.color}; text-shadow: -1px -1px 0 ${videoModal.form.subtitle_stroke || s.stroke}, 1px -1px 0 ${videoModal.form.subtitle_stroke || s.stroke}, -1px 1px 0 ${videoModal.form.subtitle_stroke || s.stroke}, 1px 1px 0 ${videoModal.form.subtitle_stroke || s.stroke};`"
+                                x-text="t('vg_subtitle_preview_text')"></span>
+                        </div>
+                        <div class="text-[11px] font-medium" :class="videoModal.form.subtitle_style === s.id ? 'text-accent' : 'text-gray-600'" x-text="s.label"></div>
+                        <div class="text-[10px] text-gray-400" x-text="s.desc"></div>
+                      </button>
+                    </template>
+                  </div>
+                  <!-- Customize colors (collapsed by default) -->
+                  <details class="mt-3">
+                    <summary class="text-[11px] text-gray-400 cursor-pointer hover:text-gray-600 select-none flex items-center gap-1">
+                      <svg class="w-3 h-3 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                      <span x-text="t('vg_customize_colors')"></span>
+                    </summary>
+                    <div class="mt-2 flex items-center gap-4 px-1">
+                      <label class="flex items-center gap-1.5 text-[11px] text-gray-500">
+                        <span x-text="t('vg_subtitle_color_text')"></span>
+                        <input type="color"
+                               :value="videoModal.form.subtitle_color || ({classic:'#FFFFFF',bold:'#FFE033',minimal:'#E8E8E8'}[videoModal.form.subtitle_style] || '#FFFFFF')"
+                               @input="videoModal.form.subtitle_color = $event.target.value"
+                               class="w-6 h-6 rounded border border-gray-300 cursor-pointer p-0"
+                               style="padding:1px;">
+                      </label>
+                      <label class="flex items-center gap-1.5 text-[11px] text-gray-500">
+                        <span x-text="t('vg_subtitle_color_stroke')"></span>
+                        <input type="color"
+                               :value="videoModal.form.subtitle_stroke || ({classic:'#000000',bold:'#1A1A1A',minimal:'#555555'}[videoModal.form.subtitle_style] || '#000000')"
+                               @input="videoModal.form.subtitle_stroke = $event.target.value"
+                               class="w-6 h-6 rounded border border-gray-300 cursor-pointer p-0"
+                               style="padding:1px;">
+                      </label>
+                      <button x-show="videoModal.form.subtitle_color || videoModal.form.subtitle_stroke"
+                              @click="videoModal.form.subtitle_color = ''; videoModal.form.subtitle_stroke = ''"
+                              class="text-[10px] text-gray-400 hover:text-accent transition-colors"
+                              x-text="t('vg_subtitle_reset')"></button>
+                    </div>
+                  </details>
+                </div>
+
+              </div>
+            </details>
 
             <!-- Submit error -->
             <div x-show="videoModal.submitError" class="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-xl"
@@ -911,6 +888,7 @@
         searchQ: '',
         filterType: '',
         filterSource: '',
+        flashCreationId: '',  // transient highlight when arriving from ?highlight=<id>
         modal: {
           open: false,
           mode: 'new',  // 'new' | 'edit'
@@ -1175,8 +1153,9 @@
           document.title = t('creations_title') + ' - OpenLucid';
           await this.reload();
 
-          // Auto-open video modal when redirected from Script Writer "Generate Video" button
           const urlParams = new URLSearchParams(location.search);
+
+          // Auto-open video modal when redirected from Script Writer "Generate Video" button
           const openVideoId = urlParams.get('open_video');
           if (openVideoId) {
             history.replaceState(null, '', location.pathname);
@@ -1185,6 +1164,17 @@
               const creation = await res.json();
               await this.openVideoModal(creation);
             }
+          }
+
+          // Flash-highlight a creation when arriving from an app's "View in Library" link
+          const highlightId = urlParams.get('highlight');
+          if (highlightId) {
+            history.replaceState(null, '', location.pathname);
+            this.flashCreationId = highlightId;
+            await this.$nextTick();
+            const el = document.querySelector(`[data-creation-id="${highlightId}"]`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setTimeout(() => { this.flashCreationId = ''; }, 2400);
           }
         },
 
@@ -1265,10 +1255,10 @@
               await this.reload();
             } else {
               const err = await res.json().catch(() => ({}));
-              alert((err.error?.message || err.detail || 'Save failed'));
+              toast.error((err.error?.message || err.detail || 'Save failed'));
             }
           } catch (e) {
-            alert('Save failed: ' + e.message);
+            toast.error('Save failed: ' + e.message);
           }
           this.modal.saving = false;
         },
@@ -1383,18 +1373,25 @@
         },
 
         _isRecreatable(contentType) {
-          // Content types that should offer "Recreate as Script" instead of Generate Video
-          // Excludes: video-ready (has its own button), text posts (final product, no video)
-          if (!contentType || contentType === 'general' || contentType === 'kb_qa') return true;
-          if (contentType.startsWith('mcp:') || contentType === 'manual') return true;
-          return false;
+          // Content types that should offer "Open in Creator" instead of Generate Video
+          // Excludes: video-ready (has its own button)
+          if (!contentType) return true;
+          if (contentType === 'script_video' || contentType === 'script_writer') return false;
+          return true;
+        },
+
+        _recreatorApp(contentType) {
+          // Route text-oriented content back to Content Studio; everything else → Script Writer.
+          const textTypes = ['text_post', 'article', 'thread', 'post', 'xhs_post'];
+          if (contentType && textTypes.includes(contentType)) return '/content-studio.html';
+          return '/script-writer.html';
         },
 
         goRecreate(creation) {
           const p = new URLSearchParams();
           if (creation.offer_id) p.set('offer_id', creation.offer_id);
           p.set('ref_creation_id', creation.id);
-          window.location.href = `/script-writer.html?${p}`;
+          window.location.href = `${this._recreatorApp(creation.content_type)}?${p}`;
         },
 
         openVideoPlayer(url, poster) {
@@ -1591,7 +1588,7 @@
               if (!url) throw new Error('No audio URL returned');
               m.auditionCache[v.id] = url;
             } catch (e) {
-              alert(t('vg_audition_failed') + (e.message || String(e)));
+              toast.error(t('vg_audition_failed') + (e.message || String(e)));
               return;
             } finally {
               m.auditionLoadingId = '';

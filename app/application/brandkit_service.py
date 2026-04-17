@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions import AppError, ConflictError, NotFoundError
 from app.infrastructure.asset_repo import AssetRepository
 from app.infrastructure.brandkit_repo import BrandKitAssetLinkRepository, BrandKitRepository
+from app.infrastructure.merchant_repo import MerchantRepository
 from app.infrastructure.offer_repo import OfferRepository
 from app.models.brandkit import BrandKit
 from app.models.brandkit_asset_link import BrandKitAssetLink
@@ -27,13 +28,29 @@ class BrandKitService:
         self.session = session
         self.repo = BrandKitRepository(session)
         self.offer_repo = OfferRepository(session)
+        self.merchant_repo = MerchantRepository(session)
 
     async def create(self, data: BrandKitCreate) -> BrandKit:
         if data.scope_type.value == "merchant":
             existing = await self.repo.get_by_scope("merchant", data.scope_id)
             if existing:
                 raise ConflictError("This merchant already has a brand kit. Only one company-level brand kit is allowed per merchant")
-        return await self.repo.create(**data.model_dump())
+        payload = data.model_dump()
+        # Back-fill name from the scope parent when the caller omits it. Keeps
+        # list/display paths working without requiring callers to pass a
+        # redundant value.
+        if not payload.get("name"):
+            payload["name"] = await self._derive_name(data.scope_type.value, data.scope_id)
+        return await self.repo.create(**payload)
+
+    async def _derive_name(self, scope_type: str, scope_id: uuid.UUID) -> str | None:
+        if scope_type == "merchant":
+            merchant = await self.merchant_repo.get_by_id(scope_id)
+            return merchant.name if merchant else None
+        if scope_type == "offer":
+            offer = await self.offer_repo.get_by_id(scope_id)
+            return offer.name if offer else None
+        return None
 
     async def get(self, kit_id: uuid.UUID) -> BrandKit:
         kit = await self.repo.get_by_id(kit_id)

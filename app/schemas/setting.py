@@ -143,6 +143,7 @@ class McpTokenResponse(BaseModel):
     label: str
     token_preview: str  # "••••xxxx"
     created_at: str
+    last_used_at: str | None = None  # null = never used
 
     model_config = {"from_attributes": True}
 

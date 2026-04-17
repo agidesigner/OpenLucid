@@ -24,6 +24,7 @@
   </script>
   <script src="/js/i18n.js"></script>
   <script src="/js/pinned-apps.js"></script>
+  <script src="/js/shared.js"></script>
   <script src="/js/avatar.js"></script>
   <script src="/js/feedback.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
@@ -53,9 +54,9 @@
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
         <span x-text="t('sidebar_offers')"></span>
       </a>
-      <a href="/apps.html" class="sidebar-item">
-        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
-        <span x-text="t('sidebar_apps')"></span>
+      <a href="/brandkit-list.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
       </a>
       <a href="/creations.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
@@ -64,10 +65,6 @@
       <a href="/video-studio.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
         <span x-text="t('sidebar_videos')"></span>
-      </a>
-      <a href="/brandkit-list.html" class="sidebar-item">
-        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
-        <span x-text="t('sidebar_brandkit')"></span>
       </a>
     </nav>
     <div class="px-3 pb-3 mt-auto">
@@ -78,31 +75,19 @@
   <!-- Main -->
   <div class="flex-1 flex flex-col overflow-hidden">
     <header class="h-14 bg-white border-b flex items-center justify-between px-6 shrink-0">
+      <!-- Workspace identity — read-only here. Rename happens in the brand kit
+           (which is where the merchant's identity is edited). -->
       <div class="flex items-center gap-2">
-        <template x-if="editingName">
-          <input x-ref="headerNameInput" x-model="newCompanyName" type="text"
-                 class="text-base font-semibold text-gray-800 border border-accent rounded-lg px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-accent/30 w-48"
-                 @keydown.enter="saveCompanyName()" @keydown.escape="editingName=false"
-                 @blur="saveCompanyName()">
-        </template>
-        <template x-if="!editingName">
-          <div class="flex items-center gap-2">
-            <select x-show="merchants.length > 1"
-                    class="text-base font-semibold text-gray-800 border-none bg-transparent focus:outline-none cursor-pointer pr-6"
-                    :value="workspace?.id"
-                    @change="switchWorkspace($event.target.value)">
-              <template x-for="m in merchants" :key="m.id">
-                <option :value="m.id" x-text="m.name" :selected="m.id === workspace?.id"></option>
-              </template>
-            </select>
-            <h1 x-show="merchants.length <= 1" class="text-base font-semibold text-gray-800"
-                x-text="workspace?.name || t('header_title')"></h1>
-            <button @click="editingName=true; newCompanyName=workspace?.name||''; $nextTick(()=>$refs.headerNameInput?.focus())"
-                    class="text-gray-300 hover:text-accent transition-colors">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
-            </button>
-          </div>
-        </template>
+        <select x-show="merchants.length > 1"
+                class="text-base font-semibold text-gray-800 border-none bg-transparent focus:outline-none cursor-pointer pr-6"
+                :value="workspace?.id"
+                @change="switchWorkspace($event.target.value)">
+          <template x-for="m in merchants" :key="m.id">
+            <option :value="m.id" x-text="m.name" :selected="m.id === workspace?.id"></option>
+          </template>
+        </select>
+        <h1 x-show="merchants.length <= 1" class="text-base font-semibold text-gray-800"
+            x-text="workspace?.name || t('header_title')"></h1>
       </div>
       <div class="flex items-center gap-3">
         <button @click="openWizard()" class="bg-accent text-white px-4 py-[7px] rounded-lg text-[13px] font-medium hover:bg-accent-hover transition-colors flex items-center gap-1.5">
@@ -220,14 +205,14 @@
         </div>
       </div>
 
-      <!-- Next-step cards: shown when user has offers but no creations yet -->
-      <div x-show="!loading && !dbError && offers.length > 0 && !hasCreations && !nextStepDismissed" x-cloak class="mb-5">
+      <!-- Next-step cards: "Start creating" while no creation yet; "Connect agent" while no MCP token. -->
+      <div x-show="!loading && !dbError && offers.length > 0 && (!hasCreations || mcpTokensCount === 0) && !nextStepDismissed" x-cloak class="mb-5">
         <div class="flex items-center justify-between mb-3">
           <h2 class="text-sm font-semibold text-gray-700" x-text="t('home_nextstep_title')"></h2>
           <button @click="dismissNextStep()" class="text-xs text-gray-400 hover:text-gray-600" x-text="t('home_nextstep_dismiss')"></button>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <a :href="'/script-writer.html' + (offers.length === 1 ? '?offer_id=' + offers[0].id : '')"
+          <a x-show="!hasCreations" :href="'/script-writer.html' + (offers.length === 1 ? '?offer_id=' + offers[0].id : '')"
              class="group bg-white border border-gray-200 rounded-xl p-5 hover:border-accent hover:shadow-md transition-all">
             <div class="flex items-start gap-3">
               <div class="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center text-xl">🎬</div>
@@ -245,7 +230,7 @@
               </div>
             </div>
           </a>
-          <a href="/setting.html?section=mcp"
+          <a x-show="mcpTokensCount === 0" href="/setting.html?section=mcp"
              class="group bg-white border border-gray-200 rounded-xl p-5 hover:border-accent hover:shadow-md transition-all">
             <div class="flex items-start gap-3">
               <div class="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-xl">🔌</div>
@@ -256,6 +241,7 @@
                 </div>
                 <p class="text-[13px] text-gray-500 leading-relaxed" x-text="t('home_nextstep_agent_desc')"></p>
                 <div class="flex gap-2 mt-3">
+                  <span class="text-[11px] bg-gray-50 text-gray-500 px-2 py-0.5 rounded">OpenClaw</span>
                   <span class="text-[11px] bg-gray-50 text-gray-500 px-2 py-0.5 rounded">Claude</span>
                   <span class="text-[11px] bg-gray-50 text-gray-500 px-2 py-0.5 rounded">Cursor</span>
                   <span class="text-[11px] bg-gray-50 text-gray-500 px-2 py-0.5 rounded">MCP</span>
@@ -668,13 +654,15 @@
     function app() {
       return {
         workspace: null, merchants: [], offers: [], loading: false, dbError: false,
-        editingName: false, newCompanyName: '', savingName: false,
+        // editingName / newCompanyName / savingName — removed. Rename lives in brandkit.
         companyScore: null, offerScores: {}, scoresLoaded: false,
         aiReady: null, // null=checking, true=ready, false=not configured
         aiProvider: null, // provider name from /ai/status
         showNoLLMDialog: false,
         // Next-step guidance (shown on Home when user has offers but no creations)
         hasCreations: false,
+        // MCP token count — controls "Connect agent" card visibility
+        mcpTokensCount: 0,
         nextStepDismissed: false,
         wizard: {
           open: false, step: 0,
@@ -703,24 +691,6 @@
         },
 
 
-        async saveCompanyName() {
-          if (!this.newCompanyName.trim() || !this.workspace) return;
-          this.savingName = true;
-          try {
-            const res = await fetch(`${API}/merchants/${this.workspace.id}`, {
-              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name: this.newCompanyName.trim() }),
-            });
-            if (res.ok) {
-              this.workspace = await res.json();
-              const idx = this.merchants.findIndex(m => m.id === this.workspace.id);
-              if (idx >= 0) this.merchants[idx] = this.workspace;
-              this.editingName = false;
-              this.newCompanyName = '';
-            }
-          } catch {}
-          this.savingName = false;
-        },
 
         async init() {
           document.title = t('page_title') + ' - OpenLucid';
@@ -729,7 +699,10 @@
           this.merchants = ws.merchants;
           if (!this.workspace) { this.dbError = true; return; }
           this.nextStepDismissed = localStorage.getItem('od_nextstep_dismissed') === '1';
-          await Promise.all([this.fetchOffers(), this.checkAI(), this.fetchScores(), this.checkCreations()]);
+          await Promise.all([
+            this.fetchOffers(), this.checkAI(), this.fetchScores(),
+            this.checkCreations(), this.checkMcpTokens(),
+          ]);
         },
 
         async checkCreations() {
@@ -740,6 +713,16 @@
               this.hasCreations = (d.total || 0) > 0;
             }
           } catch { this.hasCreations = false; }
+        },
+
+        async checkMcpTokens() {
+          try {
+            const r = await fetch(`${API}/settings/mcp-tokens`);
+            if (r.ok) {
+              const tokens = await r.json();
+              this.mcpTokensCount = Array.isArray(tokens) ? tokens.length : 0;
+            }
+          } catch { this.mcpTokensCount = 0; }
         },
 
         dismissNextStep() {
@@ -842,8 +825,8 @@
             const res = await fetch(`${API}/offers/${id}`, { method: 'DELETE' });
             if (res.ok || res.status === 204) {
               this.offers = this.offers.filter(o => o.id !== id);
-            } else { alert(t('delete_failed')); }
-          } catch { alert(t('delete_failed')); }
+            } else { toast.error(t('delete_failed')); }
+          } catch { toast.error(t('delete_failed')); }
         },
 
         async fetchOffers() {
@@ -874,10 +857,10 @@
             const fd = new FormData();
             fd.append('url', this.wizard.url);
             const res = await fetch(`${API}/ai/extract-text`, { method: 'POST', body: fd });
-            if (!res.ok) { const e = await res.json(); alert(e.detail || t('extract_failed')); this.wizard.extracting = false; return; }
+            if (!res.ok) { const e = await res.json(); toast.error(e.detail || t('extract_failed')); this.wizard.extracting = false; return; }
             const data = await res.json();
             this.wizard.descUrlText = data.text;
-          } catch { alert(t('extract_url_failed')); }
+          } catch { toast.error(t('extract_url_failed')); }
           this.wizard.extracting = false;
         },
 
@@ -890,18 +873,18 @@
             const fd = new FormData();
             fd.append('file', file);
             const res = await fetch(`${API}/ai/extract-text`, { method: 'POST', body: fd });
-            if (!res.ok) { const e = await res.json(); alert(e.detail || t('extract_failed')); this.wizard.extracting = false; return; }
+            if (!res.ok) { const e = await res.json(); toast.error(e.detail || t('extract_failed')); this.wizard.extracting = false; return; }
             const data = await res.json();
             this.wizard.descFileText = data.text;
-          } catch { alert(t('file_parse_failed')); }
+          } catch { toast.error(t('file_parse_failed')); }
           this.wizard.extracting = false;
           event.target.value = '';
         },
 
         // ── AI inference with streaming thinking ──
         async startInfer() {
-          if (!this.wizard.name.trim()) { alert(t('fill_name')); return; }
-          if (!this.wizard.offer_type) { alert(t('select_type')); return; }
+          if (!this.wizard.name.trim()) { toast.error(t('fill_name')); return; }
+          if (!this.wizard.offer_type) { toast.error(t('select_type')); return; }
           this.wizard.step = 1;
           this.wizard.inferring = true;
           this.wizard.progress = 0;
@@ -953,8 +936,8 @@
               if (res.status === 503) { this.aiReady = false; this.showNoLLMDialog = true; }
               else if (res.status === 502) {
                 const err = await res.json().catch(() => ({}));
-                alert(t('ai_llm_error') + (err.detail || ''));
-              } else { alert(t('ai_infer_failed')); }
+                toast.error(t('ai_llm_error') + (err.detail || ''));
+              } else { toast.error(t('ai_infer_failed')); }
               return;
             }
 
@@ -1004,7 +987,7 @@
           } catch (e) {
             clearInterval(timer);
             const detail = e.message || '';
-            alert(t('ai_infer_failed') + (detail ? '\n' + detail : ''));
+            toast.error(t('ai_infer_failed') + (detail ? '\n' + detail : ''));
             this.wizard.step = 0;
           }
           this.wizard.inferring = false;
@@ -1019,7 +1002,7 @@
 
         // ── Create offer + save knowledge ──
         async confirmCreate() {
-          if (!this.workspace) { alert(t('workspace_not_ready')); return; }
+          if (!this.workspace) { toast.error(t('workspace_not_ready')); return; }
           this.wizard.creating = true;
 
           // 1. Create offer
@@ -1042,7 +1025,7 @@
             body: JSON.stringify(offerBody),
           });
 
-          if (!offerRes.ok) { alert(t('create_offer_failed')); this.wizard.creating = false; return; }
+          if (!offerRes.ok) { toast.error(t('create_offer_failed')); this.wizard.creating = false; return; }
           const offer = await offerRes.json();
 
           // 2. Batch save knowledge

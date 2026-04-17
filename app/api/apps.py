@@ -257,6 +257,37 @@ async def script_writer_list_goals(lang: str = Query("zh", pattern="^(zh|en)$"))
     ]
 
 
+# ── Asset Tagging — closed-vocabulary enums ──────────────────
+
+
+@router.get("/asset-tagging/content-forms")
+async def asset_tagging_list_content_forms(lang: str = Query("zh", pattern="^(zh|en)$")):
+    from app.application.content_forms import list_content_forms
+    return [
+        {
+            "id": cf.id,
+            "name": cf.localized_name(lang),
+            "emoji": cf.emoji,
+            "description": cf.localized_description(lang),
+        }
+        for cf in list_content_forms()
+    ]
+
+
+@router.get("/asset-tagging/campaign-types")
+async def asset_tagging_list_campaign_types(lang: str = Query("zh", pattern="^(zh|en)$")):
+    from app.application.campaign_types import list_campaign_types
+    return [
+        {
+            "id": ct.id,
+            "name": ct.localized_name(lang),
+            "emoji": ct.emoji,
+            "description": ct.localized_description(lang),
+        }
+        for ct in list_campaign_types()
+    ]
+
+
 @router.post("/script-writer/suggest-topic")
 async def script_writer_suggest_topic(
     data: dict,

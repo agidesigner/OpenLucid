@@ -93,6 +93,19 @@ async def get_offer_primary_lang(offer_id: uuid.UUID, db: AsyncSession = Depends
     return {"language": lang, "source": "content_sample", "cjk_ratio": round(ratio, 3)}
 
 
+@router.get("/{offer_id}/consumption_summary")
+async def get_offer_consumption_summary(
+    offer_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+):
+    """Return aggregate stats on how this offer's knowledge has been consumed.
+
+    Shape: {creations_total, by_source: {<source_app>: count}, last_used_at}.
+    Used by the Offer page's Consumption card.
+    """
+    svc = OfferService(db)
+    return await svc.get_consumption_summary(offer_id)
+
+
 @router.patch("/{offer_id}", response_model=OfferResponse)
 async def update_offer(
     offer_id: uuid.UUID, data: OfferUpdate, db: AsyncSession = Depends(get_db)

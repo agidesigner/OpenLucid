@@ -27,6 +27,7 @@
   <script src="/js/avatar.js"></script>
   <script src="/js/feedback.js"></script>
   <script src="/js/topic-picker.js"></script>
+  <script src="/js/shared.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
     [x-cloak]{display:none!important}
@@ -51,9 +52,9 @@
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
         <span x-text="t('sidebar_offers')"></span>
       </a>
-            <a href="/apps.html" class="sidebar-item active">
-        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
-        <span x-text="t('sidebar_apps')"></span>
+      <a href="/brandkit-list.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
       </a>
       <a href="/creations.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
@@ -62,10 +63,6 @@
       <a href="/video-studio.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
         <span x-text="t('sidebar_videos')"></span>
-      </a>
-      <a href="/brandkit-list.html" class="sidebar-item">
-        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
-        <span x-text="t('sidebar_brandkit')"></span>
       </a>
     </nav>
     <div class="px-3 pb-3 mt-auto">
@@ -78,7 +75,7 @@
     <!-- Header -->
     <header class="bg-white border-b px-6 shrink-0">
       <div class="h-14 flex items-center gap-2">
-        <a href="/apps.html" class="text-sm text-gray-400 hover:text-accent" x-text="t('breadcrumb_apps')"></a>
+        <a href="/" class="text-sm text-gray-400 hover:text-accent" x-text="t('breadcrumb_home')"></a>
         <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
         <span class="text-sm font-medium text-gray-800">💡 <span x-text="t('page_title')"></span></span>
         <div class="flex-1"></div>
@@ -102,17 +99,6 @@
             </template>
           </select>
         </div>
-        <!-- LLM model selector -->
-        <div class="flex items-center gap-2" x-show="llmConfigs.length > 0" x-cloak>
-          <label class="text-sm text-gray-500 shrink-0" x-text="t('model_label')"></label>
-          <select x-model="configId"
-                  class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent min-w-[10rem]">
-            <option value="" x-text="t('model_default')"></option>
-            <template x-for="c in llmConfigs" :key="c.id">
-              <option :value="c.id" x-text="c.label + ' (' + c.model_name + ')'"></option>
-            </template>
-          </select>
-        </div>
         <!-- Strategy unit selector (shown once offer is selected) -->
         <div class="flex items-center gap-2" x-show="offerId && strategyUnits.length > 0" x-cloak>
           <label class="text-sm text-gray-500 shrink-0" x-text="t('unit_label')"></label>
@@ -121,6 +107,17 @@
             <option value="" x-text="t('unit_default')"></option>
             <template x-for="u in strategyUnits" :key="u.id">
               <option :value="u.id" x-text="u.name"></option>
+            </template>
+          </select>
+        </div>
+        <!-- LLM model selector -->
+        <div class="flex items-center gap-2" x-show="llmConfigs.length > 0" x-cloak>
+          <label class="text-sm text-gray-500 shrink-0" x-text="t('model_label')"></label>
+          <select x-model="configId"
+                  class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent min-w-[10rem]">
+            <option value="" x-text="t('model_default')"></option>
+            <template x-for="c in llmConfigs" :key="c.id">
+              <option :value="c.id" x-text="c.label + ' (' + c.model_name + ')'"></option>
             </template>
           </select>
         </div>
@@ -350,12 +347,12 @@
                       </div>
                       <div class="flex items-center gap-1 shrink-0 ml-3">
                         <a :href="_topicToUrl('/script-writer.html', p)"
-                           class="p-1 rounded-md text-gray-300 hover:text-accent hover:bg-accent/5 opacity-0 group-hover:opacity-100 transition-all"
+                           class="p-1 rounded-md text-gray-300 hover:text-accent hover:bg-accent/5 opacity-60 hover:opacity-100 transition-opacity"
                            :title="t('topic_make_video')">
                           <span class="text-[13px]">🎬</span>
                         </a>
                         <a :href="_topicToUrl('/content-studio.html', p)"
-                           class="p-1 rounded-md text-gray-300 hover:text-accent hover:bg-accent/5 opacity-0 group-hover:opacity-100 transition-all"
+                           class="p-1 rounded-md text-gray-300 hover:text-accent hover:bg-accent/5 opacity-60 hover:opacity-100 transition-opacity"
                            :title="t('topic_write_post')">
                           <span class="text-[13px]">📝</span>
                         </a>
@@ -615,9 +612,9 @@
             } else {
               const err = await res.json().catch(() => ({}));
               const msg = err.detail || t('generate_failed_retry');
-              alert(t('generate_failed') + (msg.length > 120 ? msg.slice(0, 120) + '…' : msg));
+              toast.error(t('generate_failed') + (msg.length > 120 ? msg.slice(0, 120) + '…' : msg));
             }
-          } catch { alert(t('generate_failed_retry')); }
+          } catch { toast.error(t('generate_failed_retry')); }
 
           clearInterval(timer);
           this.generating = false;

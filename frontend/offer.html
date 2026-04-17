@@ -24,6 +24,7 @@
   </script>
   <script src="/js/i18n.js"></script>
   <script src="/js/pinned-apps.js"></script>
+  <script src="/js/shared.js"></script>
   <script src="/js/avatar.js"></script>
   <script src="/js/feedback.js"></script>
   <script src="/js/topic-picker.js"></script>
@@ -53,9 +54,9 @@
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
         <span x-text="t('sidebar_offers')"></span>
       </a>
-            <a href="/apps.html" class="sidebar-item">
-        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
-        <span x-text="t('sidebar_apps')"></span>
+      <a href="/brandkit-list.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
       </a>
       <a href="/creations.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
@@ -64,10 +65,6 @@
       <a href="/video-studio.html" class="sidebar-item">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
         <span x-text="t('sidebar_videos')"></span>
-      </a>
-      <a href="/brandkit-list.html" class="sidebar-item">
-        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
-        <span x-text="t('sidebar_brandkit')"></span>
       </a>
     </nav>
     <div class="px-3 pb-3 mt-auto">
@@ -104,6 +101,39 @@
       </div>
 
       <div class="flex items-center gap-3">
+        <!-- Consumption indicator — lightweight proof that this offer's KB
+             is being consumed by agents/apps. Paired with MCP for visual grouping. -->
+        <div x-show="consumption && (consumption.creations_total || 0) > 0" x-cloak
+             x-data="{ open: false }" @click.outside="open = false"
+             class="relative">
+          <button @click="open = !open"
+                  class="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 border border-gray-200 hover:border-gray-300 px-2.5 py-1.5 rounded-lg transition-colors"
+                  :title="t('offer_consumption_title')">
+            <svg class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 17l6-6 4 4 8-8m0 0v6m0-6h-6"/>
+            </svg>
+            <span class="tabular-nums" x-text="consumption?.creations_total"></span>
+          </button>
+          <div x-show="open" x-cloak x-transition.opacity
+               class="absolute right-0 top-full mt-2 w-64 bg-white border border-gray-100 rounded-xl shadow-lg z-50 p-4">
+            <div class="flex items-baseline justify-between mb-2">
+              <span class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide" x-text="t('offer_consumption_title')"></span>
+              <span class="text-xl font-bold text-gray-800 tabular-nums" x-text="consumption?.creations_total ?? 0"></span>
+            </div>
+            <p x-show="consumption?.last_used_at" class="text-[11px] text-gray-400 mb-3">
+              <span x-text="t('offer_consumption_last_used')"></span>
+              <span class="ml-1" x-text="formatRelative(consumption?.last_used_at)"></span>
+            </p>
+            <div class="flex flex-wrap gap-1.5">
+              <template x-for="[src, n] in Object.entries(consumption?.by_source || {})" :key="src">
+                <span class="od-chip od-chip-neutral">
+                  <span x-text="src"></span>
+                  <span class="text-gray-400 ml-0.5 tabular-nums" x-text="n"></span>
+                </span>
+              </template>
+            </div>
+          </div>
+        </div>
         <a href="/setting.html?section=mcp" class="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 border border-gray-200 hover:border-gray-300 px-2.5 py-1.5 rounded-lg transition-colors">
 
           <span class="w-1.5 h-1.5 bg-green-400 rounded-full"></span>
@@ -156,13 +186,13 @@
         </div>
         <div class="flex flex-wrap gap-1.5 mt-3">
           <template x-for="sp in (offer?.core_selling_points_json?.points || [])">
-            <span class="bg-blue-50 text-blue-600 text-[11px] px-2.5 py-1 rounded-full font-medium" x-text="sp"></span>
+            <span class="od-tag od-tag-primary" x-text="sp"></span>
           </template>
           <template x-for="a in (offer?.target_audience_json?.items || [])">
-            <span class="bg-green-50 text-green-600 text-[11px] px-2.5 py-1 rounded-full font-medium" x-text="a"></span>
+            <span class="od-tag od-tag-success" x-text="a"></span>
           </template>
           <template x-for="s in (offer?.target_scenarios_json?.items || [])">
-            <span class="bg-orange-50 text-orange-600 text-[11px] px-2.5 py-1 rounded-full font-medium" x-text="s"></span>
+            <span class="od-tag od-tag-warning" x-text="s"></span>
           </template>
         </div>
       </div>
@@ -183,81 +213,58 @@
           <div x-show="loadingOverview" class="text-center py-12 text-gray-400 text-sm" x-text="t('loading')"></div>
           <div x-show="overview && !loadingOverview">
 
-            <!-- 4-col stats grid -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              <div class="bg-white rounded-xl border p-4">
-                <div class="text-2xl font-bold text-gray-800" x-text="overview?.knowledge_count ?? 0"></div>
-                <div class="text-xs text-gray-400 mt-0.5 mb-2" x-text="t('knowledge_count')"></div>
-                <div class="flex flex-wrap gap-1">
-                  <template x-for="[type, cnt] in Object.entries(overview?.knowledge_by_type || {})" :key="type">
-                    <span class="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full" x-text="type + ' ' + cnt"></span>
-                  </template>
+            <!-- ── Health panel ─────────────────────────────────────
+                 Top-of-page anchor. Combines readiness + inline metrics
+                 + missing items. Replaces the old 4-col stats grid,
+                 standalone readiness card, standalone missing banner,
+                 and 3-card knowledge summary (all were echoing data
+                 already shown elsewhere).
+            -->
+            <div class="bg-white rounded-xl border p-5 mb-5">
+              <div class="flex items-start justify-between gap-4 mb-3 flex-wrap">
+                <div class="flex items-baseline gap-3">
+                  <span class="text-sm font-medium text-gray-700" x-text="t('readiness')"></span>
+                  <span class="text-2xl font-bold text-accent tabular-nums" x-text="Math.round((overview?.readiness_score ?? 0) * 100) + '%'"></span>
+                </div>
+                <div class="flex items-center gap-3 text-[12px] text-gray-500 tabular-nums flex-wrap">
+                  <a href="#" @click.prevent="tab='knowledge'" class="hover:text-accent transition-colors">
+                    📚 <strong class="text-gray-700" x-text="overview?.knowledge_count ?? 0"></strong> <span x-text="t('knowledge_count')"></span>
+                  </a>
+                  <span class="text-gray-200">·</span>
+                  <a href="#" @click.prevent="tab='assets'; fetchAssets()" class="hover:text-accent transition-colors">
+                    📁 <strong class="text-gray-700" x-text="overview?.asset_count ?? 0"></strong> <span x-text="t('asset_count')"></span>
+                  </a>
+                  <span class="text-gray-200">·</span>
+                  <a href="#" @click.prevent="tab='strategy'; fetchStrategyUnits()" class="hover:text-accent transition-colors">
+                    🎯 <strong class="text-gray-700" x-text="overview?.strategy_unit_count ?? 0"></strong> <span x-text="t('strategy_unit_count')"></span>
+                  </a>
+                  <span class="text-gray-200">·</span>
+                  <span>
+                    💡 <strong class="text-gray-700" x-text="overview?.topic_count ?? 0"></strong> <span x-text="t('topic_count')"></span>
+                  </span>
                 </div>
               </div>
-              <div class="bg-white rounded-xl border p-4">
-                <div class="text-2xl font-bold text-gray-800" x-text="overview?.asset_count ?? 0"></div>
-                <div class="text-xs text-gray-400 mt-0.5 mb-2" x-text="t('asset_count')"></div>
-                <div class="flex flex-wrap gap-1">
-                  <template x-for="[type, cnt] in Object.entries(overview?.asset_by_type || {})" :key="type">
-                    <span class="text-[10px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded-full" x-text="type + ' ' + cnt"></span>
-                  </template>
-                </div>
+              <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div class="h-full rounded-full bg-gradient-to-r from-blue-400 to-accent transition-all duration-500"
+                     :style="'width:' + Math.round((overview?.readiness_score ?? 0) * 100) + '%'"></div>
               </div>
-              <div class="bg-white rounded-xl border p-4">
-                <div class="text-2xl font-bold text-gray-800" x-text="overview?.strategy_unit_count ?? 0"></div>
-                <div class="text-xs text-gray-400 mt-0.5" x-text="t('strategy_unit_count')"></div>
-              </div>
-              <div class="bg-white rounded-xl border p-4">
-                <div class="text-2xl font-bold text-gray-800" x-text="overview?.topic_count ?? 0"></div>
-                <div class="text-xs text-gray-400 mt-0.5" x-text="t('topic_count')"></div>
+              <!-- Missing items — inline after the progress bar so the "what's
+                   weak" signal sits right next to the "how well" signal. -->
+              <div x-show="(overview?.missing?.length ?? 0) > 0"
+                   class="mt-3 pt-3 border-t border-gray-50 flex flex-wrap gap-1.5 items-center">
+                <span class="text-[11px] text-gray-500 shrink-0" x-text="t('missing_label')"></span>
+                <template x-for="m in (overview?.missing || [])" :key="m">
+                  <span class="od-tag od-tag-warning" x-text="({
+                    selling_point: t('missing_selling_point'), audience: t('missing_audience'), scenario: t('missing_scenario'),
+                    assets: t('missing_assets'), strategy_units: t('missing_strategy_units')
+                  }[m] || m)"></span>
+                </template>
               </div>
             </div>
 
-            <!-- Agent activation hint (shown when KB is built but no agent connected yet) -->
-            <div x-show="agentHintVisible" x-cloak
-                 class="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-5 mb-5">
-              <div class="flex items-start gap-4">
-                <div class="w-10 h-10 rounded-xl bg-white flex items-center justify-center shrink-0 shadow-sm">
-                  <span class="text-xl">🎉</span>
-                </div>
-                <div class="flex-1 min-w-0">
-                  <h3 class="text-sm font-semibold text-gray-900 mb-1" x-text="t('agent_hint_title')"></h3>
-                  <p class="text-xs text-gray-600 leading-relaxed mb-3"
-                     x-text="t('agent_hint_body').replace('{kb}', overview?.knowledge_count ?? 0).replace('{sp}', overview?.knowledge_by_type?.selling_point ?? 0)"></p>
-                  <div class="flex flex-wrap items-center gap-2">
-                    <button @click="copyAgentSetup(false)"
-                            class="inline-flex items-center gap-1.5 bg-accent text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-accent-hover transition">
-                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                      <span x-text="hintCopiedField === 'all' ? t('agent_hint_copied') : t('agent_hint_copy_all')"></span>
-                    </button>
-                    <button @click="copyAgentSetup(true)"
-                            class="inline-flex items-center gap-1.5 bg-white text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg text-xs font-medium hover:border-accent hover:text-accent transition">
-                      <span x-text="hintCopiedField === 'prompt' ? t('agent_hint_copied') : t('agent_hint_copy_prompt')"></span>
-                    </button>
-                    <a href="/setting.html?section=mcp" class="text-xs text-gray-500 hover:text-accent px-2 py-1.5" x-text="t('agent_hint_learn_more')"></a>
-                    <button @click="dismissAgentHint()"
-                            class="ml-auto text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5"
-                            x-text="t('agent_hint_dismiss')"></button>
-                  </div>
-                  <p class="text-[10px] text-gray-400 mt-2" x-text="t('agent_hint_node_note')"></p>
-                </div>
-              </div>
-            </div>
-
-            <!-- Missing items -->
-            <div x-show="(overview?.missing?.length ?? 0) > 0"
-                 class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5 flex flex-wrap gap-2 items-center">
-              <span class="text-xs font-medium text-amber-700 shrink-0" x-text="t('missing_label')"></span>
-              <template x-for="m in (overview?.missing || [])" :key="m">
-                <span class="text-[11px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full" x-text="({
-                  selling_point: t('missing_selling_point'), audience: t('missing_audience'), scenario: t('missing_scenario'),
-                  assets: t('missing_assets'), strategy_units: t('missing_strategy_units')
-                }[m] || m)"></span>
-              </template>
-            </div>
-
-            <!-- Next Best Action -->
-            <div class="bg-white rounded-xl border p-5 mb-5 flex items-center gap-4">
+            <!-- Next Best Action — the primary CTA for Overview. -->
+            <div x-show="overview?.next_action && overview?.next_action !== 'done'"
+                 class="bg-white rounded-xl border p-5 mb-5 flex items-center gap-4">
               <div class="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
                 <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
               </div>
@@ -271,55 +278,24 @@
               </button>
             </div>
 
-            <!-- Readiness progress -->
-            <div class="bg-white rounded-xl border p-5 mb-5">
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-sm font-medium text-gray-700" x-text="t('readiness')"></span>
-                <span class="text-sm font-bold text-accent" x-text="Math.round((overview?.readiness_score ?? 0) * 100) + '%'"></span>
-              </div>
-              <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div class="h-full rounded-full bg-gradient-to-r from-blue-400 to-accent transition-all duration-500"
-                     :style="'width:' + Math.round((overview?.readiness_score ?? 0) * 100) + '%'"></div>
-              </div>
-              <p class="text-xs text-gray-400 mt-2" x-text="t('readiness_hint')"></p>
+            <!-- Agent activation banner (compact — only shows when KB is built but no agent connected yet).
+                 Was a 180px gradient card; now a single-line banner with the primary "Copy setup" action. -->
+            <div x-show="agentHintVisible" x-cloak
+                 class="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 mb-5 flex items-center gap-2 text-[12px] flex-wrap">
+              <span class="shrink-0" x-text="t('agent_hint_title')"></span>
+              <div class="flex-1"></div>
+              <button @click="copyAgentSetup(false)"
+                      class="inline-flex items-center gap-1 text-accent hover:text-accent-hover font-medium shrink-0"
+                      :title="t('agent_hint_node_note')">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                <span x-text="hintCopiedField === 'all' ? t('agent_hint_copied') : t('agent_hint_copy_all')"></span>
+              </button>
+              <a href="/setting.html?section=mcp" class="text-gray-500 hover:text-accent shrink-0" x-text="t('agent_hint_learn_more')"></a>
+              <button @click="dismissAgentHint()"
+                      class="text-gray-400 hover:text-gray-600 shrink-0 leading-none px-1"
+                      :aria-label="t('agent_hint_dismiss')">×</button>
             </div>
 
-            <!-- Knowledge summary -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div class="bg-white rounded-xl border p-4">
-                <h4 class="text-xs font-semibold text-gray-500 mb-2.5 flex items-center gap-1.5">
-                  <span class="w-2 h-2 rounded-full bg-blue-400 shrink-0"></span><span x-text="t('kt_selling_point')"></span>
-                </h4>
-                <div class="flex flex-wrap gap-1.5">
-                  <template x-for="k in knowledgeItems.filter(k => k.knowledge_type === 'selling_point').slice(0,6)" :key="k.id">
-                    <span class="bg-blue-50 text-blue-700 text-[11px] px-2 py-0.5 rounded-full" x-text="k.title"></span>
-                  </template>
-                  <span x-show="knowledgeItems.filter(k => k.knowledge_type === 'selling_point').length === 0" class="text-gray-400 text-xs" x-text="t('none_go_add')"></span>
-                </div>
-              </div>
-              <div class="bg-white rounded-xl border p-4">
-                <h4 class="text-xs font-semibold text-gray-500 mb-2.5 flex items-center gap-1.5">
-                  <span class="w-2 h-2 rounded-full bg-green-400 shrink-0"></span><span x-text="t('kt_audience')"></span>
-                </h4>
-                <div class="flex flex-wrap gap-1.5">
-                  <template x-for="k in knowledgeItems.filter(k => k.knowledge_type === 'audience').slice(0,6)" :key="k.id">
-                    <span class="bg-green-50 text-green-700 text-[11px] px-2 py-0.5 rounded-full" x-text="k.title"></span>
-                  </template>
-                  <span x-show="knowledgeItems.filter(k => k.knowledge_type === 'audience').length === 0" class="text-gray-400 text-xs" x-text="t('none_go_add')"></span>
-                </div>
-              </div>
-              <div class="bg-white rounded-xl border p-4">
-                <h4 class="text-xs font-semibold text-gray-500 mb-2.5 flex items-center gap-1.5">
-                  <span class="w-2 h-2 rounded-full bg-orange-400 shrink-0"></span><span x-text="t('kt_scenario')"></span>
-                </h4>
-                <div class="flex flex-wrap gap-1.5">
-                  <template x-for="k in knowledgeItems.filter(k => k.knowledge_type === 'scenario').slice(0,6)" :key="k.id">
-                    <span class="bg-orange-50 text-orange-700 text-[11px] px-2 py-0.5 rounded-full" x-text="k.title"></span>
-                  </template>
-                  <span x-show="knowledgeItems.filter(k => k.knowledge_type === 'scenario').length === 0" class="text-gray-400 text-xs" x-text="t('none_go_add')"></span>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -356,10 +332,6 @@
                      :style="'width:' + Math.round(inferProgress) + '%'"></div>
               </div>
               <span class="text-xs text-gray-400" x-text="Math.round(inferProgress) + '%'"></span>
-              <div x-show="inferThinkingText" x-transition class="mt-3 bg-gray-50 rounded-lg p-2.5 text-left max-h-12 overflow-hidden relative">
-                <p class="text-[11px] text-gray-400 leading-relaxed whitespace-pre-wrap" x-text="inferThinkingText"></p>
-                <div class="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-gray-50 to-transparent"></div>
-              </div>
             </div>
           </div>
 
@@ -378,8 +350,8 @@
               <!-- 待更新区 -->
               <div x-show="updateItems.length > 0">
                 <div class="flex items-center gap-2 mb-2">
-                  <span class="text-sm font-semibold text-orange-600" x-text="t('to_update')"></span>
-                  <span class="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full" x-text="updateItems.length + t('n_items')"></span>
+                  <span class="text-sm font-semibold text-amber-700" x-text="t('to_update')"></span>
+                  <span class="od-tag od-tag-warning" x-text="updateItems.length + t('n_items')"></span>
                 </div>
                 <div class="space-y-2">
                   <template x-for="(item, idx) in updateItems" :key="'u'+idx">
@@ -397,7 +369,7 @@
                           <div @click="item._editing = true" class="cursor-pointer group/item">
                             <div class="flex items-center gap-2">
                               <span class="text-sm font-medium text-gray-800 group-hover/item:text-accent transition-colors" x-text="item.title"></span>
-                              <span class="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded" x-text="t('update_tag')"></span>
+                              <span class="od-chip od-chip-warning" x-text="t('update_tag')"></span>
                             </div>
                             <div class="text-[13px] text-gray-500 mt-0.5 leading-relaxed" x-text="item.content_raw"></div>
                           </div>
@@ -411,8 +383,8 @@
               <!-- 待新增区 -->
               <div x-show="createItems.length > 0">
                 <div class="flex items-center gap-2 mb-2">
-                  <span class="text-sm font-semibold text-green-600" x-text="t('to_create')"></span>
-                  <span class="text-xs bg-green-100 text-green-600 px-2 py-0.5 rounded-full" x-text="createItems.length + t('n_items')"></span>
+                  <span class="text-sm font-semibold text-emerald-700" x-text="t('to_create')"></span>
+                  <span class="od-tag od-tag-success" x-text="createItems.length + t('n_items')"></span>
                 </div>
                 <div class="space-y-2">
                   <template x-for="(item, idx) in createItems" :key="'c'+idx">
@@ -430,7 +402,7 @@
                           <div @click="item._editing = true" class="cursor-pointer group/item">
                             <div class="flex items-center gap-2">
                               <span class="text-sm font-medium text-gray-800 group-hover/item:text-accent transition-colors" x-text="item.title"></span>
-                              <span class="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded" x-text="t('create_tag')"></span>
+                              <span class="od-chip od-chip-success" x-text="t('create_tag')"></span>
                             </div>
                             <div class="text-[13px] text-gray-500 mt-0.5 leading-relaxed" x-text="item.content_raw"></div>
                           </div>
@@ -727,21 +699,19 @@
                   <!-- Tags (structured dict or legacy array) -->
                   <div class="flex flex-wrap gap-1 mt-1.5" x-show="flattenTags(a.tags_json).length > 0">
                     <template x-for="t in flattenTags(a.tags_json).slice(0, 4)" :key="t.category+t.label">
-                      <span class="text-[10px] font-medium px-1.5 py-0.5 rounded"
-                            :class="tagCategoryColors[t.category] || 'bg-gray-100 text-gray-500'"
-                            x-text="t.label"></span>
+                      <span :class="tagCategoryChip(t.category)" x-text="t.label"></span>
                     </template>
                     <template x-if="flattenTags(a.tags_json).length > 4">
-                      <span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-400" x-text="'+' + (flattenTags(a.tags_json).length - 4)"></span>
+                      <span class="od-chip od-chip-neutral" x-text="'+' + (flattenTags(a.tags_json).length - 4)"></span>
                     </template>
                   </div>
                   <!-- No tags hint -->
                   <div class="mt-1.5" x-show="flattenTags(a.tags_json).length === 0">
-                    <span class="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded"
+                    <span class="od-chip"
                       :class="{
-                        'bg-purple-50 text-purple-500': a.parse_status==='tagging',
-                        'bg-amber-50 text-amber-600': a.parse_status==='done',
-                        'bg-gray-50 text-gray-400': !['tagging','done'].includes(a.parse_status)
+                        'od-chip-violet': a.parse_status==='tagging',
+                        'od-chip-warning': a.parse_status==='done',
+                        'od-chip-neutral': !['tagging','done'].includes(a.parse_status)
                       }">
                       <svg class="w-3 h-3" :class="a.parse_status==='tagging' && 'animate-spin'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z"/></svg>
                       <span x-text="a.parse_status==='tagging' ? t('ai_analyzing') : a.parse_status==='done' ? t('edit_tags') : t('loading')"></span>
@@ -798,32 +768,31 @@
                 <!-- Tags row -->
                 <div class="flex flex-wrap gap-1.5">
                   <template x-if="u.audience_segment">
-                    <span class="bg-green-50 text-green-700 text-[11px] px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <span class="od-tag od-tag-success">
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                       <span x-text="u.audience_segment"></span>
                     </span>
                   </template>
                   <template x-if="u.scenario">
-                    <span class="bg-orange-50 text-orange-700 text-[11px] px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <span class="od-tag od-tag-warning">
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.069A1 1 0 0121 8.868V15.13a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
                       <span x-text="u.scenario"></span>
                     </span>
                   </template>
                   <template x-if="u.channel">
-                    <span class="bg-purple-50 text-purple-700 text-[11px] px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <span class="od-tag od-tag-violet">
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
                       <span x-text="u.channel"></span>
                     </span>
                   </template>
                   <template x-if="u.marketing_objective">
-                    <span class="bg-blue-50 text-blue-700 text-[11px] px-2 py-0.5 rounded-full" x-text="unitObjectiveLabel(u.marketing_objective)"></span>
+                    <span class="od-tag od-tag-primary" x-text="unitObjectiveLabel(u.marketing_objective)"></span>
                   </template>
                 </div>
 
                 <!-- Stage + stats + generate row -->
                 <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-50">
-                  <span class="text-[11px] px-2 py-0.5 rounded-full font-medium"
-                        :class="unitStageClass(u.strategy_stage)"
+                  <span :class="unitStageClass(u.strategy_stage)"
                         x-text="unitStageLabel(u.strategy_stage)"></span>
                   <div class="flex items-center gap-3 text-[11px] text-gray-400">
                     <span x-text="u.asset_count + ' ' + t('tab_assets')"></span>
@@ -1199,20 +1168,144 @@
             <p class="text-xs text-gray-400" x-text="editTagsAsset?.asset_type"></p>
           </div>
         </div>
-        <!-- Tag fields by category -->
-        <div class="px-6 py-4 space-y-3 max-h-[50vh] overflow-y-auto">
-          <template x-for="[cat, tKey] of [['subject','tag_subject'],['usage','tag_usage'],['selling_point','tag_selling_point'],['scenario','tag_scenario'],['channel_fit','tag_channel_fit'],['style','tag_style'],['emotion','tag_emotion']]" :key="cat">
-            <div>
+        <!-- Tag fields grouped by purpose — 3 sections make required/optional obvious -->
+        <div class="px-6 py-4 space-y-4 max-h-[65vh] overflow-y-auto">
+
+          <!-- ═══ Section 1 · REQUIRED · Describe the visual ═══ -->
+          <div class="border-l border-accent/60 pl-3">
+            <div class="flex items-center gap-2 mb-1.5 flex-wrap">
+              <span class="text-[11px] font-semibold text-gray-700 uppercase tracking-wide" x-text="t('tag_group_required')"></span>
+              <span class="text-[10px] text-gray-400" x-text="t('tag_group_required_desc')"></span>
+            </div>
+
+            <!-- subject (free-form) -->
+            <div class="mb-2.5">
               <label class="block text-xs font-medium text-gray-500 mb-1">
-                <span class="inline-block w-2 h-2 rounded-full mr-1" :class="(tagCategoryColors[cat] || '').split(' ')[0]"></span>
-                <span x-text="t(tKey)"></span>
+                <span class="mr-1" :class="tagCategoryDot('subject')"></span>
+                <span x-text="t('tag_subject')"></span>
               </label>
-              <input type="text" :value="editTagsForm[cat] || ''"
-                     @input="editTagsForm[cat] = $el.value"
-                     :placeholder="t('tags_comma_hint')"
+              <input type="text" :value="editTagsForm['subject'] || ''"
+                     @input="editTagsForm['subject'] = $el.value"
+                     :placeholder="tagPlaceholder('subject')"
                      class="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
             </div>
-          </template>
+
+            <!-- content_form (closed chip) -->
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1.5">
+                <span class="mr-1" :class="tagCategoryDot('content_form')"></span>
+                <span x-text="t('tag_content_form')"></span>
+                <span class="text-[10px] text-gray-400 ml-1" x-text="t('tag_closed_vocab_hint')"></span>
+              </label>
+              <div class="flex flex-wrap gap-1.5">
+                <template x-for="opt in contentFormOptions" :key="opt.id">
+                  <button type="button"
+                          @click="toggleChip('content_form', opt.id)"
+                          :title="opt.description"
+                          :class="(editTagsForm['content_form'] || []).includes(opt.id)
+                                    ? (tagCategoryColors['content_form'] || 'bg-accent text-white') + ' border-transparent ring-1 ring-offset-1 ring-accent/40'
+                                    : 'bg-white text-gray-600 border border-gray-200 hover:border-accent/40'"
+                          class="text-[11px] px-2 py-1 rounded-full transition">
+                    <span x-text="opt.emoji ? (opt.emoji + ' ' + opt.name) : opt.name"></span>
+                  </button>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- ═══ Section 2 · OPTIONAL · Business association ═══ -->
+          <div class="border-l border-gray-200 pl-3">
+            <div class="flex items-center justify-between mb-1.5 gap-2 flex-wrap">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-[11px] font-semibold text-gray-600 uppercase tracking-wide" x-text="t('tag_group_business')"></span>
+                <span class="text-[10px] text-gray-400" x-text="t('tag_group_business_desc')"></span>
+              </div>
+              <button type="button" @click="clearBusinessTags()"
+                      class="text-[10px] text-gray-500 hover:text-accent transition"
+                      x-text="t('tag_mark_as_generic')"></button>
+            </div>
+
+            <template x-for="[cat, tKey] of [['selling_point','tag_selling_point'],['scenario','tag_scenario'],['usage','tag_usage']]" :key="cat">
+              <div class="mb-2.5 last:mb-0">
+                <label class="block text-xs font-medium text-gray-500 mb-1">
+                  <span class="mr-1" :class="tagCategoryDot(cat)"></span>
+                  <span x-text="t(tKey)"></span>
+                  <span x-show="tagSuggestions(cat).length > 0" class="text-[10px] text-gray-400 ml-1" x-text="t('tag_suggested_hint')"></span>
+                </label>
+                <div x-show="tagSuggestions(cat).length > 0" class="flex flex-wrap gap-1 mb-1.5">
+                  <template x-for="sug in tagSuggestions(cat)" :key="sug">
+                    <button type="button"
+                            @click="toggleFreeTag(cat, sug)"
+                            :class="isFreeTagSelected(cat, sug)
+                                      ? (tagCategoryColors[cat] || 'bg-accent text-white') + ' border-transparent'
+                                      : 'bg-white text-gray-500 border border-gray-200 hover:border-accent/40'"
+                            class="text-[11px] px-2 py-0.5 rounded-full transition">
+                      <span x-text="sug"></span>
+                    </button>
+                  </template>
+                </div>
+                <input type="text" :value="editTagsForm[cat] || ''"
+                       @input="editTagsForm[cat] = $el.value"
+                       :placeholder="tagPlaceholder(cat)"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+              </div>
+            </template>
+          </div>
+
+          <!-- ═══ Section 3 · OPTIONAL · Distribution ═══ -->
+          <div class="border-l border-gray-200 pl-3">
+            <div class="flex items-center gap-2 mb-1.5 flex-wrap">
+              <span class="text-[11px] font-semibold text-gray-600 uppercase tracking-wide" x-text="t('tag_group_distribution')"></span>
+              <span class="text-[10px] text-gray-400" x-text="t('tag_group_distribution_desc')"></span>
+            </div>
+
+            <!-- channel_fit (free-form + platform chips) -->
+            <div class="mb-2.5">
+              <label class="block text-xs font-medium text-gray-500 mb-1">
+                <span class="mr-1" :class="tagCategoryDot('channel_fit')"></span>
+                <span x-text="t('tag_channel_fit')"></span>
+                <span x-show="tagSuggestions('channel_fit').length > 0" class="text-[10px] text-gray-400 ml-1" x-text="t('tag_suggested_hint')"></span>
+              </label>
+              <div x-show="tagSuggestions('channel_fit').length > 0" class="flex flex-wrap gap-1 mb-1.5">
+                <template x-for="sug in tagSuggestions('channel_fit')" :key="sug">
+                  <button type="button"
+                          @click="toggleFreeTag('channel_fit', sug)"
+                          :class="isFreeTagSelected('channel_fit', sug)
+                                    ? (tagCategoryColors['channel_fit'] || 'bg-accent text-white') + ' border-transparent'
+                                    : 'bg-white text-gray-500 border border-gray-200 hover:border-accent/40'"
+                          class="text-[11px] px-2 py-0.5 rounded-full transition">
+                    <span x-text="sug"></span>
+                  </button>
+                </template>
+              </div>
+              <input type="text" :value="editTagsForm['channel_fit'] || ''"
+                     @input="editTagsForm['channel_fit'] = $el.value"
+                     :placeholder="tagPlaceholder('channel_fit')"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+            </div>
+
+            <!-- campaign_type (closed chip) -->
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1.5">
+                <span class="mr-1" :class="tagCategoryDot('campaign_type')"></span>
+                <span x-text="t('tag_campaign_type')"></span>
+                <span class="text-[10px] text-gray-400 ml-1" x-text="t('tag_closed_vocab_hint')"></span>
+              </label>
+              <div class="flex flex-wrap gap-1.5">
+                <template x-for="opt in campaignTypeOptions" :key="opt.id">
+                  <button type="button"
+                          @click="toggleChip('campaign_type', opt.id)"
+                          :title="opt.description"
+                          :class="(editTagsForm['campaign_type'] || []).includes(opt.id)
+                                    ? (tagCategoryColors['campaign_type'] || 'bg-accent text-white') + ' border-transparent ring-1 ring-offset-1 ring-accent/40'
+                                    : 'bg-white text-gray-600 border border-gray-200 hover:border-accent/40'"
+                          class="text-[11px] px-2 py-1 rounded-full transition">
+                    <span x-text="opt.emoji ? (opt.emoji + ' ' + opt.name) : opt.name"></span>
+                  </button>
+                </template>
+              </div>
+            </div>
+          </div>
         </div>
         <!-- Footer -->
         <div class="px-6 py-4 border-t flex justify-end gap-3">
@@ -1231,12 +1324,13 @@
         offerId: new URLSearchParams(location.search).get('id'),
         offer: null, tab: 'overview', descExpanded: false, showNoLLMDialog: false,
         overview: null, loadingOverview: false,
+        consumption: null,
         deleteConfirm: false, deleting: false,
 
         // Knowledge
         knowledgeItems: [], knowledgeTotal: 0,
         suggestions: null, inferring: false, saving: false,
-        inferProgress: 0, inferProgressLabel: '', inferThinkingText: '',
+        inferProgress: 0, inferProgressLabel: '',
         knowledgeSearchQ: '',
         showInferInput: false, inferHint: '', inferUrl: '', inferFile: null, inferFileName: '', inferExtracting: false,
         showAddManual: false,
@@ -1252,22 +1346,110 @@
           ];
         },
 
-        // Tag category colors
+        // Legacy Tailwind class map — kept for tag-picker buttons whose
+        // pressed-state visual was designed against these raw colors.
+        // For new small display chips use tagCategoryChip() below.
         tagCategoryColors: {
           subject: 'bg-blue-50 text-blue-600',
           usage: 'bg-green-50 text-green-600',
           selling_point: 'bg-orange-50 text-orange-600',
           scenario: 'bg-purple-50 text-purple-600',
           channel_fit: 'bg-pink-50 text-pink-500',
+          content_form: 'bg-indigo-50 text-indigo-600',
+          campaign_type: 'bg-red-50 text-red-600',
           style: 'bg-cyan-50 text-cyan-600',
           emotion: 'bg-yellow-50 text-yellow-600',
           legacy: 'bg-gray-100 text-gray-500',
         },
+        // Map tag category → semantic token variant. Chips use od-chip-*,
+        // dots use od-dot-*. See js/shared.js for the underlying styles.
+        _tagVariant: {
+          subject:'primary', usage:'success', selling_point:'warning',
+          scenario:'violet', channel_fit:'pink', content_form:'primary',
+          campaign_type:'danger', style:'teal', emotion:'warning', legacy:'neutral',
+        },
+        tagCategoryChip(cat) {
+          return 'od-chip od-chip-' + (this._tagVariant[cat] || 'neutral');
+        },
+        tagCategoryDot(cat) {
+          return 'od-dot od-dot-' + (this._tagVariant[cat] || 'neutral');
+        },
         get tagCategoryLabels() {
+          // Labels used both in the free-form editor and in flattened chip rendering.
+          // For content_form / campaign_type chips we render the localized display
+          // name from the enum catalogue via tagLabelFor() — see below.
           return {
             subject: t('tag_subject'), usage: t('tag_usage'), selling_point: t('tag_selling_point'), scenario: t('tag_scenario'),
-            channel_fit: t('tag_channel_fit'), style: t('tag_style'), emotion: t('tag_emotion'), legacy: t('tag_legacy'),
+            channel_fit: t('tag_channel_fit'),
+            content_form: t('tag_content_form'), campaign_type: t('tag_campaign_type'),
+            style: t('tag_style'), emotion: t('tag_emotion'), legacy: t('tag_legacy'),
           };
+        },
+
+        // Asset-tagging closed vocabularies (loaded lazily on first edit)
+        contentFormOptions: [],  // [{id, name, emoji, description}]
+        campaignTypeOptions: [], // [{id, name, emoji, description}]
+
+        tagLabelFor(category, id) {
+          // Translate a closed-vocab id (e.g. "flash_sale") into its localized
+          // display name (e.g. "秒杀"). Falls back to raw id if not yet loaded.
+          const catalogue = category === 'content_form' ? this.contentFormOptions
+                           : category === 'campaign_type' ? this.campaignTypeOptions : null;
+          if (!catalogue) return id;
+          const hit = catalogue.find(o => o.id === id);
+          return hit ? (hit.emoji ? hit.emoji + ' ' + hit.name : hit.name) : id;
+        },
+
+        // Suggested tag chips for free-form categories, sourced from offer KB.
+        // These are suggestions, not a closed set — user can still type custom values.
+        tagSuggestions(cat) {
+          if (cat === 'selling_point') return (this.offer?.core_selling_points_json?.points || []);
+          if (cat === 'scenario')      return (this.offer?.target_scenarios_json?.items || []);
+          if (cat === 'channel_fit')   return this.channelFitSuggestions;
+          return [];
+        },
+        tagPlaceholder(cat) {
+          // Better placeholder per category — concrete examples vs generic hint.
+          const examples = {
+            subject:      (window._odLang === 'en' ? 'e.g. product hero shot, call-out badge' : '例如：产品主视觉、功能入口按钮'),
+            usage:        (window._odLang === 'en' ? 'e.g. hero banner, feature demo' : '例如：落地页头图、功能演示'),
+            channel_fit:  (window._odLang === 'en' ? 'e.g. tiktok, xiaohongshu (or pick above)' : '例如：抖音、小红书（或点上方）'),
+          };
+          return examples[cat] || t('tags_comma_hint');
+        },
+        // Parse comma-separated value → array of trimmed tokens.
+        _parseFreeTagValue(val) {
+          return (val || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
+        },
+        isFreeTagSelected(cat, tag) {
+          return this._parseFreeTagValue(this.editTagsForm[cat]).includes(tag);
+        },
+        toggleFreeTag(cat, tag) {
+          const cur = this._parseFreeTagValue(this.editTagsForm[cat]);
+          const idx = cur.indexOf(tag);
+          if (idx >= 0) cur.splice(idx, 1); else cur.push(tag);
+          this.editTagsForm[cat] = cur.join(', ');
+        },
+        // Channel-fit suggestions = platform enum from Script Writer. Fetched lazily.
+        channelFitSuggestions: [],
+        async fetchChannelFitSuggestions() {
+          try {
+            const lang = (window._odLang || 'zh') === 'en' ? 'en' : 'zh';
+            const r = await fetch(`${API}/apps/script-writer/platforms?lang=${lang}`);
+            if (r.ok) {
+              const list = await r.json();
+              this.channelFitSuggestions = list.map(p => p.name);
+            }
+          } catch { /* non-fatal */ }
+        },
+
+        // "Mark as generic asset" — clear the 3 business-association fields in one click.
+        // Honours the product principle: brand / reference / inspiration assets are
+        // legitimate and shouldn't be forced into feature/scenario buckets.
+        clearBusinessTags() {
+          this.editTagsForm.selling_point = '';
+          this.editTagsForm.scenario = '';
+          this.editTagsForm.usage = '';
         },
 
         // Assets
@@ -1279,7 +1461,7 @@
         editTagsForm: {},     // { category: 'tag1, tag2, ...' }
         searchQ: '', selectedTags: [], availableTags: [], searchTimer: null,
         assetTypeFilter: '', showTagPicker: false,
-        tagCategories: ['subject','usage','selling_point','scenario','channel_fit','style','emotion'],
+        tagCategories: ['subject','usage','selling_point','scenario','channel_fit','content_form','campaign_type'],
         get categoryLabels() { return { subject: t('tag_subject'), usage: t('tag_usage'), selling_point: t('tag_selling_point'), scenario: t('tag_scenario'), channel_fit: t('tag_channel_fit'), style: t('tag_style'), emotion: t('tag_emotion') }; },
         // BrandKit
         offerBrandKit: null, brandkitLoading: false, brandkitCreating: false,
@@ -1325,9 +1507,9 @@
               `3. 需要素材时，调用 search_assets 并直接分享 preview_url`,
               ``,
               `## 回收工作流（重要）`,
-              `当你产出最终被用户认可的内容（文案/脚本/邮件/钩子），主动调用 save_creation 把它存回这个商品的创作库，避免淹没在聊天记录里。`,
-              `- 触发场景：用户说"就用这个"、"这版可以"、"保留"，或者从多个版本里挑了一条`,
-              `- 只存最终版，不存每一稿草稿`,
+              `只要基于这个商品产出了完整的、可交付的内容（文案/脚本/邮件/钩子），就主动调用 save_creation 存回这个商品的创作库——不用等用户说"这版可以"。聊天记录会被淹没，存在库里才能复用、对比、回看。`,
+              `- 触发：每次产出一版完整内容就存；同一主题的多版都存，用 tags 区分（比如 "v1"/"v2" 或平台名）`,
+              `- 不存：半成品草稿、分析过程、搜索结果、工具调用日志`,
               `- 调用时填 title + content，offer_id 用 ${this.offerId}`,
               ``,
               `## 当前商品 ID`,
@@ -1346,9 +1528,9 @@
             `3. For images/videos, call search_assets and share preview_url directly`,
             ``,
             `## Capture workflow (important)`,
-            `When you produce a final, user-accepted piece of content (copy/script/email/hook), proactively call save_creation to store it back in this product's library so it doesn't get lost in chat history.`,
-            `- Triggers: user says "use this", "this works", "keep this", or picks one option from multiple variants`,
-            `- Save only the final version, not every draft`,
+            `Whenever you produce a complete, deliverable piece of content (copy/script/email/hook) for this product, proactively call save_creation — don't wait for the user to say "this works". Chat scrolls away; only the library is reusable, comparable, and browsable later.`,
+            `- Trigger: save every completed version; if you generate multiple variants, save each (use tags to differentiate, e.g. "v1"/"v2" or platform name)`,
+            `- Don't save: half-finished drafts, analysis notes, search results, tool call logs`,
             `- Pass title + content, and offer_id="${this.offerId}"`,
             ``,
             `## Current product ID`,
@@ -1397,8 +1579,20 @@
             this.fetchOverview(),
             this.fetchMerchantName(),
             this.fetchMcpTokenStatus(),
+            this.fetchConsumption(),
+            this.fetchTagVocabulary(),
+            this.fetchChannelFitSuggestions(),
           ]);
         },
+
+        async fetchConsumption() {
+          try {
+            const r = await fetch(`${API}/offers/${this.offerId}/consumption_summary`);
+            if (r.ok) this.consumption = await r.json();
+          } catch {}
+        },
+
+        // formatRelative is provided globally by /js/shared.js
 
         async fetchMerchantName() {
           if (!this.offer?.merchant_id) return;
@@ -1462,8 +1656,8 @@
           try {
             const res = await fetch(`${API}/offers/${this.offerId}`, { method: 'DELETE' });
             if (res.ok) { location.href = '/'; return; }
-            alert(t('delete_failed'));
-          } catch { alert(t('delete_failed')); }
+            toast.error(t('delete_failed'));
+          } catch { toast.error(t('delete_failed')); }
           this.deleting = false;
           this.deleteConfirm = false;
         },
@@ -1490,7 +1684,7 @@
               body: JSON.stringify({
                 scope_type: 'offer',
                 scope_id: this.offerId,
-                name: (this.offer?.name || t('tab_brandkit')) + ' ' + t('tab_brandkit'),
+                // name omitted — backend derives it from offer.name
               }),
             });
             if (res.ok) {
@@ -1498,9 +1692,9 @@
               location.href = `/brandkit.html?id=${kit.id}`;
             } else {
               const err = await res.json();
-              alert(err.error?.message || t('save_failed'));
+              toast.error(err.error?.message || t('save_failed'));
             }
-          } catch { alert(t('save_failed')); }
+          } catch { toast.error(t('save_failed')); }
           this.brandkitCreating = false;
         },
 
@@ -1531,28 +1725,27 @@
               const fd = new FormData(); fd.append('url', this.inferUrl.trim());
               const r = await fetch(`${API}/ai/extract-text`, { method: 'POST', body: fd });
               if (r.ok) { const d = await r.json(); if (d.text) parts.push(d.text); }
-              else { const err = await r.json().catch(() => ({})); alert(err.detail || t('infer_url_failed')); }
+              else { const err = await r.json().catch(() => ({})); toast.error(err.detail || t('infer_url_failed')); }
             }
             if (this.inferFile) {
               const fd = new FormData(); fd.append('file', this.inferFile);
               const r = await fetch(`${API}/ai/extract-text`, { method: 'POST', body: fd });
               if (r.ok) { const d = await r.json(); if (d.text) parts.push(d.text); }
-              else alert(t('infer_file_failed'));
+              else toast.error(t('infer_file_failed'));
             }
-          } catch { alert(t('extract_error')); }
+          } catch { toast.error(t('extract_error')); }
           this.inferExtracting = false;
           this.showInferInput = false;
 
           // If user provided no new material and knowledge is already substantial, warn
           if (!parts.length && this.knowledgeItems.length >= 10) {
-            alert(t('infer_need_material'));
+            toast.error(t('infer_need_material'));
             return;
           }
 
           this.inferring = true;
           this.inferProgress = 0;
           this.inferProgressLabel = t('ai_analyzing');
-          this.inferThinkingText = '';
 
           // Asymptotic progress curve
           const startTime = Date.now();
@@ -1579,7 +1772,7 @@
             if (!res.ok) {
               clearInterval(timer);
               if (res.status === 503) { this.showNoLLMDialog = true; }
-              else { alert(t('ai_infer_failed')); }
+              else { toast.error(t('ai_infer_failed')); }
               this.inferring = false;
               return;
             }
@@ -1599,7 +1792,7 @@
                 try {
                   const evt = JSON.parse(line.slice(6));
                   if (evt.type === 'thinking') {
-                    this.inferThinkingText = (this.inferThinkingText + evt.text).slice(-200);
+                    // Thinking stream nudges the progress bar forward — text itself is not shown to users.
                     if (this.inferProgress < 95) this.inferProgress += 0.2;
                   } else if (evt.type === 'result') {
                     data = evt;
@@ -1625,7 +1818,7 @@
           } catch (e) {
             clearInterval(timer);
             const detail = e.message || '';
-            alert(t('ai_infer_failed') + (detail ? '\n' + detail : ''));
+            toast.error(t('ai_infer_failed') + (detail ? '\n' + detail : ''));
           }
           this.inferring = false;
         },
@@ -1668,7 +1861,7 @@
           if (res.ok) {
             this.suggestions = null;
             await this.fetchKnowledge();
-          } else alert(t('save_failed'));
+          } else toast.error(t('save_failed'));
           this.saving = false;
         },
 
@@ -1694,7 +1887,7 @@
             const item = this.knowledgeItems.find(k => k.id === this.editForm.id);
             if (item) { item.title = this.editForm.title; item.content_raw = this.editForm.content_raw; item.knowledge_type = this.editForm.knowledge_type; }
             this.showEditKnowledge = false;
-          } else alert(t('save_failed'));
+          } else toast.error(t('save_failed'));
         },
 
         async deleteKnowledge(id) {
@@ -1785,24 +1978,62 @@
           if (Array.isArray(tagsJson)) return tagsJson.map(t => ({ category: 'legacy', label: t }));
           if (!tagsJson || typeof tagsJson !== 'object') return [];
           return Object.entries(tagsJson).flatMap(([cat, tags]) =>
-            (tags || []).map(t => ({ category: cat, label: t }))
+            (tags || []).map(t => ({
+              category: cat,
+              // Closed-vocab ids get localized display name; free-form tags render as-is.
+              label: (cat === 'content_form' || cat === 'campaign_type') ? this.tagLabelFor(cat, t) : t,
+            }))
           );
         },
 
-        openEditTags(asset) {
+        async openEditTags(asset) {
           this.editTagsAsset = asset;
           const tags = asset.tags_json && typeof asset.tags_json === 'object' && !Array.isArray(asset.tags_json) ? asset.tags_json : {};
           this.editTagsForm = {};
-          for (const cat of ['subject','usage','selling_point','scenario','channel_fit','style','emotion']) {
+          // Free-form text fields (comma-separated).
+          for (const cat of ['subject','usage','selling_point','scenario','channel_fit']) {
             this.editTagsForm[cat] = (tags[cat] || []).join(', ');
           }
+          // Closed-vocab fields — selected ids as arrays (not joined).
+          this.editTagsForm.content_form = Array.isArray(tags.content_form) ? [...tags.content_form] : [];
+          this.editTagsForm.campaign_type = Array.isArray(tags.campaign_type) ? [...tags.campaign_type] : [];
+          // Lazy-fetch vocabulary catalogues on first open.
+          if (this.contentFormOptions.length === 0) await this.fetchTagVocabulary();
+        },
+
+        async fetchTagVocabulary() {
+          const lang = (window._odLang || 'zh') === 'en' ? 'en' : 'zh';
+          try {
+            const [cf, ct] = await Promise.all([
+              fetch(`${API}/apps/asset-tagging/content-forms?lang=${lang}`).then(r => r.ok ? r.json() : []),
+              fetch(`${API}/apps/asset-tagging/campaign-types?lang=${lang}`).then(r => r.ok ? r.json() : []),
+            ]);
+            this.contentFormOptions = cf || [];
+            this.campaignTypeOptions = ct || [];
+          } catch { /* non-fatal — UI falls back to raw ids */ }
+        },
+
+        toggleChip(cat, id) {
+          const list = this.editTagsForm[cat] || [];
+          const idx = list.indexOf(id);
+          if (idx >= 0) list.splice(idx, 1);
+          else list.push(id);
+          this.editTagsForm[cat] = [...list];
         },
 
         async saveAssetTags() {
           const tags = {};
-          for (const [cat, val] of Object.entries(this.editTagsForm)) {
+          // Free-form fields → split on comma.
+          for (const cat of ['subject','usage','selling_point','scenario','channel_fit']) {
+            const val = this.editTagsForm[cat];
+            if (typeof val !== 'string') continue;
             const arr = val.split(/[,，]/).map(s => s.trim()).filter(Boolean);
             if (arr.length) tags[cat] = arr;
+          }
+          // Closed-vocab fields → pass through selected id arrays.
+          for (const cat of ['content_form','campaign_type']) {
+            const arr = this.editTagsForm[cat];
+            if (Array.isArray(arr) && arr.length) tags[cat] = arr;
           }
           await fetch(`${API}/assets/${this.editTagsAsset.id}`, {
             method: 'PATCH',
@@ -1910,12 +2141,12 @@
             if (!res.ok) {
               const err = await res.json().catch(() => null);
               const msg = err?.detail;
-              alert(typeof msg === 'string' ? msg : Array.isArray(msg) ? msg.map(e => (e.loc||[]).join('.')+': '+e.msg).join('\n') : t('save_failed'));
+              toast.error(typeof msg === 'string' ? msg : Array.isArray(msg) ? msg.map(e => (e.loc||[]).join('.')+': '+e.msg).join('\n') : t('save_failed'));
               this.savingUnit = false; return;
             }
             this.showUnitForm = false;
             await this.fetchStrategyUnits();
-          } catch { alert(t('save_failed')); }
+          } catch { toast.error(t('save_failed')); }
           this.savingUnit = false;
         },
 
@@ -1942,7 +2173,7 @@
           return { exploring: t('ss_exploring'), rising: t('ss_rising'), stable: t('ss_stable'), declining: t('ss_declining') }[v] || v;
         },
         unitStageClass(v) {
-          return { exploring:'bg-gray-100 text-gray-600', rising:'bg-green-100 text-green-700', stable:'bg-blue-100 text-blue-700', declining:'bg-orange-100 text-orange-700' }[v] || 'bg-gray-100 text-gray-600';
+          return { exploring:'od-chip od-chip-neutral', rising:'od-chip od-chip-success', stable:'od-chip od-chip-primary', declining:'od-chip od-chip-warning' }[v] || 'od-chip od-chip-neutral';
         },
       };
     }

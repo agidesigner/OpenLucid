@@ -91,6 +91,20 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # 3. Background startup tasks (hash backfill + re-queue stuck parses)
     task = asyncio.create_task(_startup_recovery())
     task.add_done_callback(_log_task_exception)
+
+    # 4. APP_URL sanity — surface-clarify rather than silently embed bogus
+    # preview_urls in MCP responses. Agents receive useless URLs like
+    # "http://nihao.com/..." when this is left as a placeholder.
+    from app.config import settings as _settings
+    _app_url = (_settings.APP_URL or "").strip().lower()
+    _placeholders = ("nihao.com", "example.com", "change-me")
+    if not _app_url or any(p in _app_url for p in _placeholders):
+        logger.warning(
+            "APP_URL appears to be a placeholder ('%s'). Preview URLs served via MCP will be suppressed "
+            "until you set APP_URL to a public, agent-reachable URL in your .env or Settings → MCP.",
+            _settings.APP_URL,
+        )
+
     yield
 
 
@@ -304,6 +318,10 @@ async def _mcp_token_check(scope, receive, send) -> bool:
         if not match:
             await _asgi_json_response(send, 401, {"detail": "Invalid MCP token"})
             return False
+        # Record usage — feeds the "Connected Agents" list in Settings.
+        from datetime import datetime, timezone
+        match.last_used_at = datetime.now(timezone.utc)
+        await session.commit()
     return True
 
 

@@ -12,7 +12,10 @@ class BrandKit(BaseModel):
 
     scope_type: Mapped[str] = mapped_column(String(32), nullable=False)
     scope_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # name / description are derived from the scope parent (merchant.name / offer.name)
+    # on the frontend. Columns kept (nullable) for API backward compatibility; new rows
+    # are created with NULL and back-populated from the parent on read if needed.
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     style_profile_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     product_visual_profile_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
