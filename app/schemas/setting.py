@@ -2,21 +2,29 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-MODEL_TYPE_LABELS: dict[str, str] = {
-    "text_llm": "文本 LLM",
-    "vision_llm": "视觉 LLM",
-    "video_gen": "视频生成",
-    "image_gen": "图像生成",
-    "tts": "语音合成",
-    "embedding": "向量模型",
+# Each label is (zh, en); callers use _pick(lang, label_tuple).
+MODEL_TYPE_LABELS: dict[str, tuple[str, str]] = {
+    "text_llm":   ("文本 LLM",   "Text LLM"),
+    "vision_llm": ("视觉 LLM",   "Vision LLM"),
+    "video_gen":  ("视频生成",   "Video Generation"),
+    "image_gen":  ("图像生成",   "Image Generation"),
+    "tts":        ("语音合成",   "Voice Synthesis"),
+    "embedding":  ("向量模型",   "Embedding"),
 }
 
-# System-level scenes (not tied to any app)
+# System-level scenes (not tied to any app). label is (zh, en).
 SYSTEM_SCENES: dict[str, dict] = {
-    "knowledge": {"label": "知识库建设", "icon": "📚", "model_types": ["text_llm"]},
-    "asset_tagging": {"label": "素材打标", "icon": "🏷️", "model_types": ["vision_llm"]},
-    "brandkit_extract": {"label": "品牌规范提取", "icon": "🎨", "model_types": ["text_llm"]},
+    "knowledge":        {"label": ("知识库建设",   "Knowledge Base"),     "icon": "📚", "model_types": ["text_llm"]},
+    "asset_tagging":    {"label": ("素材打标",     "Asset Tagging"),      "icon": "🏷️", "model_types": ["vision_llm"]},
+    "brandkit_extract": {"label": ("品牌规范提取", "Brand Kit Extraction"), "icon": "🎨", "model_types": ["text_llm"]},
 }
+
+
+def pick_label(label: str | tuple[str, str], language: str) -> str:
+    """Return zh or en variant from a tuple; pass strings through unchanged."""
+    if isinstance(label, tuple):
+        return label[1] if (language or "").lower().startswith("en") else label[0]
+    return label
 
 
 class ModelTypeConfig(BaseModel):

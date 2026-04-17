@@ -2383,7 +2383,7 @@
           if (!this.llmConfigs.length) await this.loadLLMConfigs();
           try {
             // Load LLM scene configs
-            const r = await fetch('/api/v1/settings/llm/scenes');
+            const r = await fetch('/api/v1/settings/llm/scenes?lang=' + encodeURIComponent(getApiLang()));
             if (!r.ok) throw new Error(await r.text());
             const data = await r.json();
             const configs = {};
@@ -2400,7 +2400,7 @@
             this.textLlmDefault = textVals.length === 1 ? textVals[0] : '';
 
             // Load media capabilities
-            const r2 = await fetch('/api/v1/settings/media-capabilities');
+            const r2 = await fetch('/api/v1/settings/media-capabilities?lang=' + encodeURIComponent(getApiLang()));
             if (r2.ok) {
               const md = await r2.json();
               this.mediaCapabilities = md.capabilities || [];
@@ -2482,7 +2482,7 @@
           if (!this.llmConfigs.length) await this.loadLLMConfigs();
           // Reuse the modal loader to populate sections + selections (no UI side effect)
           try {
-            const r = await fetch('/api/v1/settings/llm/scenes');
+            const r = await fetch('/api/v1/settings/llm/scenes?lang=' + encodeURIComponent(getApiLang()));
             if (r.ok) {
               const data = await r.json();
               const configs = {};
@@ -2497,7 +2497,7 @@
               const textVals = [...new Set(textKeys.map(k => configs[k] || ''))];
               this.textLlmDefault = textVals.length === 1 ? textVals[0] : '';
             }
-            const r2 = await fetch('/api/v1/settings/media-capabilities');
+            const r2 = await fetch('/api/v1/settings/media-capabilities?lang=' + encodeURIComponent(getApiLang()));
             if (r2.ok) {
               const md = await r2.json();
               this.mediaCapabilities = md.capabilities || [];
@@ -2567,7 +2567,7 @@
                 });
               }
             }
-            const r = await fetch('/api/v1/settings/llm/scenes', {
+            const r = await fetch('/api/v1/settings/llm/scenes?lang=' + encodeURIComponent(getApiLang()), {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ updates }),
@@ -2595,7 +2595,7 @@
               });
             }
             if (mediaUpdates.length) {
-              const r2 = await fetch('/api/v1/settings/media-capabilities', {
+              const r2 = await fetch('/api/v1/settings/media-capabilities?lang=' + encodeURIComponent(getApiLang()), {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ updates: mediaUpdates }),
@@ -2628,7 +2628,7 @@
                 });
               }
             }
-            const r = await fetch('/api/v1/settings/llm/scenes', {
+            const r = await fetch('/api/v1/settings/llm/scenes?lang=' + encodeURIComponent(getApiLang()), {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ updates }),
@@ -2656,7 +2656,7 @@
               });
             }
             if (mediaUpdates.length) {
-              const r2 = await fetch('/api/v1/settings/media-capabilities', {
+              const r2 = await fetch('/api/v1/settings/media-capabilities?lang=' + encodeURIComponent(getApiLang()), {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ updates: mediaUpdates }),

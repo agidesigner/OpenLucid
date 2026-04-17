@@ -132,8 +132,9 @@ async def activate_llm_config(db: AsyncSession, config_id: uuid.UUID) -> LLMConf
     return _to_response(config)
 
 
-async def get_scene_configs(db: AsyncSession) -> LLMSceneConfigsResponse:
+async def get_scene_configs(db: AsyncSession, language: str = "zh-CN") -> LLMSceneConfigsResponse:
     from app.apps.registry import AppRegistry
+    from app.schemas.setting import pick_label
 
     # Load all existing config rows indexed by (scene_key, model_type)
     rows_result = await db.execute(select(ModelSceneConfig))
@@ -145,6 +146,9 @@ async def get_scene_configs(db: AsyncSession) -> LLMSceneConfigsResponse:
     configs_result = await db.execute(select(LLMConfig))
     configs_by_id: dict[str, LLMConfig] = {str(c.id): c for c in configs_result.scalars().all()}
 
+    def _mt_label(mt: str) -> str:
+        return pick_label(MODEL_TYPE_LABELS.get(mt, mt), language)
+
     sections: list[SceneSection] = []
 
     # System scenes first
@@ -155,36 +159,38 @@ async def get_scene_configs(db: AsyncSession) -> LLMSceneConfigsResponse:
             config_id = str(row.config_id) if row and row.config_id else None
             model_configs.append(ModelTypeConfig(
                 model_type=mt,
-                model_type_label=MODEL_TYPE_LABELS.get(mt, mt),
+                model_type_label=_mt_label(mt),
                 config_id=config_id,
                 config_label=configs_by_id[config_id].label if config_id and config_id in configs_by_id else None,
             ))
         sections.append(SceneSection(
             scene_key=scene_key,
-            label=sys_def["label"],
+            label=pick_label(sys_def["label"], language),
             icon=sys_def["icon"],
             scene_type="system",
             model_configs=model_configs,
         ))
 
-    # Active app scenes
+    # Active app scenes — localize each app's name via its registry helper
+    app_lang = "en" if (language or "").lower().startswith("en") else "zh"
     for app in AppRegistry.list_apps():
         if app.status != "active":
             continue
+        localized_app = app.localized(app_lang)
         model_configs = []
-        for mt in app.required_model_types:
-            row = rows.get((app.app_id, mt))
+        for mt in localized_app.required_model_types:
+            row = rows.get((localized_app.app_id, mt))
             config_id = str(row.config_id) if row and row.config_id else None
             model_configs.append(ModelTypeConfig(
                 model_type=mt,
-                model_type_label=MODEL_TYPE_LABELS.get(mt, mt),
+                model_type_label=_mt_label(mt),
                 config_id=config_id,
                 config_label=configs_by_id[config_id].label if config_id and config_id in configs_by_id else None,
             ))
         sections.append(SceneSection(
-            scene_key=app.app_id,
-            label=app.name,
-            icon=app.icon,
+            scene_key=localized_app.app_id,
+            label=localized_app.name,
+            icon=localized_app.icon,
             scene_type="app",
             model_configs=model_configs,
         ))
@@ -192,7 +198,7 @@ async def get_scene_configs(db: AsyncSession) -> LLMSceneConfigsResponse:
     return LLMSceneConfigsResponse(sections=sections)
 
 
-async def update_scene_configs(db: AsyncSession, data: LLMSceneConfigsUpdate) -> LLMSceneConfigsResponse:
+async def update_scene_configs(db: AsyncSession, data: LLMSceneConfigsUpdate, language: str = "zh-CN") -> LLMSceneConfigsResponse:
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     for upd in data.updates:
@@ -207,60 +213,71 @@ async def update_scene_configs(db: AsyncSession, data: LLMSceneConfigsUpdate) ->
         )
         await db.execute(stmt)
     await db.commit()
-    return await get_scene_configs(db)
+    return await get_scene_configs(db, language=language)
 
 
 # ── Media capability defaults (image / video / tts) ───────────────
 
 # What each capability is, what providers + models support it.
 # If a provider has this capability, we list its offerings here.
+# Label / description values are (zh, en) tuples; callers localize via pick_label().
+# Model display suffix tuples keep the (zh, en) story for ByteDance / Kuaishou / etc.
 _CAPABILITY_META = {
     "image_gen": {
-        "label": "图像生成",
+        "label": ("图像生成", "Image Generation"),
         "icon": "🖼️",
-        "description": "用于生成封面图、产品图、辅助配图",
-        # (provider → list of model codes)
+        "description": (
+            "用于生成封面图、产品图、辅助配图",
+            "For cover images, product shots, and supporting visuals",
+        ),
+        # (provider → list of (model_code, (zh_label, en_label)))
         "models_by_provider": {
             "chanjing": [
-                ("doubao-seedream-4.5", "Seedream 4.5 · 字节"),
-                ("doubao-seedream-4.0", "Seedream 4.0 · 字节"),
-                ("doubao-seedream-3.0", "Seedream 3.0 · 字节"),
-                ("kling-v2-1", "Kling v2.1 · 快手"),
-                ("kling-v2", "Kling v2 · 快手"),
-                ("wan2.2-t2i", "Wan 2.2 · 阿里"),
+                ("doubao-seedream-4.5", ("Seedream 4.5 · 字节",   "Seedream 4.5 · ByteDance")),
+                ("doubao-seedream-4.0", ("Seedream 4.0 · 字节",   "Seedream 4.0 · ByteDance")),
+                ("doubao-seedream-3.0", ("Seedream 3.0 · 字节",   "Seedream 3.0 · ByteDance")),
+                ("kling-v2-1",          ("Kling v2.1 · 快手",     "Kling v2.1 · Kuaishou")),
+                ("kling-v2",            ("Kling v2 · 快手",       "Kling v2 · Kuaishou")),
+                ("wan2.2-t2i",          ("Wan 2.2 · 阿里",        "Wan 2.2 · Alibaba")),
             ],
             "google": [
-                ("gemini-3-pro-image-preview", "Nano Banana Pro · Google (推荐)"),
-                ("gemini-3.1-flash-image-preview", "Nano Banana 2 · Google (快)"),
-                ("gemini-2.5-flash-image", "Nano Banana · Google (稳定)"),
+                ("gemini-3-pro-image-preview",    ("Nano Banana Pro · Google (推荐)",  "Nano Banana Pro · Google (recommended)")),
+                ("gemini-3.1-flash-image-preview",("Nano Banana 2 · Google (快)",     "Nano Banana 2 · Google (fast)")),
+                ("gemini-2.5-flash-image",        ("Nano Banana · Google (稳定)",     "Nano Banana · Google (stable)")),
             ],
         },
     },
     "video_gen": {
-        "label": "视频生成",
+        "label": ("视频生成", "Video Generation"),
         "icon": "🎬",
-        "description": "用于 B-roll 分镜生成、图生视频",
+        "description": (
+            "用于 B-roll 分镜生成、图生视频",
+            "For B-roll scene generation and image-to-video",
+        ),
         "models_by_provider": {
             "chanjing": [
-                ("Doubao-Seedance-1.0-pro", "Seedance 1.0 Pro · 字节 (推荐)"),
-                ("doubao-seedance-1.0-lite-i2v", "Seedance 1.0 Lite · 字节"),
-                ("tx_kling-v2-1-master", "Kling v2.1 Master · 快手"),
-                ("kling-2.5", "Kling 2.5 · 快手"),
-                ("MiniMax-Hailuo-02", "Hailuo 02 · MiniMax"),
-                ("viduq1", "Vidu Q1"),
+                ("Doubao-Seedance-1.0-pro",     ("Seedance 1.0 Pro · 字节 (推荐)", "Seedance 1.0 Pro · ByteDance (recommended)")),
+                ("doubao-seedance-1.0-lite-i2v",("Seedance 1.0 Lite · 字节",       "Seedance 1.0 Lite · ByteDance")),
+                ("tx_kling-v2-1-master",        ("Kling v2.1 Master · 快手",       "Kling v2.1 Master · Kuaishou")),
+                ("kling-2.5",                   ("Kling 2.5 · 快手",               "Kling 2.5 · Kuaishou")),
+                ("MiniMax-Hailuo-02",           ("Hailuo 02 · MiniMax",            "Hailuo 02 · MiniMax")),
+                ("viduq1",                      ("Vidu Q1",                        "Vidu Q1")),
             ],
             "google": [
                 # Gemini API as of 2026-04: only Veo 3.1 series currently available
                 # (veo-3-generate-preview shut down 2026-03-09; veo-2 no longer listed)
-                ("veo-3.1-generate-preview", "Veo 3.1 · Google (推荐)"),
-                ("veo-3.1-lite-generate-preview", "Veo 3.1 Lite · Google (快)"),
+                ("veo-3.1-generate-preview",      ("Veo 3.1 · Google (推荐)",     "Veo 3.1 · Google (recommended)")),
+                ("veo-3.1-lite-generate-preview", ("Veo 3.1 Lite · Google (快)", "Veo 3.1 Lite · Google (fast)")),
             ],
         },
     },
     "tts": {
-        "label": "语音合成",
+        "label": ("语音合成", "Voice Synthesis"),
         "icon": "🔊",
-        "description": "选择默认 TTS 供应商。供应商内部集成了多种语音引擎（Cicada、ElevenLabs 等），具体音色在生成视频时选择。",
+        "description": (
+            "选择默认 TTS 供应商。供应商内部集成了多种语音引擎（Cicada、ElevenLabs 等），具体音色在生成视频时选择。",
+            "Pick a default TTS provider. Each provider wraps multiple underlying engines (Cicada, ElevenLabs, …); the exact voice is chosen when you generate a video.",
+        ),
         # TTS uses voice_id, not model_code. Provider transparently routes to
         # the underlying engine (Cicada / ElevenLabs / ...) based on the voice.
         "models_by_provider": {
@@ -271,8 +288,15 @@ _CAPABILITY_META = {
 }
 
 
-async def get_media_capability_configs(db: AsyncSession) -> MediaCapabilitiesResponse:
+async def get_media_capability_configs(
+    db: AsyncSession, language: str = "zh-CN"
+) -> MediaCapabilitiesResponse:
     """Build the capability → options mapping based on configured media providers."""
+    from app.schemas.setting import pick_label
+
+    is_en = (language or "").lower().startswith("en")
+    tts_suffix = " (TTS provider)" if is_en else "（TTS 供应商）"
+
     # Load active providers
     providers_result = await db.execute(
         select(MediaProviderConfig).where(MediaProviderConfig.is_active.is_(True))
@@ -302,7 +326,7 @@ async def get_media_capability_configs(db: AsyncSession) -> MediaCapabilitiesRes
                         provider_label=p.label,
                         model_code=None,
                         voice_id=None,
-                        display_label=f"{p.label}（TTS 供应商）",
+                        display_label=f"{p.label}{tts_suffix}",
                     ))
                 else:
                     for code, title in models:
@@ -312,15 +336,15 @@ async def get_media_capability_configs(db: AsyncSession) -> MediaCapabilitiesRes
                             provider_label=p.label,
                             model_code=code,
                             voice_id=None,
-                            display_label=f"{title}",
+                            display_label=pick_label(title, language),
                         ))
 
         d = defaults.get(cap)
         capabilities.append(MediaCapabilityConfig(
             capability=cap,
-            label=meta["label"],
+            label=pick_label(meta["label"], language),
             icon=meta["icon"],
-            description=meta["description"],
+            description=pick_label(meta["description"], language),
             current_provider_config_id=str(d.provider_config_id) if d and d.provider_config_id else None,
             current_model_code=d.model_code if d else None,
             current_voice_id=d.voice_id if d else None,
@@ -330,7 +354,7 @@ async def get_media_capability_configs(db: AsyncSession) -> MediaCapabilitiesRes
 
 
 async def update_media_capability_configs(
-    db: AsyncSession, data: MediaCapabilitiesUpdateRequest
+    db: AsyncSession, data: MediaCapabilitiesUpdateRequest, language: str = "zh-CN"
 ) -> MediaCapabilitiesResponse:
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -355,7 +379,7 @@ async def update_media_capability_configs(
         )
         await db.execute(stmt)
     await db.commit()
-    return await get_media_capability_configs(db)
+    return await get_media_capability_configs(db, language=language)
 
 
 async def get_llm_config_for_scene(

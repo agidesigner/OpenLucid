@@ -63,25 +63,25 @@ async def validate_llm(data: LLMValidateRequest):
 
 
 @router.get("/llm/scenes", response_model=LLMSceneConfigsResponse)
-async def get_llm_scenes(db: AsyncSession = Depends(get_db)):
-    return await get_scene_configs(db)
+async def get_llm_scenes(lang: str = "zh-CN", db: AsyncSession = Depends(get_db)):
+    return await get_scene_configs(db, language=lang)
 
 
 @router.put("/llm/scenes", response_model=LLMSceneConfigsResponse)
-async def update_llm_scenes(data: LLMSceneConfigsUpdate, db: AsyncSession = Depends(get_db)):
-    return await update_scene_configs(db, data)
+async def update_llm_scenes(data: LLMSceneConfigsUpdate, lang: str = "zh-CN", db: AsyncSession = Depends(get_db)):
+    return await update_scene_configs(db, data, language=lang)
 
 
 @router.get("/media-capabilities", response_model=MediaCapabilitiesResponse)
-async def get_media_capabilities(db: AsyncSession = Depends(get_db)):
-    return await get_media_capability_configs(db)
+async def get_media_capabilities(lang: str = "zh-CN", db: AsyncSession = Depends(get_db)):
+    return await get_media_capability_configs(db, language=lang)
 
 
 @router.put("/media-capabilities", response_model=MediaCapabilitiesResponse)
 async def update_media_capabilities(
-    data: MediaCapabilitiesUpdateRequest, db: AsyncSession = Depends(get_db)
+    data: MediaCapabilitiesUpdateRequest, lang: str = "zh-CN", db: AsyncSession = Depends(get_db)
 ):
-    return await update_media_capability_configs(db, data)
+    return await update_media_capability_configs(db, data, language=lang)
 
 
 @router.put("/llm/{config_id}", response_model=LLMConfigResponse)
