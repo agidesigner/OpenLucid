@@ -24,7 +24,7 @@ Three interfaces, pick what fits:
 
 | Interface | For | How |
 |-----------|-----|-----|
-| **MCP Server (SSE)** | Claude Code, Cursor, AI IDEs (remote/Docker) | Connect via HTTP SSE, AI reads your marketing data directly |
+| **MCP Server** | Claude Code, Cursor, AI IDEs | Connect via MCP protocol, AI reads your marketing data directly |
 | **RESTful API** | Custom agents, automation | Full API with interactive docs at `/docs` |
 | **CLI Tool** | Agent scripting, ops queries | Command-line tool that calls the REST API, zero dependencies |
 | **Web App** | Marketing teams | Visual UI for managing knowledge, assets, brand kits, and topics |

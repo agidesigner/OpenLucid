@@ -24,7 +24,7 @@
 
 | 接口 | 适用场景 | 方式 |
 |------|---------|------|
-| **MCP Server (SSE)** | Claude Code、Cursor、AI IDE（远程/Docker） | 通过 HTTP SSE 连接，AI 直接读取营销数据 |
+| **MCP Server** | Claude Code、Cursor、AI IDE | 通过 MCP 协议连接，AI 直接读取营销数据 |
 | **RESTful API** | 自定义 Agent、自动化流程 | 完整 API，交互式文档见 `/docs` |
 | **CLI 工具** | Agent 脚本调用、运维查询 | 通过 HTTP 调用 REST API 的命令行工具，零依赖 |
 | **Web App** | 营销团队日常使用 | 可视化界面，管理知识、素材、品牌套件、选题 |
