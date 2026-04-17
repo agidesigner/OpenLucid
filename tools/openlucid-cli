@@ -21,7 +21,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-CLI_VERSION = "0.9.8.2"
+CLI_VERSION = "0.9.9.2"
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -509,6 +509,10 @@ def cmd_search_assets(base, token, cookie, args):
         params["tags"] = args.tags
     if args.asset_type:
         params["asset_type"] = args.asset_type
+    if args.content_form:
+        params["content_form"] = args.content_form
+    if args.campaign_type:
+        params["campaign_type"] = args.campaign_type
     _out(_request(base, token, cookie, "GET", "/assets/search", params))
 
 
@@ -550,6 +554,10 @@ def cmd_list_topic_plans(base, token, cookie, args):
     if args.strategy_unit_id:
         params["strategy_unit_id"] = args.strategy_unit_id
     _out(_request(base, token, cookie, "GET", "/topic-plans", params))
+
+
+def cmd_get_topic_plan(base, token, cookie, args):
+    _out(_request(base, token, cookie, "GET", f"/topic-plans/{args.id}"))
 
 
 # -- Creations --
@@ -688,6 +696,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--q", default="", help="Fuzzy search keyword")
     p.add_argument("--tags", default="", help="Comma-separated exact tag match")
     p.add_argument("--asset-type", default="", help="Filter: image|video|document")
+    p.add_argument("--content-form", default="",
+                   help="Filter by content_form id(s), comma-separated (e.g. unboxing,review)")
+    p.add_argument("--campaign-type", default="",
+                   help="Filter by campaign_type id(s), comma-separated (e.g. flash_sale,bogo)")
     p.add_argument("--page", type=int, default=1)
     p.add_argument("--page-size", type=int, default=20)
 
@@ -722,6 +734,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--strategy-unit-id", help="Filter by strategy unit UUID")
     p.add_argument("--page", type=int, default=1)
     p.add_argument("--page-size", type=int, default=20)
+
+    # -- get-topic-plan --
+    p = sub.add_parser("get-topic-plan", help="Get a single topic plan by ID")
+    p.add_argument("--id", required=True, help="Topic plan UUID")
 
     # -- list-creations --
     p = sub.add_parser("list-creations", help="List saved creations (topics, scripts, posts)")
@@ -774,6 +790,7 @@ _DISPATCH = {
     "kb-qa": cmd_kb_qa,
     "topic-studio": cmd_topic_studio,
     "list-topic-plans": cmd_list_topic_plans,
+    "get-topic-plan": cmd_get_topic_plan,
     "list-creations": cmd_list_creations,
     "get-creation": cmd_get_creation,
     "save-creation": cmd_save_creation,

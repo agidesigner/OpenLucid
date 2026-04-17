@@ -34,10 +34,13 @@ Three interfaces, pick what fits:
 ## Core Modules
 
 - **Knowledge Base** — Structured merchant knowledge: selling points, audience insights, usage scenarios, FAQs, objection handling. Input manually or let AI infer from product data
-- **Asset Library** — Upload images, videos, documents. AI auto-extracts metadata, tags, and scores each asset
+- **Asset Library** — Upload images, videos, documents. AI auto-extracts metadata, tags, and scores each asset. Filter by content-form (unboxing / review / tutorial / …) or campaign-type (flash sale / BOGO / …)
 - **Strategy Units** — Define "audience × scenario × marketing goal × channel" combinations for focused content direction
-- **Brand Kit** — Brand tone, visual guidelines, persona definitions. Guardrails that keep all output on-brand
+- **Brand Kit** — Logo, brand tone, visual guidelines, persona presets. Guardrails that keep all output on-brand
 - **Topic Studio** — Generate multi-platform topic plans grounded in your knowledge base and asset library
+- **Script Writer / Content Studio** — Produce short-video scripts or social copy with platform × persona × structure presets; feed a topic plan directly into generation
+- **Video Generation** — Turn a script into a digital-human video via Chanjing / Jogg (avatar + voice + aspect + optional B-roll + captions)
+- **Creations Library** — Every finished piece (post / script / email / hook) auto-saved back here for reuse, comparison, and agent referral
 - **KB Q&A** — AI-powered Q&A that cites your knowledge base without fabricating
 
 ## Quick Start

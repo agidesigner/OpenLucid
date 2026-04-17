@@ -22,10 +22,11 @@ description: Use this skill whenever the user wants to query, operate, or create
 | `kb-qa --offer-id <id> --question "..."` | Answer questions from knowledge base |
 | `topic-studio --offer-id <id>` | Generate NEW topic plans |
 | `list-topic-plans --offer-id <id>` | List topic plans from Topic Studio (选题工坊历史选题) |
+| `get-topic-plan --id <id>` | Get a single topic plan by UUID (title, hook, angle, key_points) |
 | `list-creations --offer-id <id>` | List SAVED creations (manually saved content pieces) |
 | `get-creation --id <id>` | Get a single creation by UUID |
 | `save-creation --title "..." --content "..."` | Save a content piece |
-| `search-assets --scope-type offer --scope-id <id>` | Search images, videos, documents |
+| `search-assets --scope-type offer --scope-id <id>` | Search images, videos, documents (supports `--content-form` / `--campaign-type` filters) |
 | `list-knowledge --scope-type offer --scope-id <id>` | List structured knowledge (selling points, audiences, FAQ) |
 | `add-knowledge --scope-type offer --scope-id <id> --title "..."` | Add a knowledge item |
 | `list-strategy-units --offer-id <id>` | List marketing strategy units |
@@ -150,9 +151,17 @@ openlucid-cli search-assets --scope-type offer --scope-id <id> --asset-type imag
 
 # Filter by tags
 openlucid-cli search-assets --scope-type offer --scope-id <id> --tags "产品图"
+
+# Filter by content-form (e.g. unboxing/review/tutorial — closed-set categories)
+openlucid-cli search-assets --scope-type offer --scope-id <id> --content-form unboxing,review
+
+# Filter by campaign-type (e.g. flash_sale/bogo/first_purchase)
+openlucid-cli search-assets --scope-type offer --scope-id <id> --campaign-type flash_sale
 ```
 
 Asset types: `image`, `video`, `document`
+Content forms: `unboxing`, `review`, `tutorial`, `talking_head`, `product_demo`, `scripted_skit`, `ugc_authentic`, `live_snippet`, `image_with_text`, `vlog`, `tvc`, `kol_mashup`, `compilation_mashup`, `green_screen`, `beat_sync`
+Campaign types: `flash_sale`, `bogo`, `bundle_discount`, `free_shipping`, `free_gift`, `trial`, `pre_order`, `first_purchase`, `new_customer`, `limited_qty`, `time_limited`, `full_refund`
 
 ### Topic Studio
 ```bash
@@ -161,6 +170,12 @@ openlucid-cli topic-studio --offer-id <offer_uuid>
 
 # Generate 10 topics with a specific strategy
 openlucid-cli topic-studio --offer-id <offer_uuid> --count 10 --strategy-unit-id <id>
+
+# List past topic plans (history from Topic Studio)
+openlucid-cli list-topic-plans --offer-id <offer_uuid>
+
+# Drill into one specific topic plan (full fields: hook, angle, key_points)
+openlucid-cli get-topic-plan --id <plan_uuid>
 ```
 
 ## Authentication
