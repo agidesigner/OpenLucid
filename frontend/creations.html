@@ -99,6 +99,8 @@
           <option value="post" x-text="t('creations_type_post')"></option>
           <option value="script" x-text="t('creations_type_script')"></option>
           <option value="email" x-text="t('creations_type_email')"></option>
+          <option value="caption" x-text="t('creations_type_caption')"></option>
+          <option value="hook" x-text="t('creations_type_hook')"></option>
           <option value="general" x-text="t('creations_type_general')"></option>
         </select>
         <select x-model="filterSource" @change="reload()"
@@ -271,13 +273,13 @@
             <label class="block text-xs font-medium text-gray-500 mb-1" x-text="t('creations_field_type')"></label>
             <select x-model="modal.data.content_type"
                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
-              <option value="general">general</option>
-              <option value="topic">topic</option>
-              <option value="post">post</option>
-              <option value="script">script</option>
-              <option value="email">email</option>
-              <option value="caption">caption</option>
-              <option value="hook">hook</option>
+              <option value="general" x-text="t('creations_type_general')"></option>
+              <option value="topic" x-text="t('creations_type_topic')"></option>
+              <option value="post" x-text="t('creations_type_post')"></option>
+              <option value="script" x-text="t('creations_type_script')"></option>
+              <option value="email" x-text="t('creations_type_email')"></option>
+              <option value="caption" x-text="t('creations_type_caption')"></option>
+              <option value="hook" x-text="t('creations_type_hook')"></option>
             </select>
           </div>
           <div>
