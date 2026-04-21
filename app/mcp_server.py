@@ -1231,11 +1231,25 @@ async def submit_video(
     aspect_ratio: str = "portrait",
     caption: bool = True,
     name: str | None = None,
+    provider_extras: dict | None = None,
 ) -> str:
     """Kick off a talking-avatar video for an existing creation. Returns the job
     id; poll with get_video. `aspect_ratio` ∈ portrait|landscape|square.
 
     Discovery path: call list_media_providers → list_avatars → list_voices first.
+
+    IMPORTANT — avatar extras pass-through:
+      When you pick an avatar from `list_avatars`, copy its entire `extras`
+      object into `provider_extras` here. For Chanjing this carries the
+      `figure_type` that the upstream API requires; omitting it will make
+      create_video fail with code=50000 "figure_type not selected correctly"
+      for any public avatar whose type is not the default `whole_body`
+      (e.g. sit_body / circle_view avatars). Example:
+          provider_extras = {"figure_type": "sit_body"}   # copied verbatim
+                                                          # from list_avatars
+                                                          # item.extras
+
+      For Jogg, pass the same `extras` dict; unused keys are ignored.
     """
     from app.application.video_service import create_video_job
     from app.schemas.video import VideoGenerateRequest
@@ -1249,6 +1263,7 @@ async def submit_video(
             aspect_ratio=aspect_ratio,  # type: ignore[arg-type]
             caption=caption,
             name=name,
+            provider_extras=provider_extras or {},
         )
         job = await create_video_job(session, uuid.UUID(creation_id), data)
         return _serialize(job)

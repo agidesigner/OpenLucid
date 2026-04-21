@@ -49,7 +49,24 @@
 
 ```bash
 git clone https://github.com/agidesigner/OpenLucid.git
-cd OpenLucid/docker
+cd OpenLucid
+```
+
+**🇨🇳 国内用户（强烈建议）**：在执行 `docker compose up` 之前，先取消 `Dockerfile` 中两行清华镜像的注释，可大幅加速 apt 和 pip 安装：
+
+```bash
+# 编辑 Dockerfile，把这两行前的 # 删掉：
+#   RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources
+#   ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 或者用 sed 一键替换：
+sed -i.bak 's|^# RUN sed -i|RUN sed -i|; s|^# ENV PIP_INDEX_URL|ENV PIP_INDEX_URL|' Dockerfile
+```
+
+之后继续：
+
+```bash
+cd docker
 cp .env.example .env
 docker compose up -d
 ```

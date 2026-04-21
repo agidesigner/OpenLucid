@@ -420,6 +420,16 @@ class ChanjingVideoProvider:
             extras: dict = {}
             if first_figure.get("type"):
                 extras["figure_type"] = first_figure["type"]
+            else:
+                # Defensive: if Chanjing ever returns an avatar without a
+                # figures[0].type, submit_video has no hint and falls back to
+                # the `whole_body` default — which may be rejected with
+                # code=50000. Log so ops can spot and escalate.
+                logger.warning(
+                    "Chanjing avatar %s has no figures[0].type; "
+                    "submit_video will fall back to whole_body (may fail)",
+                    item_id,
+                )
             # Chanjing avatars carry their officially-paired voice id — use it
             # as the highest-confidence default in the frontend.
             if item.get("audio_man_id"):
