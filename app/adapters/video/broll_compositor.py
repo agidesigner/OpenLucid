@@ -31,21 +31,35 @@ async def _download(url: str, dest: Path) -> None:
     logger.info("Downloaded %s -> %s (%.1f MB)", url[:80], dest.name, dest.stat().st_size / 1e6)
 
 
+_FFMPEG_MISSING_HINT = (
+    "ffmpeg/ffprobe not found on PATH. B-roll compositing requires the ffmpeg "
+    "binary. Install it and restart the app — Docker images bundle it already; "
+    "on bare Windows run `winget install Gyan.FFmpeg` (then reopen the shell); "
+    "on macOS `brew install ffmpeg`; on Debian/Ubuntu `apt-get install ffmpeg`."
+)
+
+
 async def _ffprobe_duration(path: Path) -> float:
-    proc = await asyncio.create_subprocess_exec(
-        "ffprobe", "-v", "error", "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1", str(path),
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", str(path),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as e:
+        raise RuntimeError(_FFMPEG_MISSING_HINT) from e
     stdout, _ = await proc.communicate()
     return float(stdout.strip() or 0)
 
 
 async def _ffmpeg(*args: str) -> None:
     cmd = ["ffmpeg", "-y", "-loglevel", "warning", *args]
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as e:
+        raise RuntimeError(_FFMPEG_MISSING_HINT) from e
     _, stderr = await proc.communicate()
     if proc.returncode != 0:
         raise RuntimeError(f"FFmpeg failed (rc={proc.returncode}): {stderr.decode()[:500]}")
