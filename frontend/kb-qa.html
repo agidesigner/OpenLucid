@@ -144,7 +144,7 @@
                   <div class="text-xs text-gray-400 mb-1" x-text="t('kb_distribution')"></div>
                   <template x-for="[type, count] in Object.entries(knowledgeByType)" :key="type">
                     <div class="flex items-center justify-between text-xs">
-                      <span class="text-gray-500" x-text="({selling_point:t('ktype_selling_point'),audience:t('ktype_audience'),scenario:t('ktype_scenario'),faq:t('ktype_faq'),objection:t('ktype_objection')}[type] || type)"></span>
+                      <span class="text-gray-500" x-text="({selling_point:t('ktype_selling_point'),audience:t('ktype_audience'),scenario:t('ktype_scenario'),pain_point:t('ktype_pain_point'),faq:t('ktype_faq'),objection:t('ktype_objection')}[type] || type)"></span>
                       <span class="text-gray-700 font-medium" x-text="count"></span>
                     </div>
                   </template>
@@ -246,11 +246,12 @@
                             'bg-blue-50 text-blue-600': ref.knowledge_type === 'selling_point',
                             'bg-green-50 text-green-600': ref.knowledge_type === 'audience',
                             'bg-purple-50 text-purple-600': ref.knowledge_type === 'scenario',
+                            'bg-orange-50 text-orange-600': ref.knowledge_type === 'pain_point',
                             'bg-amber-50 text-amber-600': ref.knowledge_type === 'faq',
                             'bg-red-50 text-red-600': ref.knowledge_type === 'objection',
-                            'bg-gray-100 text-gray-600': !['selling_point','audience','scenario','faq','objection'].includes(ref.knowledge_type),
+                            'bg-gray-100 text-gray-600': !['selling_point','audience','scenario','pain_point','faq','objection'].includes(ref.knowledge_type),
                           }">
-                      <span x-text="({selling_point:t('ref_selling_point'),audience:t('ref_audience'),scenario:t('ref_scenario'),faq:t('ref_faq'),objection:t('ref_objection')}[ref.knowledge_type] || ref.knowledge_type)"></span>
+                      <span x-text="({selling_point:t('ref_selling_point'),audience:t('ref_audience'),scenario:t('ref_scenario'),pain_point:t('ref_pain_point'),faq:t('ref_faq'),objection:t('ref_objection')}[ref.knowledge_type] || ref.knowledge_type)"></span>
                       <span class="font-medium" x-text="ref.title"></span>
                     </span>
                   </template>

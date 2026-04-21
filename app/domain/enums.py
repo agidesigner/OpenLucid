@@ -32,6 +32,9 @@ class KnowledgeType(str, Enum):
     BRAND = "brand"
     AUDIENCE = "audience"
     SCENARIO = "scenario"
+    # Usage-side pain + migration trigger. Distinct from OBJECTION (which is
+    # *purchase-decision* hesitation, not usage pain).
+    PAIN_POINT = "pain_point"
     SELLING_POINT = "selling_point"
     OBJECTION = "objection"
     PROOF = "proof"

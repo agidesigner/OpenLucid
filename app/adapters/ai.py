@@ -42,16 +42,19 @@ def _build_infer_knowledge_system_prompt(language: str) -> str:
 
 First, write a cleaned-up product description in the "description" field: remove navigation menus, footers, ads, boilerplate, and irrelevant UI text, but KEEP all product-related details — features, specs, pricing, case studies, customer quotes, competitive advantages. Aim for comprehensive coverage within 2000 characters.
 
-Then generate 2-4 entries for each of the following 5 categories:
-1. selling_point: differentiators, technical highlights, user value — MUST be written as a FABE causal chain (see below)
+Then generate 2-4 entries for each of the following 7 categories:
+1. selling_point: differentiators, technical highlights, user value — MUST be written as a Before-FABE causal chain (see below)
 2. audience: user personas, traits, purchase motivations
-3. scenario: use cases, pain-point scenarios, discovery moments
-4. faq: most likely customer questions and answers
-5. objection: common hesitations and how to address them
+3. scenario: use cases, discovery moments (objective contexts — the concrete "when/where")
+4. pain_point: usage pain + migration trigger (subjective suffering in those scenarios + why change now; distinct from purchase objection)
+5. faq: factual/informational questions customers ask (e.g. warranty, compatibility, pricing specifics) — answer with facts
+6. objection: emotional purchase hesitations (too expensive, untrusted, not-for-me) — answer with reframes + evidence; distinct from pain_point (usage pain) and from faq (factual questions)
+7. proof: verifiable trust endorsements reusable across all content — case studies, user data, awards, press mentions, certifications, celebrity/expert endorsements. Distinct from a selling_point's own "Evidence" line (which is scoped to supporting that single selling_point); proof entries are standalone assets any content piece can cite.
 
-FABE STRUCTURE FOR selling_point (IMPORTANT):
-Each selling_point's `content_raw` MUST follow this 4-line causal chain so downstream content generators can reason about cause-and-effect:
+Before-FABE STRUCTURE FOR selling_point (IMPORTANT):
+Each selling_point's `content_raw` MUST follow this 5-line causal chain so downstream content generators can reason about the "before → after" transformation:
 
+  Before: <the old solution / status quo being replaced; write "—" if none applies>
   Feature: <HOW the product achieves it — specific mechanism, component, or system>
   Advantage: <WHAT capability this mechanism enables under real use>
   Benefit: <WHAT concrete outcome the user actually gets>
@@ -64,16 +67,32 @@ Feature must describe the mechanism, NOT just restate what the product is. For e
 
 Advantage is the capability unlocked by the Feature, still product-side.
 Benefit is the outcome from the USER's perspective — what changes in their life or workflow.
+Before describes the typical prior state (competitor behavior / old workflow / status quo); it gives downstream content generators an explicit contrast anchor.
 Evidence should link a concrete proof point; if none, write "—".
+
+STRUCTURE FOR pain_point:
+Each pain_point's `content_raw` SHOULD be written as two labeled paragraphs:
+
+  Pain: <the concrete, current suffering in the usage context — 2-4 bullet items>
+  Trigger: <why they must change now, not tomorrow — the emotional / risk accumulation that makes inaction no longer tolerable>
+
+Example:
+  Pain:
+    - Phone throttles under heavy load during business calls
+    - Battery drains before a 2-hour flight ends
+    - Device gets uncomfortably hot to hold
+  Trigger: Dropping a client call at a critical moment is unacceptable in a B2B context; the cost of one embarrassing failure exceeds a phone upgrade price.
 
 Return strictly valid JSON:
 {
   "description": "Cleaned product description with all relevant details (up to 2000 chars)...",
-  "selling_point": [{"title": "...", "content_raw": "Feature: ...\\nAdvantage: ...\\nBenefit: ...\\nEvidence: ...", "confidence": 0.9}, ...],
+  "selling_point": [{"title": "...", "content_raw": "Before: ...\\nFeature: ...\\nAdvantage: ...\\nBenefit: ...\\nEvidence: ...", "confidence": 0.9}, ...],
   "audience": [...],
   "scenario": [...],
+  "pain_point": [{"title": "...", "content_raw": "Pain:\\n  - ...\\nTrigger: ...", "confidence": 0.9}, ...],
   "faq": [...],
-  "objection": [...]
+  "objection": [...],
+  "proof": [{"title": "...", "content_raw": "...", "confidence": 0.9}, ...]
 }
 
 Rules:
@@ -88,16 +107,19 @@ Rules:
 
 首先，在 "description" 字段中写一段清洗后的商品描述：去掉导航、页脚、广告、模板化文案和无关界面文字，但要保留所有与商品有关的关键信息，例如功能、规格、价格、案例、用户评价、竞争优势等。尽量完整，控制在 2000 字符以内。
 
-然后为以下 5 类知识分别生成 2-4 条候选：
-1. selling_point：差异化卖点、技术亮点、用户价值 —— **必须写成 FABE 因果链结构**（见下文）
+然后为以下 7 类知识分别生成 2-4 条候选：
+1. selling_point：差异化卖点、技术亮点、用户价值 —— **必须写成 Before-FABE 因果链结构**（见下文）
 2. audience：目标人群画像、特征、购买动机
-3. scenario：使用场景、痛点场景、触发购买的时机
-4. faq：客户最可能提出的问题及回答
-5. objection：常见顾虑及应对话术
+3. scenario：使用场景、发现时刻（客观语境 —— 具体"何时何地"）
+4. pain_point：使用痛点 + 变革动机（在该场景下的主观痛苦 + 为什么现在必须改；**和 objection 不同**，objection 是购买决策异议，pain_point 是使用本身的痛）
+5. faq：事实型常见问题（保修、兼容性、具体价格、服务范围等）—— 用事实作答
+6. objection：情绪型购买异议（"太贵了"、"怕上当"、"不适合我"）—— 用重构 + 证据作答；**和 pain_point 区分**（pain_point 是使用痛），**也和 faq 区分**（faq 是找信息）
+7. proof：可跨内容复用的信任背书 —— 案例、用户数据、奖项、权威媒体报道、资质认证、专家/明星代言等。**与 selling_point 内部的 Evidence 行不同**：Evidence 只支撑某一个具体卖点，proof 是独立资产，任何文案都可引用。
 
-**selling_point 的 FABE 结构（重要）**：
-每条 selling_point 的 `content_raw` 字段**必须**按下面 4 行因果链写，以便下游内容生成器能做因果推理：
+**selling_point 的 Before-FABE 结构（重要）**：
+每条 selling_point 的 `content_raw` 字段**必须**按下面 5 行因果链写，以便下游内容生成器能做"之前 → 之后"对比叙事：
 
+  Before：<被替代的旧方案 / 现状；若无明显参照，写 "—">
   Feature：<产品是怎么做到的 —— 具体机制、核心组件、系统协作>
   Advantage：<这个机制能在真实使用中带来什么能力>
   Benefit：<用户最终得到的具体结果/感知>
@@ -110,16 +132,32 @@ Rules:
 
 Advantage 是 Feature 解锁的能力（仍是产品侧语言）。
 Benefit 是用户视角的结果 —— 他的工作/生活/心情发生了什么变化。
+Before 描述替代对象（竞品行为 / 旧工作流 / 现状），给下游生成器一个明确的对比锚点。
 Evidence 尽量指向一个具体证据点；若无，写 "—"。
+
+**pain_point 的结构**：
+每条 pain_point 的 `content_raw` **建议**写成两段带标签的文字：
+
+  Pain：<在使用语境下当前具体的痛苦 —— 2-4 条列点>
+  Trigger：<为什么现在必须改而不是继续忍 —— 情感积累 / 风险临界 / 成本对比>
+
+示例：
+  Pain：
+    - 手机高负载下严重发热
+    - 2 小时视频会议撑不过电量
+    - 拿在手里烫手
+  Trigger：在 B2B 商务场合掉线一次客户会议，代价远超换一部手机；不能继续忍。
 
 严格返回合法 JSON：
 {
   "description": "清洗后的商品描述（最多 2000 字符）",
-  "selling_point": [{"title": "...", "content_raw": "Feature：...\\nAdvantage：...\\nBenefit：...\\nEvidence：...", "confidence": 0.9}, ...],
+  "selling_point": [{"title": "...", "content_raw": "Before：...\\nFeature：...\\nAdvantage：...\\nBenefit：...\\nEvidence：...", "confidence": 0.9}, ...],
   "audience": [...],
   "scenario": [...],
+  "pain_point": [{"title": "...", "content_raw": "Pain：\\n  - ...\\nTrigger：...", "confidence": 0.9}, ...],
   "faq": [...],
-  "objection": [...]
+  "objection": [...],
+  "proof": [{"title": "...", "content_raw": "...", "confidence": 0.9}, ...]
 }
 
 规则：
@@ -176,7 +214,7 @@ class AIAdapter(ABC):
         self, offer_data: dict[str, Any], language: str = "zh-CN", user_hint: str | None = None,
     ) -> dict[str, list[dict[str, Any]]]:
         """Infer knowledge suggestions grouped by category.
-        Returns dict with keys: selling_point, audience, scenario, faq, objection.
+        Returns dict with keys: selling_point, audience, scenario, pain_point, faq, objection, proof.
         Each value is a list of {title, content_raw, confidence}."""
 
     @abstractmethod
@@ -356,11 +394,17 @@ class StubAIAdapter(AIAdapter):
             "scenario": [
                 {"title": "使用场景", "content_raw": "日常生活场景", "confidence": 0.7},
             ],
+            "pain_point": [
+                {"title": "现有方案痛点", "content_raw": "Pain:\n  - 使用不便\nTrigger: 需要改变", "confidence": 0.6},
+            ],
             "faq": [
                 {"title": "常见问题", "content_raw": "产品保修多久？", "confidence": 0.7},
             ],
             "objection": [
                 {"title": "价格疑虑", "content_raw": "对比同类产品性价比更高", "confidence": 0.65},
+            ],
+            "proof": [
+                {"title": "用户好评", "content_raw": "多数用户给出 4 星以上评价", "confidence": 0.6},
             ],
         }
 
@@ -1009,7 +1053,7 @@ Return JSON: {"title": "...", "content_structured": {"key": "value"}, "confidenc
             raise ValueError(f"LLM returned unparseable response for offer '{offer_name}'")
 
         # Ensure all expected keys exist
-        for key in ("selling_point", "audience", "scenario", "faq", "objection"):
+        for key in ("selling_point", "audience", "scenario", "pain_point", "faq", "objection", "proof"):
             if key not in parsed:
                 parsed[key] = []
 
@@ -1054,7 +1098,7 @@ Return JSON: {"title": "...", "content_structured": {"key": "value"}, "confidenc
             parsed = {}
             yield ("error", "AI 未能生成有效结果，请重试")
 
-        for key in ("selling_point", "audience", "scenario", "faq", "objection"):
+        for key in ("selling_point", "audience", "scenario", "pain_point", "faq", "objection", "proof"):
             if key not in parsed:
                 parsed[key] = []
 

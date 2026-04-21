@@ -15,6 +15,7 @@ KNOWLEDGE_TYPE_LABELS_ZH: dict[str, str] = {
     "selling_point": "核心卖点",
     "audience": "目标人群",
     "scenario": "适用场景",
+    "pain_point": "痛点与变革动机",
     "faq": "常见问答",
     "objection": "异议应对",
     "proof": "信任背书",
@@ -26,6 +27,7 @@ KNOWLEDGE_TYPE_LABELS_EN: dict[str, str] = {
     "selling_point": "Core Selling Points",
     "audience": "Target Audience",
     "scenario": "Usage Scenarios",
+    "pain_point": "Pain & Trigger",
     "faq": "FAQ",
     "objection": "Objection Handling",
     "proof": "Social Proof",
@@ -140,19 +142,24 @@ def format_knowledge_flat(
 
 # Weight map: marketing_objective → knowledge_type → weight (0.0–1.0)
 # Higher weight = more relevant to the objective
+# pain_point weighting rationale:
+#   - lead_generation / conversion: pain is the emotional driver for action → high
+#   - education: pain sets up the "problem" that content teaches around → high
+#   - reach_growth: pain is secondary to aspirational framing → moderate
+#   - traffic_redirect: pain hook matters for click-through → moderate
 _OBJECTIVE_TYPE_WEIGHTS: dict[str, dict[str, float]] = {
-    "reach_growth":      {"selling_point": 1.0, "brand": 0.9, "scenario": 0.7, "audience": 0.6, "proof": 0.4, "faq": 0.2, "objection": 0.1, "general": 0.1},
-    "lead_generation":   {"selling_point": 0.9, "scenario": 0.8, "audience": 0.8, "proof": 0.7, "faq": 0.5, "objection": 0.4, "brand": 0.3, "general": 0.1},
-    "conversion":        {"proof": 1.0, "objection": 0.9, "selling_point": 0.8, "faq": 0.7, "scenario": 0.5, "audience": 0.4, "brand": 0.2, "general": 0.1},
-    "education":         {"selling_point": 1.0, "faq": 0.9, "scenario": 0.7, "proof": 0.5, "audience": 0.4, "brand": 0.3, "objection": 0.3, "general": 0.2},
-    "traffic_redirect":  {"scenario": 0.9, "selling_point": 0.8, "audience": 0.7, "proof": 0.6, "faq": 0.4, "brand": 0.3, "objection": 0.2, "general": 0.1},
-    "other":             {"selling_point": 0.8, "audience": 0.6, "scenario": 0.6, "proof": 0.5, "faq": 0.5, "objection": 0.4, "brand": 0.4, "general": 0.2},
+    "reach_growth":      {"selling_point": 1.0, "brand": 0.9, "scenario": 0.7, "audience": 0.6, "pain_point": 0.5, "proof": 0.4, "faq": 0.2, "objection": 0.1, "general": 0.1},
+    "lead_generation":   {"selling_point": 0.9, "pain_point": 0.9, "scenario": 0.8, "audience": 0.8, "proof": 0.7, "faq": 0.5, "objection": 0.4, "brand": 0.3, "general": 0.1},
+    "conversion":        {"proof": 1.0, "objection": 0.9, "pain_point": 0.9, "selling_point": 0.8, "faq": 0.7, "scenario": 0.5, "audience": 0.4, "brand": 0.2, "general": 0.1},
+    "education":         {"selling_point": 1.0, "faq": 0.9, "pain_point": 0.8, "scenario": 0.7, "proof": 0.5, "audience": 0.4, "brand": 0.3, "objection": 0.3, "general": 0.2},
+    "traffic_redirect":  {"scenario": 0.9, "selling_point": 0.8, "audience": 0.7, "pain_point": 0.7, "proof": 0.6, "faq": 0.4, "brand": 0.3, "objection": 0.2, "general": 0.1},
+    "other":             {"selling_point": 0.8, "audience": 0.6, "scenario": 0.6, "pain_point": 0.6, "proof": 0.5, "faq": 0.5, "objection": 0.4, "brand": 0.4, "general": 0.2},
 }
 
 # Default weights when objective is unknown or missing
 _DEFAULT_TYPE_WEIGHTS: dict[str, float] = {
     "selling_point": 0.8, "audience": 0.6, "scenario": 0.6,
-    "proof": 0.5, "faq": 0.5, "objection": 0.4,
+    "pain_point": 0.6, "proof": 0.5, "faq": 0.5, "objection": 0.4,
     "brand": 0.4, "general": 0.2,
 }
 
