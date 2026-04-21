@@ -766,9 +766,19 @@ async def run_app(
         Returns: {script, knowledge_count, structured_content, creation_id}.
         The resulting creation has source_app="mcp:external".
 
+    content_studio:
+      - generate: Generate text-first social content (posts, articles, threads).
+        Uses the same Composer dimensions as script_writer — agent should pick a
+        non-video platform_id via get_app_config("content_studio") (e.g.
+        xiaohongshu, weibo, wechat_moments). Accepts the same optional params
+        as script_writer generate, including config_id for per-call LLM override.
+        Returns: {script, knowledge_count, structured_content, creation_id};
+        the resulting creation has source_app="mcp:external".
+
     topic_studio:
       - generate: Generate structured topic plans.
-        Optional: strategy_unit_id, count (via word_count param, default 5).
+        Optional: strategy_unit_id, count (via word_count param, default 5),
+        config_id (per-call LLM override; None = use scene default).
         Returns: list of topic plans with title, angle, hook, key_points.
         Use list_topic_plans/get_topic_plan afterwards to fetch them again.
 
@@ -868,6 +878,7 @@ async def run_app(
                 strategy_unit_id=suid,
                 count=word_count if word_count <= 20 else 5,
                 language=language,
+                config_id=config_id,
             )
             plans, thinking = await svc.generate(req)
             await session.commit()
@@ -875,8 +886,49 @@ async def run_app(
             result = {"plans": serialized, "thinking": thinking}
             return json.dumps(result, ensure_ascii=False, indent=2, default=str)
 
+    elif app_id == "content_studio":
+        # Content Studio reuses ScriptWriterService but is scoped to text / social
+        # platforms (the web UI filters `content_type !== 'video'`). MCP agents are
+        # expected to pick a text-format platform_id for this app; the service
+        # itself is platform-agnostic.
+        if action != "generate":
+            raise AppError("UNKNOWN_ACTION", f"Unknown action '{action}' for content_studio. Available: generate", 400)
+        from app.application.script_writer_service import (
+            DEFAULT_SYSTEM_PROMPT_EN,
+            DEFAULT_SYSTEM_PROMPT_ZH,
+            ScriptWriterService,
+        )
+        from app.schemas.app import ScriptWriterRequest
+
+        sys_prompt = DEFAULT_SYSTEM_PROMPT_EN if language.startswith("en") else DEFAULT_SYSTEM_PROMPT_ZH
+        async with _session_factory() as session:
+            svc = ScriptWriterService(session)
+            req = ScriptWriterRequest(
+                offer_id=oid,
+                strategy_unit_id=suid,
+                system_prompt=sys_prompt,
+                topic=topic,
+                goal=goal,
+                tone=tone or None,
+                word_count=word_count,
+                cta=cta or None,
+                industry=industry or None,
+                reference=reference or None,
+                extra_req=extra_req or None,
+                language=language,
+                config_id=config_id,
+                platform_id=platform_id,
+                persona_id=persona_id,
+                structure_id=structure_id,
+                goal_id=goal_id,
+                topic_plan_id=uuid.UUID(topic_plan_id) if topic_plan_id else None,
+                source_app="mcp:external",
+            )
+            result = await svc.generate(req)
+            return json.dumps(result, ensure_ascii=False, indent=2)
+
     else:
-        available = ["kb_qa", "script_writer", "topic_studio"]
+        available = ["kb_qa", "script_writer", "content_studio", "topic_studio"]
         raise AppError("UNKNOWN_APP", f"Unknown app_id '{app_id}'. Available: {available}", 400)
 
 
@@ -1232,11 +1284,20 @@ async def submit_video(
     caption: bool = True,
     name: str | None = None,
     provider_extras: dict | None = None,
+    broll: bool = False,
+    subtitle_style: str = "classic",
+    subtitle_color: str | None = None,
+    subtitle_stroke: str | None = None,
 ) -> str:
     """Kick off a talking-avatar video for an existing creation. Returns the job
     id; poll with get_video. `aspect_ratio` ∈ portrait|landscape|square.
 
     Discovery path: call list_media_providers → list_avatars → list_voices first.
+
+    Defaults are tuned so that an agent passing only the required params
+    (creation_id, provider_config_id, avatar_id, voice_id, script) gets a
+    working talking-head video with captions on, no B-roll, classic subtitle
+    style. Opt into richer output by overriding the optional params below.
 
     IMPORTANT — avatar extras pass-through:
       When you pick an avatar from `list_avatars`, copy its entire `extras`
@@ -1250,6 +1311,17 @@ async def submit_video(
                                                           # item.extras
 
       For Jogg, pass the same `extras` dict; unused keys are ignored.
+
+    Optional enhancements:
+      broll: True = auto-generate 1–2 AI-image/video cutaways per section that
+        carries a `visual_direction` in the creation's structured_content
+        (produced by script_writer). Adds roughly 3–5 minutes to generation.
+        Use this for "storyboard"-style videos; leave False for pure
+        talking-head output.
+      subtitle_style: classic (white text, default) | bold (yellow, larger) |
+        minimal (light grey, thin). Only takes effect when caption=True.
+      subtitle_color / subtitle_stroke: optional hex overrides ("#RRGGBB");
+        leave None to inherit the style preset.
     """
     from app.application.video_service import create_video_job
     from app.schemas.video import VideoGenerateRequest
@@ -1262,6 +1334,10 @@ async def submit_video(
             script=script,
             aspect_ratio=aspect_ratio,  # type: ignore[arg-type]
             caption=caption,
+            subtitle_style=subtitle_style,
+            subtitle_color=subtitle_color,
+            subtitle_stroke=subtitle_stroke,
+            broll=broll,
             name=name,
             provider_extras=provider_extras or {},
         )

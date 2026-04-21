@@ -1,14 +1,18 @@
 import logging
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import delete as sql_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import NotFoundError
 from app.infrastructure.merchant_repo import MerchantRepository
 from app.infrastructure.offer_repo import OfferRepository
+from app.models.asset import Asset
+from app.models.brandkit import BrandKit
 from app.models.creation import Creation
+from app.models.knowledge_item import KnowledgeItem
 from app.models.offer import Offer
+from app.models.topic_plan import TopicPlan
 from app.schemas.offer import OfferCreate, OfferUpdate
 
 logger = logging.getLogger(__name__)
@@ -55,7 +59,40 @@ class OfferService:
         return await self.repo.list(merchant_id=merchant_id, offset=offset, limit=page_size)
 
     async def delete(self, offer_id: uuid.UUID) -> None:
+        """Hard-delete an offer and all its dependent rows.
+
+        `knowledge_items`, `brandkits`, and `assets` use a polymorphic
+        (scope_type, scope_id) pointer rather than a real FK, so SQL-level
+        cascades don't fire. `topic_plans` and `creations` have an `offer_id`
+        column but no cascade was declared. Before v0.9.9.4 this left 284+
+        orphan knowledge_items across 13 deleted offers in production.
+
+        We explicitly clean each dependent table here. We do *not* currently
+        delete asset files from disk during cascade — asset rows for
+        offer-scope assets are rare (2 in prod history) and the disk bytes
+        are cheaper to leak than to engineer a safe file-cleanup path
+        through multiple services. Assets with merchant scope are untouched.
+        """
         offer = await self.get(offer_id)
+        session = self.repo.session
+
+        # Order matters: delete pointing-in rows first, then the offer
+        await session.execute(sql_delete(TopicPlan).where(TopicPlan.offer_id == offer_id))
+        await session.execute(sql_delete(Creation).where(Creation.offer_id == offer_id))
+        await session.execute(sql_delete(KnowledgeItem).where(
+            KnowledgeItem.scope_type == "offer",
+            KnowledgeItem.scope_id == offer_id,
+        ))
+        await session.execute(sql_delete(BrandKit).where(
+            BrandKit.scope_type == "offer",
+            BrandKit.scope_id == offer_id,
+        ))
+        await session.execute(sql_delete(Asset).where(
+            Asset.scope_type == "offer",
+            Asset.scope_id == offer_id,
+        ))
+        # strategy_units has a real FK to offers.id and cascades via SQL
+
         await self.repo.delete(offer)
 
     async def update(self, offer_id: uuid.UUID, data: OfferUpdate) -> Offer:

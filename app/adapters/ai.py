@@ -43,16 +43,33 @@ def _build_infer_knowledge_system_prompt(language: str) -> str:
 First, write a cleaned-up product description in the "description" field: remove navigation menus, footers, ads, boilerplate, and irrelevant UI text, but KEEP all product-related details — features, specs, pricing, case studies, customer quotes, competitive advantages. Aim for comprehensive coverage within 2000 characters.
 
 Then generate 2-4 entries for each of the following 5 categories:
-1. selling_point: differentiators, technical highlights, user value
+1. selling_point: differentiators, technical highlights, user value — MUST be written as a FABE causal chain (see below)
 2. audience: user personas, traits, purchase motivations
 3. scenario: use cases, pain-point scenarios, discovery moments
 4. faq: most likely customer questions and answers
 5. objection: common hesitations and how to address them
 
+FABE STRUCTURE FOR selling_point (IMPORTANT):
+Each selling_point's `content_raw` MUST follow this 4-line causal chain so downstream content generators can reason about cause-and-effect:
+
+  Feature: <HOW the product achieves it — specific mechanism, component, or system>
+  Advantage: <WHAT capability this mechanism enables under real use>
+  Benefit: <WHAT concrete outcome the user actually gets>
+  Evidence: <validation — usage data, case, testimonial; write "—" if none available>
+
+Feature must describe the mechanism, NOT just restate what the product is. For example:
+  BAD:  "Feature: AI-powered app"  ← just restates the product
+  GOOD: "Feature: on-device neural engine + dynamic power scheduling + vapor-chamber cooling"
+         ← explains HOW
+
+Advantage is the capability unlocked by the Feature, still product-side.
+Benefit is the outcome from the USER's perspective — what changes in their life or workflow.
+Evidence should link a concrete proof point; if none, write "—".
+
 Return strictly valid JSON:
 {
   "description": "Cleaned product description with all relevant details (up to 2000 chars)...",
-  "selling_point": [{"title": "...", "content_raw": "...", "confidence": 0.9}, ...],
+  "selling_point": [{"title": "...", "content_raw": "Feature: ...\\nAdvantage: ...\\nBenefit: ...\\nEvidence: ...", "confidence": 0.9}, ...],
   "audience": [...],
   "scenario": [...],
   "faq": [...],
@@ -72,16 +89,33 @@ Rules:
 首先，在 "description" 字段中写一段清洗后的商品描述：去掉导航、页脚、广告、模板化文案和无关界面文字，但要保留所有与商品有关的关键信息，例如功能、规格、价格、案例、用户评价、竞争优势等。尽量完整，控制在 2000 字符以内。
 
 然后为以下 5 类知识分别生成 2-4 条候选：
-1. selling_point：差异化卖点、技术亮点、用户价值
+1. selling_point：差异化卖点、技术亮点、用户价值 —— **必须写成 FABE 因果链结构**（见下文）
 2. audience：目标人群画像、特征、购买动机
 3. scenario：使用场景、痛点场景、触发购买的时机
 4. faq：客户最可能提出的问题及回答
 5. objection：常见顾虑及应对话术
 
+**selling_point 的 FABE 结构（重要）**：
+每条 selling_point 的 `content_raw` 字段**必须**按下面 4 行因果链写，以便下游内容生成器能做因果推理：
+
+  Feature：<产品是怎么做到的 —— 具体机制、核心组件、系统协作>
+  Advantage：<这个机制能在真实使用中带来什么能力>
+  Benefit：<用户最终得到的具体结果/感知>
+  Evidence：<验证依据 —— 用户数据、案例、背书；如暂无请写 "—">
+
+**Feature 必须描述"机制"，不是复述"产品是什么"**。例如：
+  ❌ 错："Feature：AI 数字人生成平台" ← 只是在复述产品是什么
+  ✅ 对："Feature：自研 3D 面捕引擎 + 多模态 TTS + 跨平台唇形对齐算法"
+         ← 解释"怎么做到"
+
+Advantage 是 Feature 解锁的能力（仍是产品侧语言）。
+Benefit 是用户视角的结果 —— 他的工作/生活/心情发生了什么变化。
+Evidence 尽量指向一个具体证据点；若无，写 "—"。
+
 严格返回合法 JSON：
 {
   "description": "清洗后的商品描述（最多 2000 字符）",
-  "selling_point": [{"title": "...", "content_raw": "...", "confidence": 0.9}, ...],
+  "selling_point": [{"title": "...", "content_raw": "Feature：...\\nAdvantage：...\\nBenefit：...\\nEvidence：...", "confidence": 0.9}, ...],
   "audience": [...],
   "scenario": [...],
   "faq": [...],
