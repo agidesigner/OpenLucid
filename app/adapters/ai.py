@@ -42,14 +42,23 @@ def _build_infer_knowledge_system_prompt(language: str) -> str:
 
 First, write a cleaned-up product description in the "description" field: remove navigation menus, footers, ads, boilerplate, and irrelevant UI text, but KEEP all product-related details — features, specs, pricing, case studies, customer quotes, competitive advantages. Aim for comprehensive coverage within 2000 characters.
 
-Then generate 2-4 entries for each of the following 7 categories:
+Then generate 2-4 entries for each of the following 7 categories (EXCEPT faq, which has no upper bound — extract every factual question AND every procedural step mentioned in the input):
 1. selling_point: differentiators, technical highlights, user value — MUST be written as a Before-FABE causal chain (see below)
 2. audience: user personas, traits, purchase motivations
 3. scenario: use cases, discovery moments (objective contexts — the concrete "when/where")
 4. pain_point: usage pain + migration trigger (subjective suffering in those scenarios + why change now; distinct from purchase objection)
-5. faq: factual/informational questions customers ask (e.g. warranty, compatibility, pricing specifics) — answer with facts
+5. faq: factual/informational questions customers ask (warranty, compatibility, pricing, service scope) AND every procedural/how-to operation mentioned in the input. Tutorial-style content ("how to use X", "how to enable Y", "how to set up Z") is a primary marketing asset — every distinct operation, setup step, or feature activation path must become its own FAQ entry, titled as "How do I X?" / "How to X" with content_raw listing the concrete steps. Do NOT skip procedural content as "too detailed" or "too operational" — if the input mentions a step, extract it
 6. objection: emotional purchase hesitations (too expensive, untrusted, not-for-me) — answer with reframes + evidence; distinct from pain_point (usage pain) and from faq (factual questions)
 7. proof: verifiable trust endorsements reusable across all content — case studies, user data, awards, press mentions, certifications, celebrity/expert endorsements. Distinct from a selling_point's own "Evidence" line (which is scoped to supporting that single selling_point); proof entries are standalone assets any content piece can cite.
+
+FAQ SAFETY BOUNDARY (CRITICAL — prevents compliance and brand liability):
+For the following three categories, if the input does NOT provide direct supporting information, you MUST refuse to answer concretely. Set `content_raw` to a deferral phrase such as "Specific details are not stated in the provided materials — please consult the brand or refer to the official product documentation / filing / label." Do NOT invent numbers or make safety endorsements from general knowledge.
+
+  a) Safety for special populations — pregnant, breastfeeding, infants, young children, patients, post-surgery recovery, those on prescription medications, those with chronic conditions.
+  b) Specific numbers not stated in the input — shelf life, dosage, concentration / percentage, pH, ingredient amounts, exact usage duration, SPF value, timing windows.
+  c) Medical / anti-allergy / sun-protection / regulated efficacy claims — any claim that would normally require regulatory filing or medical substantiation (e.g., "SPF X", "clinically proven", "medical-grade", "hypoallergenic", "cures", "treats").
+
+Even when your general knowledge could provide a plausible answer, do NOT endorse unverified numbers or safety claims on the brand's behalf. Better to leave a gap than to mislead. If you choose to include such a FAQ at all, the answer must explicitly defer to the brand.
 
 Before-FABE STRUCTURE FOR selling_point (IMPORTANT):
 Each selling_point's `content_raw` MUST follow this 5-line causal chain so downstream content generators can reason about the "before → after" transformation:
@@ -107,14 +116,23 @@ Rules:
 
 首先，在 "description" 字段中写一段清洗后的商品描述：去掉导航、页脚、广告、模板化文案和无关界面文字，但要保留所有与商品有关的关键信息，例如功能、规格、价格、案例、用户评价、竞争优势等。尽量完整，控制在 2000 字符以内。
 
-然后为以下 7 类知识分别生成 2-4 条候选：
+然后为以下 7 类知识分别生成 2-4 条候选（**除 faq 之外** —— faq 没有上限，输入中提到的每个事实性问题 + 每个操作步骤都要单独抽一条）：
 1. selling_point：差异化卖点、技术亮点、用户价值 —— **必须写成 Before-FABE 因果链结构**（见下文）
 2. audience：目标人群画像、特征、购买动机
 3. scenario：使用场景、发现时刻（客观语境 —— 具体"何时何地"）
 4. pain_point：使用痛点 + 变革动机（在该场景下的主观痛苦 + 为什么现在必须改；**和 objection 不同**，objection 是购买决策异议，pain_point 是使用本身的痛）
-5. faq：事实型常见问题（保修、兼容性、具体价格、服务范围等）—— 用事实作答
+5. faq：事实型常见问题（保修、兼容性、价格、服务范围等）**以及输入中提到的每一个具体操作 / 使用步骤 / 启用方式**。教程类内容（"X 怎么用"、"如何开启 Y"、"X 怎么设置"）是内容营销的核心选题资产之一 —— 每一个独立的操作、设置步骤、功能启用路径都要作为一条 FAQ 抽取，title 写成"如何 X"或"X 怎么用"，content_raw 写完整步骤。**不要因为觉得"太细节"或"太操作"就跳过** —— 只要输入里提到了某个步骤，就抽一条
 6. objection：情绪型购买异议（"太贵了"、"怕上当"、"不适合我"）—— 用重构 + 证据作答；**和 pain_point 区分**（pain_point 是使用痛），**也和 faq 区分**（faq 是找信息）
 7. proof：可跨内容复用的信任背书 —— 案例、用户数据、奖项、权威媒体报道、资质认证、专家/明星代言等。**与 selling_point 内部的 Evidence 行不同**：Evidence 只支撑某一个具体卖点，proof 是独立资产，任何文案都可引用。
+
+**FAQ 安全边界（极其重要 —— 防止品牌合规与责任风险）**：
+对以下三类问题，如果输入中**没有直接信息支持**，你**必须拒绝具体作答**，content_raw 写成"此信息未在提供的资料中明确说明，请咨询品牌方或参考产品说明书 / 备案 / 标签"。**即使你具备行业常识**，也不得以品牌名义凭空生成具体数字或安全承诺。
+
+  a) 特殊人群使用安全：孕妇、哺乳期、婴幼儿、儿童、病人、术后恢复期、处方药或慢性病服药期间等
+  b) 输入中未给出的具体数字：保质期、用量、浓度/百分比、pH、成分含量、精确使用时长、SPF 值、见效时间窗口等
+  c) 医疗 / 抗敏 / 防晒 / 法规宣称：需要监管备案或医学证据支持的任何宣称（如"SPF 多少""临床验证""医学级""低敏""治疗""修复损伤"等）
+
+**宁可留白，也不要误导**。如果你选择保留这类 FAQ，答案必须明确写成"请咨询品牌方 / 参考产品说明书"，不得自行补充具体建议或具体数字。
 
 **selling_point 的 Before-FABE 结构（重要）**：
 每条 selling_point 的 `content_raw` 字段**必须**按下面 5 行因果链写，以便下游内容生成器能做"之前 → 之后"对比叙事：
@@ -481,7 +499,7 @@ class OpenAICompatibleAdapter(AIAdapter):
         return self._parse_json_response(raw)
 
     async def _chat_stream(self, system_prompt: str, user_prompt: str, temperature: float = 0.8,
-                           timeout: float = 180, max_tokens: int = 16384):
+                           timeout: float = 480, max_tokens: int = 16384):
         """Async generator that yields token strings as they arrive."""
         import asyncio
         last_err = None
@@ -1073,7 +1091,10 @@ Return JSON: {"title": "...", "content_structured": {"key": "value"}, "confidenc
         existing_text = format_existing_knowledge(knowledge_items, language=language)
         system = _build_infer_knowledge_system_prompt(language)
         user = format_offer_summary(offer_data, language=language) + existing_text
-        logger.info("Streaming infer-knowledge for '%s' via %s", offer_name, self.provider)
+        logger.info(
+            "Streaming infer-knowledge for '%s' via %s/%s (system=%d chars, user=%d chars, existing=%d items)",
+            offer_name, self.provider, self.model, len(system), len(user), len(knowledge_items),
+        )
 
         full_text = ""
         in_think = False
@@ -1299,7 +1320,7 @@ class AnthropicMessagesAdapter(OpenAICompatibleAdapter):
         data = resp.json()
         return data["content"][0]["text"]
 
-    async def _chat_stream(self, system_prompt: str, user_prompt: str, temperature: float = 0.8, timeout: float = 180):
+    async def _chat_stream(self, system_prompt: str, user_prompt: str, temperature: float = 0.8, timeout: float = 480):
         """Stream tokens via Anthropic Messages SSE."""
         import asyncio
         import httpx
