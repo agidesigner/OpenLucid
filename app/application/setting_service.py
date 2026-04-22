@@ -162,6 +162,7 @@ async def get_scene_configs(db: AsyncSession, language: str = "zh-CN") -> LLMSce
                 model_type_label=_mt_label(mt),
                 config_id=config_id,
                 config_label=configs_by_id[config_id].label if config_id and config_id in configs_by_id else None,
+                model_name=row.model_name if row else None,
             ))
         sections.append(SceneSection(
             scene_key=scene_key,
@@ -186,6 +187,7 @@ async def get_scene_configs(db: AsyncSession, language: str = "zh-CN") -> LLMSce
                 model_type_label=_mt_label(mt),
                 config_id=config_id,
                 config_label=configs_by_id[config_id].label if config_id and config_id in configs_by_id else None,
+                model_name=row.model_name if row else None,
             ))
         sections.append(SceneSection(
             scene_key=localized_app.app_id,
@@ -203,12 +205,20 @@ async def update_scene_configs(db: AsyncSession, data: LLMSceneConfigsUpdate, la
 
     for upd in data.updates:
         config_id = uuid.UUID(upd.config_id) if upd.config_id else None
+        # Clearing the endpoint also clears the model override — a row with a
+        # model_name but no config_id would be orphaned.
+        model_name = upd.model_name if config_id else None
         stmt = (
             pg_insert(ModelSceneConfig)
-            .values(scene_key=upd.scene_key, model_type=upd.model_type, config_id=config_id)
+            .values(
+                scene_key=upd.scene_key,
+                model_type=upd.model_type,
+                config_id=config_id,
+                model_name=model_name,
+            )
             .on_conflict_do_update(
                 index_elements=["scene_key", "model_type"],
-                set_={"config_id": config_id},
+                set_={"config_id": config_id, "model_name": model_name},
             )
         )
         await db.execute(stmt)
@@ -385,14 +395,26 @@ async def update_media_capability_configs(
 async def get_llm_config_for_scene(
     db: AsyncSession, scene_key: str, model_type: str = "text_llm"
 ) -> LLMConfig | None:
-    """Return the scene-override LLM config, **only if it's active**.
+    """Return the scene-bound LLM config with the scene's model override applied.
 
-    If the override row points to a deactivated config (common when users
-    change their LLM lineup without touching the old scene bindings), this
-    returns None — which lets get_ai_adapter fall through to the default
-    active LLM. Keeps agent/script generation working even when the Settings
-    UI has been simplified to default-text/video/image/speech.
+    Two kinds of user choice stack here:
+      1. endpoint choice — `model_scene_configs.config_id` → picks url+key+default
+      2. model choice    — `model_scene_configs.model_name` → overrides which
+         model on that endpoint to invoke (for aggregator proxies serving
+         many models under one key)
+
+    A scene override is an *explicit* user choice — honor it even when the
+    target config's `is_active` flag is False. `is_active` is reserved for
+    "which config is the system-wide fallback", not "which configs are
+    usable at all".
+
+    The returned LLMConfig has its in-memory `model_name` attribute mutated to
+    reflect the scene's model override when set; callers downstream (adapter
+    factory) use `cfg.model_name` as-is.
     """
+    import logging
+    _log = logging.getLogger(__name__)
+
     result = await db.execute(
         select(ModelSceneConfig).where(
             ModelSceneConfig.scene_key == scene_key,
@@ -403,17 +425,65 @@ async def get_llm_config_for_scene(
     if not row or not row.config_id:
         return None
     config_result = await db.execute(
-        select(LLMConfig).where(
-            LLMConfig.id == row.config_id,
-            LLMConfig.is_active == True,  # noqa: E712 — SQL boolean, not Python
-        )
+        select(LLMConfig).where(LLMConfig.id == row.config_id)
     )
-    return config_result.scalar_one_or_none()
+    cfg = config_result.scalar_one_or_none()
+    if cfg is None:
+        return None
+    # Apply scene-level model override (in-memory only; do not flush back).
+    if row.model_name:
+        cfg.model_name = row.model_name
+    if not cfg.is_active:
+        _log.info(
+            "Scene override in use but underlying config is not flagged is_active: "
+            "scene=%s model_type=%s config=%s/%s — honoring explicit scene override anyway.",
+            scene_key, model_type, cfg.provider, cfg.model_name,
+        )
+    return cfg
 
 
 async def get_active_llm_config(db: AsyncSession) -> LLMConfig | None:
     result = await db.execute(select(LLMConfig).where(LLMConfig.is_active == True))  # noqa: E712
     return result.scalar_one_or_none()
+
+
+# In-memory cache for per-endpoint model lists.
+# Key: str(config_id); Value: (models list, timestamp).
+# TTL of 5 minutes balances "pick up new models fairly quickly" against
+# "don't hammer /v1/models on every settings page load".
+_endpoint_models_cache: dict[str, tuple[list[str], float]] = {}
+_ENDPOINT_MODELS_TTL = 300.0  # seconds
+
+
+async def get_endpoint_models(db: AsyncSession, config_id: str) -> list[str]:
+    """Return available models for a saved endpoint.
+
+    5-minute TTL cache. On upstream failure falls back to the stale cache
+    (last-known-good) or, as final fallback, [cfg.model_name] so the UI
+    always has at least the endpoint's default to show.
+    """
+    import time
+    import uuid as _uuid
+    cache_key = str(config_id)
+    now = time.time()
+    cached = _endpoint_models_cache.get(cache_key)
+    if cached and (now - cached[1] < _ENDPOINT_MODELS_TTL):
+        return cached[0]
+
+    cfg = await db.get(LLMConfig, _uuid.UUID(cache_key))
+    if cfg is None:
+        raise HTTPException(status_code=404, detail="LLM config not found")
+
+    try:
+        models, _rec = await fetch_llm_models(cfg.api_key, cfg.base_url, cfg.provider)
+        _endpoint_models_cache[cache_key] = (models, now)
+        return models
+    except Exception:
+        if cached:
+            return cached[0]
+        if cfg.model_name:
+            return [cfg.model_name]
+        raise
 
 
 def _pick_recommended(model_ids: list[str], provider: str) -> str:
@@ -450,7 +520,10 @@ def _pick_recommended(model_ids: list[str], provider: str) -> str:
     return model_ids[0]
 
 
-# Static model lists for providers without a /models endpoint
+# MiniMax has no /models endpoint — always return this static list.
+# Anthropic is used only as a *fallback* when /models fails (common for
+# aggregator proxies that forward Anthropic-format requests but do not implement
+# the /models introspection endpoint).
 _STATIC_MODELS: dict[str, list[str]] = {
     "minimax": [
         "MiniMax-M2.7",
@@ -472,27 +545,63 @@ _STATIC_MODELS: dict[str, list[str]] = {
     ],
 }
 
+# Known non-chat model families — these always get filtered out from any
+# OpenAI-compatible /v1/models response (embeddings, audio, image-gen, etc.)
+# Kept as a block-list rather than a whitelist so that aggregator proxies can
+# expose Claude / Gemini / Qwen / DeepSeek / Llama / etc. under an OpenAI or
+# Anthropic-flavored endpoint without being silently hidden.
+_NON_CHAT_MODEL_PREFIXES: tuple[str, ...] = (
+    "text-embedding-",
+    "text-similarity-",
+    "text-search-",
+    "text-moderation-",
+    "whisper-",
+    "tts-",
+    "dall-e-",
+    "babbage-",
+    "davinci-",
+    "code-",
+    "omni-moderation-",
+)
+
 
 async def fetch_llm_models(api_key: str, base_url: str, provider: str) -> tuple[list[str], str]:
-    """Returns (model_ids, recommended_id). Raises HTTPException on failure."""
+    """Returns (model_ids, recommended_id). Raises HTTPException on failure.
+
+    Design note: aggregator proxies (OneAPI / NewAPI / LiteLLM / enterprise
+    OpenAI-compatible gateways) commonly serve Claude / Gemini / Qwen / DeepSeek
+    / Llama under a single endpoint. We therefore do NOT hard-filter by model
+    family prefix — instead we remove known non-chat types (embedding / TTS /
+    whisper / image-gen) and return everything else. Users connected to real
+    OpenAI still get a clean chat-only list; users on aggregators see the full
+    catalogue.
+    """
     try:
-        # Providers with no /models endpoint — return static list
-        if provider in _STATIC_MODELS:
-            model_ids = _STATIC_MODELS[provider]
+        # MiniMax has no introspection endpoint — always return static list.
+        if provider == "minimax":
+            model_ids = _STATIC_MODELS["minimax"]
             return model_ids, _pick_recommended(model_ids, provider)
 
         if provider == "anthropic":
             import httpx
-            url = f"{base_url.rstrip('/')}/models"
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(
-                    url,
-                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
-                    timeout=15,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                model_ids = [m["id"] for m in data.get("data", [])]
+            # Try /models first so that aggregators returning their actual
+            # inventory are respected. Fall back to the static Claude list only
+            # if the endpoint is missing or unreachable.
+            try:
+                url = f"{base_url.rstrip('/')}/models"
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        url,
+                        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+                        timeout=15,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    model_ids = [m["id"] for m in data.get("data", [])]
+                    if not model_ids:
+                        raise ValueError("empty model list")
+            except Exception:
+                model_ids = _STATIC_MODELS["anthropic"]
         elif provider == "gemini":
             # Gemini's OpenAI-compatibility layer does not expose /models list.
             # Use Gemini's native /v1beta/models endpoint instead — reconstruct
@@ -527,9 +636,13 @@ async def fetch_llm_models(api_key: str, base_url: str, provider: str) -> tuple[
             result = await client.models.list()
             model_ids = [m.id for m in result.data]
 
-            if provider == "openai":
-                CHAT_PREFIXES = ("gpt-", "o1", "o3", "chatgpt-")
-                model_ids = [m for m in model_ids if any(m.startswith(p) for p in CHAT_PREFIXES)]
+            # Block-list filter (not family whitelist) — see _NON_CHAT_MODEL_PREFIXES.
+            # Keeps real OpenAI dropdown clean while letting aggregator proxies
+            # expose their full chat-capable catalogue (GPT + Claude + Gemini + ...).
+            model_ids = [
+                m for m in model_ids
+                if not any(m.startswith(p) for p in _NON_CHAT_MODEL_PREFIXES)
+            ]
 
         if not model_ids:
             raise HTTPException(status_code=422, detail="No available models found")

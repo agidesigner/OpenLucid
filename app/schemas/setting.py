@@ -32,6 +32,7 @@ class ModelTypeConfig(BaseModel):
     model_type_label: str
     config_id: str | None
     config_label: str | None
+    model_name: str | None = None  # scene-level override (NULL → use config's default model)
 
 
 class SceneSection(BaseModel):
@@ -50,10 +51,15 @@ class SceneConfigUpdate(BaseModel):
     scene_key: str
     model_type: str
     config_id: str | None = None
+    model_name: str | None = None
 
 
 class LLMSceneConfigsUpdate(BaseModel):
     updates: list[SceneConfigUpdate]
+
+
+class EndpointModelsResponse(BaseModel):
+    models: list[str]
 
 
 # ── Media capability defaults (image / video / TTS) ────────────────

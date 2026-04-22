@@ -16,3 +16,8 @@ class ModelSceneConfig(Base):
     config_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("llm_configs.id", ondelete="SET NULL"), nullable=True
     )
+    # Per-scene override of which model to invoke on the bound endpoint. When
+    # NULL, callers fall back to llm_configs.model_name (the endpoint's
+    # default). Lets one llm_config row serve many models (aggregator proxies
+    # like OneAPI / LiteLLM / enterprise gateways).
+    model_name: Mapped[str | None] = mapped_column(String(255), nullable=True)

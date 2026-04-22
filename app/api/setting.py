@@ -13,6 +13,7 @@ from app.application.setting_service import (
     create_llm_config,
     delete_llm_config,
     fetch_llm_models,
+    get_endpoint_models,
     get_media_capability_configs,
     get_scene_configs,
     list_llm_configs,
@@ -22,6 +23,7 @@ from app.application.setting_service import (
     validate_llm_connection,
 )
 from app.schemas.setting import (
+    EndpointModelsResponse,
     LLMConfigCreate,
     LLMConfigResponse,
     LLMConfigUpdate,
@@ -60,6 +62,15 @@ async def fetch_llm_models_endpoint(data: LLMFetchModelsRequest):
 async def validate_llm(data: LLMValidateRequest):
     await validate_llm_connection(data.api_key, data.base_url, data.model_name, data.provider)
     return {"ok": True}
+
+
+@router.get("/llm/{config_id}/models", response_model=EndpointModelsResponse)
+async def get_llm_endpoint_models(
+    config_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the chat-capable models served by this endpoint (5-min cache)."""
+    return EndpointModelsResponse(models=await get_endpoint_models(db, config_id))
 
 
 @router.get("/llm/scenes", response_model=LLMSceneConfigsResponse)

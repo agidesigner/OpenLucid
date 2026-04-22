@@ -225,7 +225,11 @@
                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
                   <option value="" x-text="t('default_model')"></option>
                   <template x-for="cfg in llmConfigs" :key="cfg.id">
-                    <option :value="cfg.id" x-text="modelCapabilityLabel(cfg)"></option>
+                    <optgroup :label="`${(PROVIDER_PRESETS[cfg.provider] && PROVIDER_PRESETS[cfg.provider].icon) || ''} ${cfg.label}`">
+                      <template x-for="m in (endpointModels[cfg.id] || [cfg.model_name])" :key="m">
+                        <option :value="cfg.id + '::' + m" x-text="m"></option>
+                      </template>
+                    </optgroup>
                   </template>
                 </select>
                 <div x-data="{open: false}" class="mt-2">
@@ -246,9 +250,13 @@
                                   :selected="!sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')]"
                                   x-text="t('use_default')"></option>
                           <template x-for="cfg in llmConfigs" :key="cfg.id">
-                            <option :value="cfg.id"
-                                    :selected="sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')] === cfg.id"
-                                    x-text="modelCapabilityLabel(cfg)"></option>
+                            <optgroup :label="`${(PROVIDER_PRESETS[cfg.provider] && PROVIDER_PRESETS[cfg.provider].icon) || ''} ${cfg.label}`">
+                              <template x-for="m in (endpointModels[cfg.id] || [cfg.model_name])" :key="m">
+                                <option :value="cfg.id + '::' + m"
+                                        :selected="sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')] === cfg.id + '::' + m"
+                                        x-text="m"></option>
+                              </template>
+                            </optgroup>
                           </template>
                         </select>
                       </div>
@@ -273,9 +281,13 @@
                             :selected="!sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')]"
                             x-text="t('default_model')"></option>
                     <template x-for="cfg in llmConfigs" :key="cfg.id">
-                      <option :value="cfg.id"
-                              :selected="sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')] === cfg.id"
-                              x-text="modelCapabilityLabel(cfg)"></option>
+                      <optgroup :label="`${(PROVIDER_PRESETS[cfg.provider] && PROVIDER_PRESETS[cfg.provider].icon) || ''} ${cfg.label}`">
+                        <template x-for="m in (endpointModels[cfg.id] || [cfg.model_name])" :key="m">
+                          <option :value="cfg.id + '::' + m"
+                                  :selected="sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')] === cfg.id + '::' + m"
+                                  x-text="m"></option>
+                        </template>
+                      </optgroup>
                     </template>
                   </select>
                 </div>
@@ -1314,7 +1326,11 @@
                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent mb-2">
             <option value="" x-text="t('default_model')"></option>
             <template x-for="cfg in llmConfigs" :key="cfg.id">
-              <option :value="cfg.id" x-text="modelCapabilityLabel(cfg)"></option>
+              <optgroup :label="`${(PROVIDER_PRESETS[cfg.provider] && PROVIDER_PRESETS[cfg.provider].icon) || ''} ${cfg.label}`">
+                <template x-for="m in (endpointModels[cfg.id] || [cfg.model_name])" :key="m">
+                  <option :value="cfg.id + '::' + m" x-text="m"></option>
+                </template>
+              </optgroup>
             </template>
           </select>
           <!-- Per-scene overrides (collapsed) -->
@@ -1337,9 +1353,13 @@
                           :selected="!sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')]"
                           x-text="t('use_default')"></option>
                   <template x-for="cfg in llmConfigs" :key="cfg.id">
-                    <option :value="cfg.id"
-                            :selected="sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')] === cfg.id"
-                            x-text="modelCapabilityLabel(cfg)"></option>
+                    <optgroup :label="`${(PROVIDER_PRESETS[cfg.provider] && PROVIDER_PRESETS[cfg.provider].icon) || ''} ${cfg.label}`">
+                      <template x-for="m in (endpointModels[cfg.id] || [cfg.model_name])" :key="m">
+                        <option :value="cfg.id + '::' + m"
+                                :selected="sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')] === cfg.id + '::' + m"
+                                x-text="m"></option>
+                      </template>
+                    </optgroup>
                   </template>
                 </select>
               </div>
@@ -1363,9 +1383,13 @@
                       :selected="!sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')]"
                       x-text="t('default_model')"></option>
               <template x-for="cfg in llmConfigs" :key="cfg.id">
-                <option :value="cfg.id"
-                        :selected="sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')] === cfg.id"
-                        x-text="modelCapabilityLabel(cfg)"></option>
+                <optgroup :label="`${(PROVIDER_PRESETS[cfg.provider] && PROVIDER_PRESETS[cfg.provider].icon) || ''} ${cfg.label}`">
+                  <template x-for="m in (endpointModels[cfg.id] || [cfg.model_name])" :key="m">
+                    <option :value="cfg.id + '::' + m"
+                            :selected="sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')] === cfg.id + '::' + m"
+                            x-text="m"></option>
+                  </template>
+                </optgroup>
               </template>
             </select>
           </div>
@@ -2019,9 +2043,16 @@
         // Scene model config state
         showSceneModal: false,
         sceneSections: [],
-        sceneConfigs: {},   // flat map: "scene_key::model_type" → config_id_or_empty
+        // Value format: "" (use default) OR "config_id::model_name" composite.
+        // This lets one llm_config row serve many models at scene level — each
+        // scene picks both which endpoint AND which model on that endpoint.
+        sceneConfigs: {},
         sceneSaving: false,
         sceneError: '',
+        // endpointModels[configId] = [modelName,...]  — populated async after
+        // loadLLMConfigs via GET /settings/llm/{id}/models (5-min TTL cache).
+        // Falls back to [cfg.model_name] if fetch fails.
+        endpointModels: {},
         // Capability grouping
         textLlmDefault: '',
         mediaCapabilities: [],
@@ -2139,10 +2170,30 @@
             const r = await fetch('/api/v1/settings/llm');
             if (!r.ok) throw new Error(await r.text());
             this.llmConfigs = await r.json();
+            // Kick off per-endpoint model fetches in parallel. Each fill-in
+            // triggers an Alpine re-render; the UI works from the first moment
+            // using [cfg.model_name] as fallback and upgrades as results arrive.
+            for (const cfg of this.llmConfigs) {
+              this.loadEndpointModels(cfg.id);
+            }
           } catch (e) {
             this.llmError = t('load_failed') + e.message;
           } finally {
             this.llmLoading = false;
+          }
+        },
+
+        async loadEndpointModels(configId) {
+          if (this.endpointModels[configId]) return;
+          try {
+            const r = await fetch(`/api/v1/settings/llm/${configId}/models`);
+            if (!r.ok) throw new Error(await r.text());
+            const data = await r.json();
+            this.endpointModels[configId] = data.models || [];
+          } catch (e) {
+            // Upstream dead / key wrong — show at least the endpoint's default.
+            const cfg = this.llmConfigs.find(c => c.id === configId);
+            this.endpointModels[configId] = cfg && cfg.model_name ? [cfg.model_name] : [];
           }
         },
 
@@ -2381,42 +2432,8 @@
           this.showSceneModal = true;
           this.sceneError = '';
           if (!this.llmConfigs.length) await this.loadLLMConfigs();
-          try {
-            // Load LLM scene configs
-            const r = await fetch('/api/v1/settings/llm/scenes?lang=' + encodeURIComponent(getApiLang()));
-            if (!r.ok) throw new Error(await r.text());
-            const data = await r.json();
-            const configs = {};
-            for (const section of data.sections) {
-              for (const mc of section.model_configs) {
-                configs[this.sceneConfigKey(section.scene_key, mc.model_type)] = mc.config_id || '';
-              }
-            }
-            this.sceneSections = data.sections;
-            this.sceneConfigs = configs;
-            // Infer text_llm default: if all text scenes point to the same config, use that
-            const textKeys = this.textLlmScenes.map(s => this.sceneConfigKey(s.scene_key, 'text_llm'));
-            const textVals = [...new Set(textKeys.map(k => configs[k] || ''))];
-            this.textLlmDefault = textVals.length === 1 ? textVals[0] : '';
-
-            // Load media capabilities
-            const r2 = await fetch('/api/v1/settings/media-capabilities?lang=' + encodeURIComponent(getApiLang()));
-            if (r2.ok) {
-              const md = await r2.json();
-              this.mediaCapabilities = md.capabilities || [];
-              const sel = {};
-              for (const cap of this.mediaCapabilities) {
-                if (cap.current_provider_config_id) {
-                  sel[cap.capability] = `${cap.current_provider_config_id}::${cap.current_model_code || cap.current_voice_id || ''}`;
-                } else {
-                  sel[cap.capability] = '';
-                }
-              }
-              this.mediaCapabilitySelections = sel;
-            }
-          } catch (e) {
-            this.sceneError = t('load_failed') + e.message;
-          }
+          try { await this._loadSceneAndMediaState(); }
+          catch (e) { this.sceneError = t('load_failed') + e.message; }
         },
 
         get textLlmScenes() {
@@ -2478,40 +2495,59 @@
         },
 
         // ── Inline capability view (no modal) ─────────────────
+        // Shared loader: populates sceneSections, sceneConfigs (composite
+        // "config_id::model_name" values), textLlmDefault, and media capability
+        // selections. Used by BOTH the always-visible capability view and the
+        // legacy settings modal so selected values survive a page refresh.
+        async _loadSceneAndMediaState() {
+          const r = await fetch('/api/v1/settings/llm/scenes?lang=' + encodeURIComponent(getApiLang()));
+          if (r.ok) {
+            const data = await r.json();
+            const configs = {};
+            for (const section of data.sections) {
+              for (const mc of section.model_configs) {
+                const key = this.sceneConfigKey(section.scene_key, mc.model_type);
+                if (mc.config_id) {
+                  // Composite "config_id::model_name". Legacy rows with NULL
+                  // model_name materialize to the endpoint's default model so
+                  // the dropdown can highlight a matching option.
+                  let modelName = mc.model_name;
+                  if (!modelName) {
+                    const cfg = this.llmConfigs.find(c => c.id === mc.config_id);
+                    modelName = (cfg && cfg.model_name) || '';
+                  }
+                  configs[key] = `${mc.config_id}::${modelName}`;
+                } else {
+                  configs[key] = '';
+                }
+              }
+            }
+            this.sceneSections = data.sections;
+            this.sceneConfigs = configs;
+            const textKeys = this.textLlmScenes.map(s => this.sceneConfigKey(s.scene_key, 'text_llm'));
+            const textVals = [...new Set(textKeys.map(k => configs[k] || ''))];
+            this.textLlmDefault = textVals.length === 1 ? textVals[0] : '';
+          }
+          const r2 = await fetch('/api/v1/settings/media-capabilities?lang=' + encodeURIComponent(getApiLang()));
+          if (r2.ok) {
+            const md = await r2.json();
+            this.mediaCapabilities = md.capabilities || [];
+            const sel = {};
+            for (const cap of this.mediaCapabilities) {
+              if (cap.current_provider_config_id) {
+                sel[cap.capability] = `${cap.current_provider_config_id}::${cap.current_model_code || cap.current_voice_id || ''}`;
+              } else {
+                sel[cap.capability] = '';
+              }
+            }
+            this.mediaCapabilitySelections = sel;
+          }
+        },
+
         async loadCapabilityView() {
           if (!this.llmConfigs.length) await this.loadLLMConfigs();
-          // Reuse the modal loader to populate sections + selections (no UI side effect)
-          try {
-            const r = await fetch('/api/v1/settings/llm/scenes?lang=' + encodeURIComponent(getApiLang()));
-            if (r.ok) {
-              const data = await r.json();
-              const configs = {};
-              for (const section of data.sections) {
-                for (const mc of section.model_configs) {
-                  configs[this.sceneConfigKey(section.scene_key, mc.model_type)] = mc.config_id || '';
-                }
-              }
-              this.sceneSections = data.sections;
-              this.sceneConfigs = configs;
-              const textKeys = this.textLlmScenes.map(s => this.sceneConfigKey(s.scene_key, 'text_llm'));
-              const textVals = [...new Set(textKeys.map(k => configs[k] || ''))];
-              this.textLlmDefault = textVals.length === 1 ? textVals[0] : '';
-            }
-            const r2 = await fetch('/api/v1/settings/media-capabilities?lang=' + encodeURIComponent(getApiLang()));
-            if (r2.ok) {
-              const md = await r2.json();
-              this.mediaCapabilities = md.capabilities || [];
-              const sel = {};
-              for (const cap of this.mediaCapabilities) {
-                if (cap.current_provider_config_id) {
-                  sel[cap.capability] = `${cap.current_provider_config_id}::${cap.current_model_code || cap.current_voice_id || ''}`;
-                } else {
-                  sel[cap.capability] = '';
-                }
-              }
-              this.mediaCapabilitySelections = sel;
-            }
-          } catch(e) { console.error('loadCapabilityView failed', e); }
+          try { await this._loadSceneAndMediaState(); }
+          catch (e) { console.error('loadCapabilityView failed', e); }
         },
 
         applyTextLlmDefaultInline() {
@@ -2520,15 +2556,13 @@
             const key = this.sceneConfigKey(s.scene_key, 'text_llm');
             this.sceneConfigs[key] = this.textLlmDefault;
           }
-          // Selecting a concrete LLM here should also mark it active
-          // (is_active=True). Without this, the backend scene-override points
-          // to an LLM whose is_active is still on some other config, and the
-          // fallback logic skips over it → user sees "selected X" but system
-          // uses Y.
+          // Auto-activate the underlying config. The value is now
+          // "config_id::model_name" composite; extract the config_id half.
           if (this.textLlmDefault) {
-            const cfg = this.llmConfigs.find(c => c.id === this.textLlmDefault);
+            const [cfgId] = this.textLlmDefault.split('::', 1);
+            const cfg = this.llmConfigs.find(c => c.id === cfgId);
             if (cfg && !cfg.is_active) {
-              this.activateConfig(this.textLlmDefault);
+              this.activateConfig(cfgId);
             }
           }
           this._scheduleCapSave();
@@ -2555,15 +2589,19 @@
           this.capSaveStatus = 'saving';
           this.capSaveError = '';
           try {
-            // Save scene configs (text + vision)
+            // Save scene configs (text + vision). Split composite
+            // "config_id::model_name" value into separate fields.
             const updates = [];
             for (const section of this.sceneSections) {
               for (const mc of section.model_configs) {
                 const key = this.sceneConfigKey(section.scene_key, mc.model_type);
+                const v = this.sceneConfigs[key] || '';
+                const [cfgId, modelName] = v ? v.split('::', 2) : ['', ''];
                 updates.push({
                   scene_key: section.scene_key,
                   model_type: mc.model_type,
-                  config_id: this.sceneConfigs[key] || null,
+                  config_id: cfgId || null,
+                  model_name: modelName || null,
                 });
               }
             }
