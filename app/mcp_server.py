@@ -16,7 +16,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
-from app.config import settings
+from app.config import VERSION, settings
 from app.database import async_session_factory
 
 
@@ -58,10 +58,19 @@ mcp = FastMCP(
         "to distinguish variants). Skip half-finished drafts, analysis notes, and "
         "tool call logs.\n"
         "\n"
-        "Guided prompts: 'onboard_merchant' or 'content_brief'. "
+        "Guided prompts (preferred over ad-hoc orchestration): "
+        "'onboard_merchant', 'content_brief', 'blog_from_offer', "
+        "'script_for_campaign', 'knowledge_gap_report'. "
         "Persistent context: attach merchant:// or offer:// resources."
     ),
 )
+
+# Surface OpenLucid's own app version through MCP Initialize's
+# serverInfo.version so clients can detect real backend upgrades (distinct from
+# the MCP SDK version, which otherwise leaks as the "version" field). Clients
+# should reconnect to observe tool/prompt/resource changes — FastMCP does not
+# emit listChanged notifications for a static in-code catalog.
+mcp._mcp_server.version = VERSION
 
 # Module-level session factory reference; tests can monkey-patch this.
 _session_factory = async_session_factory
@@ -177,7 +186,10 @@ async def create_merchant(
     merchant_type: str = "goods",
     default_locale: str = "zh-CN",
 ) -> str:
-    """Create a new merchant. merchant_type: goods | service | hybrid."""
+    """Create a marketing workspace (merchant) that owns brand knowledge, offers,
+    assets, and brand kits. Use this as the top-level container when setting up
+    a new brand knowledge base, marketing data hub, or RAG source for AI content
+    generation. merchant_type: goods | service | hybrid."""
     from app.application.merchant_service import MerchantService
     from app.schemas.merchant import MerchantCreate, MerchantResponse
 
@@ -195,7 +207,10 @@ async def create_merchant(
 
 @mcp.tool()
 async def list_merchants(page: int = 1, page_size: int = 20) -> str:
-    """List all merchants with pagination."""
+    """List marketing workspaces (merchants) / brand knowledge bases available
+    for AI content generation, RAG grounding, and campaign planning. Start here
+    to discover which brands / clients are set up, then drill into list_offers
+    for their product/service catalog."""
     from app.application.merchant_service import MerchantService
     from app.schemas.merchant import MerchantResponse
 
@@ -221,8 +236,13 @@ async def create_offer(
     target_scenarios: list[str] | None = None,
     locale: str = "zh-CN",
 ) -> str:
-    """Create an offer (product/service) under a merchant.
-    offer_type: product | service | bundle | solution."""
+    """Create a product / service / bundle as an offer under a merchant. An
+    offer is the entity you'll attach marketing knowledge, pain points, selling
+    points, proofs, FAQs, audiences, scenarios, brand kits and assets to — the
+    unit of grounding for AI script writing, topic generation, and RAG. Pass
+    positioning + core_selling_points + target_audiences when known; they
+    bootstrap the knowledge base automatically. offer_type: product | service |
+    bundle | solution."""
     from app.application.offer_service import OfferService
     from app.schemas.offer import OfferCreate, OfferResponse
 
@@ -250,7 +270,12 @@ async def list_offers(
     page: int = 1,
     page_size: int = 20,
 ) -> str:
-    """List offers with pagination. Optionally filter by merchant_id."""
+    """List products / services / bundles (offers) — the catalog of marketing
+    entities under a merchant. Each offer carries a knowledge base (selling
+    points, pain points, proofs, FAQs, audiences), a brand kit, assets, and
+    generated creations. Use this to discover which offer to ground AI content
+    generation / RAG / script writing against. Optionally filter by
+    merchant_id."""
     from app.application.offer_service import OfferService
     from app.schemas.offer import OfferResponse
 
@@ -272,8 +297,11 @@ async def get_brandkit(
     page: int = 1,
     page_size: int = 20,
 ) -> str:
-    """List brand kits for a scope. scope_type: merchant | offer.
-    Returns style profiles, persona, visual guidelines (do/don't), reference prompts."""
+    """List brand kits / brand guidelines / brand identity specs for a scope.
+    Returns style profiles (tone of voice, visual style), persona, visual do's
+    and don'ts, reference prompts — the ground truth for AI content to stay
+    on-brand. Use this before generating scripts, social copy, images, or video
+    to ensure brand consistency. scope_type: merchant | offer."""
     from app.application.brandkit_service import BrandKitService
     from app.schemas.brandkit import BrandKitResponse
 
@@ -301,9 +329,13 @@ async def add_knowledge_item(
     knowledge_type: str = "general",
     language: str = "zh-CN",
 ) -> str:
-    """Add a knowledge item to a merchant or offer.
+    """Add a brand / marketing knowledge entry to a merchant or offer KB — one
+    atomic fact, selling point, pain point, proof, FAQ, audience persona, or
+    usage scenario. This is the source-of-truth content that script writers,
+    content generators, KB QA, and RAG pipelines pull from.
     scope_type: merchant | offer.
-    knowledge_type: brand | audience | scenario | selling_point | objection | proof | faq | general."""
+    knowledge_type: brand | audience | scenario | selling_point | pain_point |
+      objection | proof | faq | general."""
     from app.application.knowledge_service import KnowledgeService
     from app.schemas.knowledge import KnowledgeItemCreate, KnowledgeItemResponse
 
@@ -326,18 +358,31 @@ async def add_knowledge_item(
 async def list_knowledge(
     scope_type: str,
     scope_id: str,
+    knowledge_type: str = "",
     page: int = 1,
     page_size: int = 20,
 ) -> str:
-    """List knowledge items for a merchant or offer. scope_type: merchant | offer."""
+    """List brand/marketing knowledge items (selling points, pain points, FAQs,
+    proofs, etc.) for a merchant or offer — the knowledge base that grounds AI
+    content generation, RAG, and marketing workflows.
+
+    scope_type: merchant | offer
+    knowledge_type: optional comma-separated filter, one or more of:
+      selling_point | pain_point | proof | faq | objection
+      | audience | scenario | brand | general
+      (e.g. knowledge_type='selling_point,proof' returns only those types).
+      Leave empty to return all types.
+    """
     from app.application.knowledge_service import KnowledgeService
     from app.schemas.knowledge import KnowledgeItemResponse
 
+    types = [t.strip() for t in knowledge_type.split(",") if t.strip()] or None
     async with _session_factory() as session:
         svc = KnowledgeService(session)
         items, total = await svc.list(
             scope_type=scope_type,
             scope_id=uuid.UUID(scope_id),
+            knowledge_type=types,
             page=page,
             page_size=page_size,
         )
@@ -420,8 +465,12 @@ async def search_assets(
 
 @mcp.tool()
 async def get_offer_context_summary(offer_id: str) -> str:
-    """Get aggregated context for an offer: merchant info, knowledge, assets, selling points, audiences.
-    This is the foundation for topic plan generation."""
+    """Get the full aggregated marketing context for an offer — merchant info,
+    brand knowledge (selling points, pain points, proofs, FAQs), audiences,
+    usage scenarios, assets overview, strategy units. This is the single
+    richest-grounding payload for AI content generation, script writing,
+    topic/video idea generation, and RAG pipelines. Call this first when an
+    agent needs to write any content about a specific product/service."""
     from app.application.context_service import ContextService
 
     async with _session_factory() as session:
@@ -544,10 +593,13 @@ async def link_asset_to_strategy_unit(
 
 @mcp.tool()
 async def list_apps(language: str = "en") -> str:
-    """List all available OpenLucid apps and their capabilities.
-    Each app has: app_id, name, description, category, task_type,
-    required_entities, required_capabilities, entry_modes, status.
-    Use run_app to invoke an app's capability."""
+    """Discover the AI apps available on this OpenLucid instance — script
+    writer, content studio (social copy), topic/video idea studio, KB Q&A /
+    RAG, etc. Each app bundles an LLM prompt pipeline that consumes brand
+    knowledge and produces marketing outputs. Returns: app_id, name,
+    description, category, task_type, required_entities, required_capabilities,
+    entry_modes, status. Then call get_app_config(app_id) to inspect its
+    parameters, and run_app(app_id, inputs) to execute it."""
     from app.apps.registry import AppRegistry
 
     apps = AppRegistry.list_apps()
@@ -741,7 +793,12 @@ async def run_app(
     goal_id: str | None = None,
     topic_plan_id: str | None = None,
 ) -> str:
-    """Run an app's action. Available apps and actions:
+    """Run an AI app grounded in an offer's knowledge base — the main workhorse
+    for generating marketing content, answering brand questions, writing video
+    scripts, producing social copy, and generating topic/video ideas. This tool
+    consolidates several AI capabilities behind one call so agents don't need
+    to know about separate "write_script" / "answer_question" /
+    "generate_topics" tools. Available apps and actions:
 
     kb_qa:
       - ask: Answer a question based on offer knowledge base.
@@ -937,9 +994,12 @@ async def run_app(
 
 @mcp.tool()
 async def get_merchant_overview(merchant_id: str) -> str:
-    """Get a complete overview of a merchant in one call:
-    basic info, all offers, brand kits, and knowledge/asset counts.
-    Use this as the first call to understand an enterprise before diving deeper."""
+    """Single-call overview of a marketing workspace / brand — merchant basics,
+    all its offers (products/services), brand kit summary, and knowledge /
+    asset counts. The best first call when an agent needs to orient itself on
+    a new client / brand before generating content, answering questions, or
+    running any AI app. Use this before list_offers / get_offer_context_summary
+    to avoid multiple round-trips."""
     from app.adapters.storage import LocalStorageAdapter
     from app.application.asset_service import AssetService
     from app.application.brandkit_service import BrandKitService
@@ -1630,5 +1690,71 @@ async def content_brief(offer_id: str, channel: str = "general", language: str =
         "3. Call run_app(app_id='topic_studio', action='generate', offer_id=...) to get 5 topic ideas.\n"
         "4. For each topic, explain why it fits the target audience and channel.\n"
         "5. Recommend which topic to prioritize and outline next steps."
+    )
+
+
+@mcp.prompt()
+async def blog_from_offer(offer_id: str, platform: str = "wechat", language: str = "zh-CN") -> str:
+    """Write a blog / long-form social post grounded in an offer's knowledge base.
+    Produces a complete piece and saves it back via save_creation."""
+    return (
+        f"Write a blog post / long-form social content piece about offer ID {offer_id} "
+        f"for the '{platform}' platform in {language}. Follow this recipe:\n"
+        f"1. Call get_offer_context_summary(offer_id='{offer_id}') to load the full grounding —\n"
+        "   merchant, knowledge, brand kit, audiences, scenarios.\n"
+        f"2. Call list_knowledge(scope_type='offer', scope_id='{offer_id}', "
+        "knowledge_type='selling_point,pain_point,proof') to surface the most citation-worthy entries.\n"
+        "3. Call run_app(app_id='content_studio', action='generate', offer_id=..., platform_id="
+        f"'{platform}') with goal='reach_growth' and tone from the brand kit.\n"
+        "4. Review the output for brand-voice alignment and factual grounding against the KB.\n"
+        "5. Save the final piece via save_creation with content_type='blog_post' and tags=['"
+        f"{platform}', 'blog']."
+    )
+
+
+@mcp.prompt()
+async def script_for_campaign(
+    offer_id: str,
+    goal: str = "conversion",
+    platform: str = "douyin",
+    language: str = "zh-CN",
+) -> str:
+    """Write a short-video script for a marketing campaign grounded in an offer.
+    Optimized for conversion / lead_generation / reach_growth / education goals."""
+    return (
+        f"Write a short-video script for offer ID {offer_id}, goal='{goal}', "
+        f"platform='{platform}', language={language}. Steps:\n"
+        f"1. Call get_offer_context_summary(offer_id='{offer_id}') for full context.\n"
+        "2. Identify the single strongest pain_point and selling_point combination from the KB "
+        "that maps to the stated goal. Call list_knowledge with knowledge_type filter to narrow.\n"
+        f"3. Call run_app(app_id='script_writer', action='generate', offer_id=..., goal='{goal}', "
+        f"platform_id='{platform}') — use persona/structure matching the platform.\n"
+        "4. Verify: hook in first 3s; claims cited to KB; CTA aligned with goal.\n"
+        "5. Save via save_creation with content_type='video_script' and tags=['"
+        f"{platform}', '{goal}']."
+    )
+
+
+@mcp.prompt()
+async def knowledge_gap_report(merchant_id: str) -> str:
+    """Audit which offers have weak or missing knowledge coverage (selling points,
+    pain points, proofs, FAQs, audiences) — the prerequisite check before any
+    agent-driven content push. Produces a per-offer punch list."""
+    return (
+        f"Audit the knowledge base coverage of merchant {merchant_id}. For each offer:\n"
+        f"1. Call get_merchant_overview(merchant_id='{merchant_id}') for the full picture "
+        "(all offers, their knowledge/asset counts, brand kits).\n"
+        "2. For each offer, call list_knowledge(scope_type='offer', scope_id=<offer_id>) "
+        "and bucket entries by knowledge_type.\n"
+        "3. Score each offer's KB completeness against this rubric:\n"
+        "   - selling_point ≥ 3 (Before-FABE structured) : 2 pts\n"
+        "   - pain_point ≥ 2 : 2 pts\n"
+        "   - proof ≥ 2 : 2 pts\n"
+        "   - faq ≥ 5 : 2 pts\n"
+        "   - audience ≥ 2 : 1 pt\n"
+        "   - scenario ≥ 2 : 1 pt\n"
+        "4. Output: a table — offer name / score / missing categories / 1-line suggestion "
+        "of the highest-ROI entry to add next.\n"
+        "5. Rank offers by lowest score to prioritize where to pour writing effort."
     )
 

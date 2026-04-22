@@ -23,6 +23,7 @@ class KnowledgeItemRepository:
         self,
         scope_type: str | None = None,
         scope_id: uuid.UUID | None = None,
+        knowledge_type: list[str] | None = None,
         offset: int = 0,
         limit: int = 20,
     ) -> tuple[list[KnowledgeItem], int]:
@@ -35,6 +36,9 @@ class KnowledgeItemRepository:
         if scope_id:
             base = base.where(KnowledgeItem.scope_id == scope_id)
             count_base = count_base.where(KnowledgeItem.scope_id == scope_id)
+        if knowledge_type:
+            base = base.where(KnowledgeItem.knowledge_type.in_(knowledge_type))
+            count_base = count_base.where(KnowledgeItem.knowledge_type.in_(knowledge_type))
 
         total = (await self.session.execute(count_base)).scalar_one()
         stmt = base.offset(offset).limit(limit).order_by(KnowledgeItem.created_at.desc())

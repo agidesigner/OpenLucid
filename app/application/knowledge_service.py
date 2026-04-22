@@ -49,12 +49,17 @@ class KnowledgeService:
         self,
         scope_type: str | None = None,
         scope_id: uuid.UUID | None = None,
+        knowledge_type: list[str] | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[KnowledgeItem], int]:
         offset = (page - 1) * page_size
         return await self.repo.list(
-            scope_type=scope_type, scope_id=scope_id, offset=offset, limit=page_size
+            scope_type=scope_type,
+            scope_id=scope_id,
+            knowledge_type=knowledge_type,
+            offset=offset,
+            limit=page_size,
         )
 
     async def update(self, item_id: uuid.UUID, data: KnowledgeItemUpdate) -> KnowledgeItem:
