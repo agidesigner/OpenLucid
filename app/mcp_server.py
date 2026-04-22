@@ -61,7 +61,13 @@ mcp = FastMCP(
         "Guided prompts (preferred over ad-hoc orchestration): "
         "'onboard_merchant', 'content_brief', 'blog_from_offer', "
         "'script_for_campaign', 'knowledge_gap_report'. "
-        "Persistent context: attach merchant:// or offer:// resources."
+        "Persistent context: attach merchant:// or offer:// resources.\n"
+        "\n"
+        "IMPORTANT: every *_id parameter (merchant_id, offer_id, "
+        "strategy_unit_id, config_id, asset_id, ...) is a UUID, never a "
+        "human-readable name. If you only know the name, discover the UUID "
+        "first via the matching list_* tool (list_merchants, list_offers, "
+        "list_strategy_units, ...) — do NOT pass the name directly."
     ),
 )
 

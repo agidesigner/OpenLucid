@@ -426,9 +426,15 @@ def format_existing_knowledge(
     knowledge_items: list[dict[str, Any]],
     *,
     language: str = "zh-CN",
-    max_items: int = 15,
+    max_items: int = 50,
 ) -> str:
-    """Format existing knowledge for dedup in the infer-knowledge prompt."""
+    """Format existing knowledge for dedup in the infer-knowledge prompt.
+
+    Cap of 50 is intentional: after the how-to FAQ extraction upgrade a mature
+    offer KB typically holds 25-45 items, and silently truncating at the old
+    15 item limit caused the LLM to regenerate content it couldn't see,
+    producing near-duplicates on ~20 items.
+    """
     if not knowledge_items:
         return ""
     is_en = language.startswith("en")
