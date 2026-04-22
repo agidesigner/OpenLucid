@@ -50,6 +50,43 @@ def _build_offer_data(body: InferOfferKnowledgeRequest) -> dict:
     }
 
 
+def _friendly_llm_error(e: Exception, adapter) -> str:
+    """Turn an OpenAI SDK exception into a message that tells the user (a) which
+    model failed, (b) what class of failure it was, (c) where to go next. The
+    raw str(e) is often just "Request timed out." which sends users hunting."""
+    from openai import APITimeoutError, APIConnectionError, RateLimitError, AuthenticationError, BadRequestError
+
+    provider = getattr(adapter, "provider", "?")
+    model = getattr(adapter, "model", "?")
+    label = f"{provider}/{model}"
+
+    if isinstance(e, APITimeoutError):
+        return (
+            f"模型 {label} 连续超时 3 次未响应。"
+            f"请检查：(1) Settings → 模型配置中该 LLM 的 API 地址是否可达；"
+            f"(2) 若走代理需确认代理服务正常；(3) 可在 Settings 中将 knowledge 场景切换到其他可用模型。"
+        )
+    if isinstance(e, APIConnectionError):
+        return (
+            f"模型 {label} 连接失败：{e}。"
+            f"请检查 Settings → 模型配置中的 base_url 与网络连通性；或切换到其他模型。"
+        )
+    if isinstance(e, RateLimitError):
+        return (
+            f"模型 {label} 触发限流 / 额度耗尽：{e}。"
+            f"请补充该 LLM 账户额度，或在 Settings 中切换到其他可用模型。"
+        )
+    if isinstance(e, AuthenticationError):
+        return (
+            f"模型 {label} 鉴权失败：{e}。"
+            f"请在 Settings → 模型配置中核对 API Key。"
+        )
+    if isinstance(e, BadRequestError):
+        return f"模型 {label} 拒绝请求：{e}。可能是 prompt 超长或参数不兼容，请反馈。"
+    # Unknown — keep raw message but prefix with model label for traceability
+    return f"模型 {label} 调用失败：{e}"
+
+
 def _build_suggestions(raw: dict) -> dict[str, list[InferredKnowledgeItem]]:
     suggestions = {}
     for category, items in raw.items():
@@ -85,7 +122,7 @@ async def infer_offer_knowledge(body: InferOfferKnowledgeRequest, db: AsyncSessi
             body.name, body.offer_type, desc_len, body.language, e,
             exc_info=True,
         )
-        raise HTTPException(status_code=502, detail=f"LLM_CALL_FAILED: {e}")
+        raise HTTPException(status_code=502, detail=_friendly_llm_error(e, adapter))
 
     if not raw:
         logger.error("infer-offer-knowledge returned empty | name=%s type=%s desc_len=%d lang=%s",
@@ -135,7 +172,7 @@ async def infer_offer_knowledge_stream(body: InferOfferKnowledgeRequest, db: Asy
                     yield f"data: {json_mod.dumps(result, ensure_ascii=False)}\n\n"
         except Exception as e:
             logger.error("infer-offer-knowledge-stream failed | name=%s | %s", body.name, e, exc_info=True)
-            yield f"data: {json_mod.dumps({'type': 'error', 'detail': str(e)})}\n\n"
+            yield f"data: {json_mod.dumps({'type': 'error', 'detail': _friendly_llm_error(e, adapter)}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -219,6 +256,29 @@ def _extract_docx_text(content: bytes) -> str:
     return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
 
 
+def _extract_pptx_text(content: bytes) -> str:
+    from pptx import Presentation
+    prs = Presentation(io.BytesIO(content))
+    lines = []
+    for i, slide in enumerate(prs.slides, 1):
+        slide_lines = []
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for para in shape.text_frame.paragraphs:
+                    t = "".join(r.text for r in para.runs).strip()
+                    if t:
+                        slide_lines.append(t)
+            elif shape.has_table:
+                for row in shape.table.rows:
+                    cells = [c.text.strip() for c in row.cells if c.text.strip()]
+                    if cells:
+                        slide_lines.append(" | ".join(cells))
+        if slide_lines:
+            lines.append(f"[Slide {i}]")
+            lines.extend(slide_lines)
+    return "\n".join(lines)
+
+
 def _extract_excel_text(content: bytes) -> str:
     from openpyxl import load_workbook
     wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
@@ -234,14 +294,30 @@ def _extract_excel_text(content: bytes) -> str:
     return "\n".join(lines)
 
 
+_MAX_UPLOAD_BYTES = 300 * 1024 * 1024  # 300 MB
+
+
 @router.post("/extract-text", response_model=ExtractTextResponse)
 async def extract_text(
     file: UploadFile | None = File(None),
     url: str | None = Form(None),
 ):
-    """Extract text from a PDF/Word file or a URL."""
+    """Extract text from a PDF/Word/PowerPoint/Excel file or a URL."""
     if file and file.filename:
+        # Reject oversized uploads early — check header-reported size first to
+        # avoid pulling hundreds of MB into memory.
+        declared = getattr(file, "size", None)
+        if declared is not None and declared > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                413,
+                f"File too large: {declared / 1024 / 1024:.1f} MB. Maximum 300 MB.",
+            )
         content = await file.read()
+        if len(content) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                413,
+                f"File too large: {len(content) / 1024 / 1024:.1f} MB. Maximum 300 MB.",
+            )
         filename = file.filename.lower()
 
         if filename.endswith(".pdf"):
@@ -250,10 +326,12 @@ async def extract_text(
             text = _extract_docx_text(content)
         elif filename.endswith((".xlsx", ".xls")):
             text = _extract_excel_text(content)
+        elif filename.endswith((".pptx", ".ppt")):
+            text = _extract_pptx_text(content)
         elif filename.endswith((".txt", ".csv")):
             text = content.decode("utf-8", errors="ignore")
         else:
-            raise HTTPException(400, f"Unsupported file format: {file.filename}. Supported: PDF, Word, Excel, CSV, TXT")
+            raise HTTPException(400, f"Unsupported file format: {file.filename}. Supported: PDF, Word, PowerPoint, Excel, CSV, TXT")
 
         if not text.strip():
             raise HTTPException(400, "Failed to extract text content from the file")
