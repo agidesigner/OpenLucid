@@ -2,6 +2,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import PaginationDep
@@ -84,50 +85,60 @@ async def extract_profile(
     file: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Extract brand profile fields from a URL or uploaded document via AI."""
+    """Extract brand profile fields from a URL or uploaded document via AI.
+
+    Delegates text extraction + normalization to the shared
+    ``extract_text_from_source`` helper so this endpoint supports the
+    exact same set of formats (including PPTX) with the same dedup +
+    size cap the KB path uses. Historical drift between the two paths
+    silently broke PPTX on this endpoint; the shared helper prevents
+    that recurring.
+    """
     from app.adapters.ai import get_ai_adapter
-    from app.api.ai import _extract_docx_text, _extract_excel_text, _extract_pdf_text, _extract_url_text
+    from app.api.ai import _friendly_llm_error, extract_text_from_source
 
-    text = ""
-    if file and file.filename:
-        content = await file.read()
-        filename = file.filename.lower()
-        if filename.endswith(".pdf"):
-            text = _extract_pdf_text(content)
-        elif filename.endswith((".docx", ".doc")):
-            text = _extract_docx_text(content)
-        elif filename.endswith((".xlsx", ".xls")):
-            text = _extract_excel_text(content)
-        else:
-            text = content.decode("utf-8", errors="ignore")
-    elif url:
-        text = await _extract_url_text(url)
-    else:
-        return {"error": "Please provide a URL or upload a file"}, 400
-
-    if not text.strip():
-        return {"error": "Failed to extract text content"}
+    # Lets HTTPException (400 unsupported format / 413 oversized / 400
+    # empty / 400 missing input) propagate as proper HTTP errors.
+    text, source, filename = await extract_text_from_source(
+        file=file, url=url, context_label=f"extract-profile kit={kit_id}",
+    )
+    source_label = filename if source == "file" else (url or "")
 
     adapter = await get_ai_adapter(db, scene_key="brandkit_extract", model_type="text_llm")
     try:
         profiles = await adapter.extract_brandkit_profiles(text)
     except RuntimeError as e:
-        msg = str(e)
-        if msg == "NO_LLM_CONFIGURED":
-            return {"error": "NO_LLM_CONFIGURED"}
+        # Feature requires config the operator hasn't done yet — 503
+        # Service Unavailable is semantically right and the frontend
+        # matches exactly on `data.error === "NO_LLM_CONFIGURED"` to
+        # render its "configure LLM" CTA, so keep the string stable.
+        if str(e) == "NO_LLM_CONFIGURED":
+            return JSONResponse(status_code=503, content={"error": "NO_LLM_CONFIGURED"})
         logger.error(
             "extract-profile failed | kit=%s source=%s text_len=%d | %s",
-            kit_id, "file" if (file and file.filename) else url, len(text), e,
+            kit_id, source_label, len(text), e,
             exc_info=True,
         )
-        return {"error": msg}
+        return JSONResponse(
+            status_code=502,
+            content={"error": _friendly_llm_error(e, adapter)},
+        )
     except Exception as e:
+        # Upstream LLM error (timeout / connect failure / rate limit /
+        # auth / bad-request). Return 502 Bad Gateway with the friendly
+        # diagnostic string — same error surface the KB infer path uses.
+        # Previously this was swallowed as HTTP 200 with error payload,
+        # which made the browser Network tab look successful and hid the
+        # real problem from operators during triage.
         logger.error(
             "extract-profile failed | kit=%s source=%s text_len=%d | %s",
-            kit_id, "file" if (file and file.filename) else url, len(text), e,
+            kit_id, source_label, len(text), e,
             exc_info=True,
         )
-        return {"error": f"AI extraction failed: {e}"}
+        return JSONResponse(
+            status_code=502,
+            content={"error": _friendly_llm_error(e, adapter)},
+        )
     return profiles
 
 

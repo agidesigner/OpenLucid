@@ -107,8 +107,12 @@ async def me(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/guest", response_model=GuestAccessStatusResponse, dependencies=[Depends(require_owner)])
-async def guest_status(db: AsyncSession = Depends(get_db)):
-    return GuestAccessStatusResponse(enabled=await guest_access_service.is_enabled(db))
+async def guest_status(request: Request, db: AsyncSession = Depends(get_db)):
+    raw_token = await guest_access_service.get_raw_token(db)
+    url = None
+    if raw_token:
+        url = f"{get_public_base_url(request)}/guest-access?t={raw_token}"
+    return GuestAccessStatusResponse(enabled=raw_token is not None or await guest_access_service.is_enabled(db), url=url)
 
 
 @router.post("/guest", response_model=GuestAccessResponse, dependencies=[Depends(require_owner)])

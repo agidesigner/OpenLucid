@@ -115,6 +115,12 @@ Example:
     - Device gets uncomfortably hot to hold
   Trigger: Dropping a client call at a critical moment is unacceptable in a B2B context; the cost of one embarrassing failure exceeds a phone upgrade price.
 
+JSON ESCAPING (CRITICAL — violating this produces invalid JSON that fails to parse):
+When ANY string value (content_raw, title, description) contains a quoted testimonial, dialogue line, or any passage with a DOUBLE-QUOTE character, you MUST either:
+  (a) escape every embedded double-quote with a preceding backslash, or
+  (b) rewrite embedded quotes using Chinese angle quotes 「」 or 『』 — cleaner and avoids escaping entirely.
+NEVER emit a raw unescaped double-quote inside a JSON string value. Also escape literal newlines and backslashes per JSON spec.
+
 Return strictly valid JSON:
 {
   "description": "Cleaned product description with all relevant details (up to 2000 chars)...",
@@ -188,6 +194,17 @@ Evidence 尽量指向一个具体证据点；若无，写 "—"。
     - 2 小时视频会议撑不过电量
     - 拿在手里烫手
   Trigger：在 B2B 商务场合掉线一次客户会议，代价远超换一部手机；不能继续忍。
+
+**JSON 转义规则（极其重要 —— 违反会输出无法解析的 JSON）**：
+当 content_raw / title / description 等任何字符串值中包含用户引述、对话、英文产品名或任意含有双引号字符的内容时，你必须在两种方案中二选一：
+  (a) 在每个内嵌的双引号前加一个反斜杠进行转义（即 JSON 标准转义），或者
+  (b) 把内嵌的双引号改写为中文引号「」 / 『』 —— 更干净，完全不用转义。
+**绝对不要**在 JSON 字符串值里直接写未转义的双引号字符。换行和反斜杠也要按 JSON 规范转义。
+
+示例（以"企业主反馈：效率有飞跃"为例）：
+  ❌ 错：把内嵌引号直接写进去（未转义）—— JSON 解析会失败
+  ✅ 方案 a（JSON 标准转义）：在每个内嵌双引号前加反斜杠
+  ✅ 方案 b（改用中文引号，推荐）：`"content_raw": "企业主反馈：「效率有飞跃」"`
 
 严格返回合法 JSON：
 {
@@ -489,7 +506,10 @@ class OpenAICompatibleAdapter(AIAdapter):
                 # for this model" 400 and retry immediately (not counted as
                 # a failed attempt).
                 if status == 400 and _looks_like_temperature_unsupported(msg) and not getattr(self, "_skip_temperature", False):
-                    logger.info("LLM model %s rejected temperature — retrying without it (memoized on adapter).", self.model)
+                    # debug, not info — this is routine compat fallback (o1/o3 + some
+                    # proxied Claude variants deprecate temperature). Surfacing it at
+                    # INFO pollutes the operational log stream on every request.
+                    logger.debug("LLM model %s rejected temperature — retrying without it (memoized on adapter).", self.model)
                     self._skip_temperature = True
                     continue
                 # Only retry on transient errors (network, 429, 5xx)
@@ -528,7 +548,7 @@ class OpenAICompatibleAdapter(AIAdapter):
             status = getattr(e, "status_code", None) or getattr(e, "status", 0)
             msg = str(e).lower()
             if status == 400 and "temperature" in msg and not getattr(self, "_skip_temperature", False):
-                logger.info("_chat_json: model %s rejected temperature — memoizing skip and falling back to plain _chat", self.model)
+                logger.debug("_chat_json: model %s rejected temperature — memoizing skip and falling back to plain _chat", self.model)
                 self._skip_temperature = True
                 # Fall through to prompt-constrained mode (via _chat) which will now omit temperature too
             # If the model doesn't support response_format, fall through to prompt-constrained mode
@@ -591,7 +611,7 @@ class OpenAICompatibleAdapter(AIAdapter):
                 status = getattr(e, "status_code", None) or getattr(e, "status", 0)
                 msg = str(e).lower()
                 if status == 400 and _looks_like_temperature_unsupported(msg) and not getattr(self, "_skip_temperature", False):
-                    logger.info("LLM stream model %s rejected temperature — retrying without it.", self.model)
+                    logger.debug("LLM stream model %s rejected temperature — retrying without it.", self.model)
                     self._skip_temperature = True
                     continue
                 if status and 400 <= status < 500 and status != 429:
@@ -863,7 +883,10 @@ Generate {count} topic plans that honor the Creative Brief above. The brief shou
         try:
             plans = self._parse_json_response(clean_result)
         except (json.JSONDecodeError, ValueError):
-            logger.error("Failed to parse LLM topic plans response as JSON: %s", clean_result[:500])
+            logger.error(
+                "Failed to parse LLM topic plans response (len=%d) head=%r tail=%r",
+                len(clean_result), clean_result[:500], clean_result[-300:],
+            )
             raise ValueError(f"LLM returned unparseable topic plans for offer '{offer_name}'")
 
         for plan in plans:

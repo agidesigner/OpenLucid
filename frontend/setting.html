@@ -625,12 +625,25 @@
             <h2 class="text-lg font-semibold text-gray-900 mb-1" x-text="t('mcp_title')"></h2>
             <p class="text-sm text-gray-500 mb-6" x-text="t('mcp_subtitle')"></p>
 
-            <!-- APP_URL warning -->
-            <div x-show="appUrlMissing" x-cloak class="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
+            <!-- APP_URL status banner — three states:
+                 invalid  → amber hard warning (placeholder / empty — MCP breaks)
+                 localhost → gray informational (fine for same-machine agents)
+                 ok       → hidden entirely -->
+            <div x-show="appUrlStatus==='invalid'" x-cloak class="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
               <svg class="w-4 h-4 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
               <div class="flex-1 min-w-0">
                 <p class="text-sm text-amber-800" x-text="t('mcp_app_url_warning')"></p>
                 <p x-show="appUrlCurrent" class="text-[11px] text-amber-700/80 mt-1 font-mono break-all">
+                  <span class="opacity-70" x-text="t('mcp_app_url_current') + ':'"></span>
+                  <span x-text="appUrlCurrent"></span>
+                </p>
+              </div>
+            </div>
+            <div x-show="appUrlStatus==='localhost'" x-cloak class="flex items-start gap-3 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 mb-4">
+              <svg class="w-4 h-4 text-gray-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm text-gray-700" x-text="t('mcp_app_url_localhost_note')"></p>
+                <p x-show="appUrlCurrent" class="text-[11px] text-gray-500 mt-1 font-mono break-all">
                   <span class="opacity-70" x-text="t('mcp_app_url_current') + ':'"></span>
                   <span x-text="appUrlCurrent"></span>
                 </p>
@@ -765,6 +778,10 @@
               <p class="text-[11px] text-gray-400 mt-4 pt-3 border-t border-gray-100">
                 <span x-text="t('mcp_compat_note')"></span>
                 <span class="text-gray-500" x-text="compatClients.join(' · ')"></span>
+              </p>
+              <p class="text-[11px] text-gray-400 mt-1">
+                <span x-text="t('mcp_streamable_hint')"></span>
+                <code class="text-gray-600 font-mono" x-text="mcpStreamableUrl"></code>
               </p>
             </div>
 
@@ -1111,83 +1128,79 @@
             <h2 class="text-lg font-semibold text-gray-900 mb-1" x-text="t('cli_page_title')"></h2>
             <p class="text-sm text-gray-500 mb-6" x-text="t('cli_page_subtitle')"></p>
 
-            <!-- 1. Install -->
+            <!-- 1. Quick Start — install + setup chained into one copy -->
             <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-4">
               <div class="flex items-center gap-2.5 mb-1">
                 <span class="od-step-circle od-step-success">1</span>
-                <h3 class="text-sm font-semibold text-gray-800" x-text="t('cli_step_install')"></h3>
+                <h3 class="text-sm font-semibold text-gray-800" x-text="t('cli_quickstart_title')"></h3>
               </div>
-              <p class="text-xs text-gray-400 mb-4 ml-8" x-text="t('cli_step_install_desc')"></p>
+              <p class="text-xs text-gray-400 mb-4 ml-8" x-text="t('cli_quickstart_desc')"></p>
 
-              <div class="bg-gray-900 text-green-300 text-xs font-mono p-3 rounded-xl overflow-auto whitespace-pre-wrap mb-1" x-text="cliInstallCmd"></div>
-              <button @click="copyText(cliInstallCmd); copiedField='cli-install'; setTimeout(()=>copiedField='', 2000)"
-                      class="text-xs text-accent hover:text-accent-hover font-medium transition-colors">
-                <span x-text="copiedField==='cli-install' ? t('mcp_copied') : t('btn_copy')"></span>
-              </button>
+              <div class="relative">
+                <pre class="bg-gray-900 text-green-300 text-xs leading-relaxed font-mono p-3 pr-24 rounded-xl overflow-auto whitespace-pre" x-text="cliQuickstartCmd"></pre>
+                <button @click="copyText(cliQuickstartCmd); copiedField='cli-quickstart'; setTimeout(()=>copiedField='', 2000)"
+                        class="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors"
+                        :class="copiedField==='cli-quickstart' ? 'bg-green-500 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'">
+                  <span x-text="copiedField==='cli-quickstart' ? t('mcp_copied') : t('btn_copy')"></span>
+                </button>
+              </div>
             </div>
 
-            <!-- 2. Setup -->
+            <!-- 2. Agent config JSON (for MCP clients) -->
             <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-4">
               <div class="flex items-center gap-2.5 mb-1">
                 <span class="od-step-circle od-step-primary">2</span>
-                <h3 class="text-sm font-semibold text-gray-800" x-text="t('cli_step_setup')"></h3>
+                <h3 class="text-sm font-semibold text-gray-800" x-text="t('cli_config_label')"></h3>
               </div>
-              <p class="text-xs text-gray-400 mb-4 ml-8" x-text="t('cli_step_setup_desc')"></p>
+              <p class="text-xs text-gray-400 mb-4 ml-8" x-text="t('cli_config_hint')"></p>
 
-              <div class="bg-gray-900 text-green-300 text-xs font-mono p-3 rounded-xl overflow-auto whitespace-pre-wrap mb-1" x-text="cliSetupCmd"></div>
-              <div class="flex items-center justify-between mb-4">
-                <button @click="copyText(cliSetupCmd); copiedField='cli-setup'; setTimeout(()=>copiedField='', 2000)"
-                        class="text-xs text-accent hover:text-accent-hover font-medium transition-colors">
-                  <span x-text="copiedField==='cli-setup' ? t('mcp_copied') : t('btn_copy')"></span>
-                </button>
-              </div>
-
-              <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2" x-text="t('cli_config_label')"></label>
-              <pre class="bg-gray-900 text-green-300 text-xs leading-relaxed font-mono p-3 rounded-xl overflow-auto whitespace-pre mb-1" x-text="cliConfigJson"></pre>
-              <div class="flex items-center justify-between mb-1">
+              <div class="relative">
+                <pre class="bg-gray-900 text-green-300 text-xs leading-relaxed font-mono p-3 pr-24 rounded-xl overflow-auto whitespace-pre" x-text="cliConfigJson"></pre>
                 <button @click="copyText(cliConfigJson); copiedField='cli-config'; setTimeout(()=>copiedField='', 2000)"
-                        class="text-xs text-accent hover:text-accent-hover font-medium transition-colors">
+                        class="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors"
+                        :class="copiedField==='cli-config' ? 'bg-green-500 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'">
                   <span x-text="copiedField==='cli-config' ? t('mcp_copied') : t('mcp_copy_config')"></span>
                 </button>
-                <p x-show="mcpHasAuth && !newTokenValue" class="text-[11px] text-amber-600" x-text="t('cli_token_hint')"></p>
               </div>
-              <p class="text-[11px] text-gray-400" x-text="t('cli_config_hint')"></p>
+              <p x-show="mcpHasAuth && !newTokenValue" class="text-[11px] text-amber-600 mt-2" x-text="t('cli_token_hint')"></p>
             </div>
 
-            <!-- 3. Use with Agents -->
+            <!-- 3. Agent skill paths (per-row copy — fixes unreachable manual typing) -->
             <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-4">
               <div class="flex items-center gap-2.5 mb-1">
                 <span class="od-step-circle od-step-violet">3</span>
-                <h3 class="text-sm font-semibold text-gray-800" x-text="t('cli_step_agents')"></h3>
+                <h3 class="text-sm font-semibold text-gray-800" x-text="t('cli_skill_paths_title')"></h3>
               </div>
-              <p class="text-xs text-gray-400 mb-4 ml-8" x-text="t('cli_step_agents_desc')"></p>
+              <p class="text-xs text-gray-400 mb-4 ml-8" x-text="t('cli_skill_paths_desc')"></p>
 
-              <div class="space-y-2.5 mb-4">
-                <div class="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
-                  <span class="text-[11px] font-semibold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-lg w-32 text-center shrink-0">Claude Code</span>
-                  <code class="text-xs font-mono text-gray-600">~/.claude/skills/openlucid-cli/SKILL.md</code>
-                </div>
-                <div class="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
-                  <span class="text-[11px] font-semibold text-blue-700 bg-blue-100 px-2.5 py-1 rounded-lg w-32 text-center shrink-0">Cursor</span>
-                  <code class="text-xs font-mono text-gray-600">~/.cursor/skills/openlucid-cli/SKILL.md</code>
-                </div>
-                <div class="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
-                  <span class="text-[11px] font-semibold text-purple-700 bg-purple-100 px-2.5 py-1 rounded-lg w-32 text-center shrink-0">Codex / OpenHands</span>
-                  <code class="text-xs font-mono text-gray-600">~/.agents/skills/openlucid-cli/SKILL.md</code>
-                </div>
-              </div>
-
-              <div class="flex items-start gap-2 bg-blue-50 border border-blue-100 rounded-xl p-3">
-                <svg class="w-4 h-4 text-blue-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                <p class="text-xs text-gray-700" x-text="t('cli_agent_note_hint')"></p>
+              <div class="space-y-2">
+                <template x-for="(agent, i) in agentSkillPaths" :key="agent.name">
+                  <div class="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-2.5">
+                    <span class="text-[11px] font-semibold px-2.5 py-1 rounded-lg w-32 text-center shrink-0"
+                          :class="agent.badgeClass"
+                          x-text="agent.name"></span>
+                    <code class="text-xs font-mono text-gray-600 flex-1 truncate" x-text="agent.path"></code>
+                    <button @click="copyText(agent.path); copiedField='cli-path-'+i; setTimeout(()=>copiedField='', 2000)"
+                            class="flex items-center gap-1 text-xs text-gray-500 hover:text-accent transition-colors px-2 py-1 rounded-md hover:bg-white shrink-0"
+                            :title="t('cli_copy_path')">
+                      <svg x-show="copiedField!=='cli-path-'+i" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                      <svg x-show="copiedField==='cli-path-'+i" x-cloak class="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                    </button>
+                  </div>
+                </template>
               </div>
             </div>
 
-            <!-- 4. Common commands -->
-            <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-              <h3 class="text-sm font-semibold text-gray-800 mb-1" x-text="t('cli_commands_title')"></h3>
-              <p class="text-xs text-gray-400 mb-4" x-text="t('cli_commands_subtitle')"></p>
-              <div class="space-y-2">
+            <!-- 4. Common commands — collapsed by default to reduce scroll for returning users -->
+            <details class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 group">
+              <summary class="flex items-center justify-between cursor-pointer select-none list-none">
+                <div>
+                  <h3 class="text-sm font-semibold text-gray-800" x-text="t('cli_commands_title')"></h3>
+                  <p class="text-xs text-gray-400 mt-0.5" x-text="t('cli_commands_subtitle')"></p>
+                </div>
+                <svg class="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </summary>
+              <div class="space-y-2 mt-4 pt-4 border-t border-gray-100">
                 <template x-for="cmd in cliCommands" :key="cmd.name">
                   <div class="flex items-start gap-3 py-1.5">
                     <code class="text-[11px] font-mono text-accent bg-accent/5 px-2 py-0.5 rounded shrink-0 min-w-[180px]" x-text="cmd.name"></code>
@@ -1195,7 +1208,7 @@
                   </div>
                 </template>
               </div>
-            </div>
+            </details>
           </div>
 
           <!-- Sharing / Guest mode -->
@@ -1531,6 +1544,11 @@
             if (r.ok) {
               const d = await r.json();
               this.guestEnabled = !!d.enabled;
+              // NEW in v0.9.9.8: backend returns the share URL when the
+              // raw token is stored (current setups). Rows that predate
+              // the raw_token column return url=null — the existing
+              // "regenerate to reveal" fallback handles that path.
+              if (d.url) this.guestUrl = d.url;
             }
           } catch (e) {}
         },
@@ -1578,7 +1596,7 @@
 
     function mcpSection() {
       return {
-        appUrlMissing: false,
+        appUrlStatus: 'ok',   // 'ok' | 'localhost' | 'invalid'
         appUrlCurrent: '',
         connectTab: 'cli',
         copiedField: '',
@@ -1594,7 +1612,8 @@
         promptLoaded: false,
 
         mcpEndpoint: `${location.protocol}//${location.host}/mcp/sse`,
-        compatClients: ['OpenClaw', 'Claude Code', 'Cursor', 'Windsurf', 'Cline', 'Continue', 'Codex', 'Gemini CLI', 'MCP SDK'],
+        mcpStreamableUrl: `${location.protocol}//${location.host}/mcp`,
+        compatClients: ['OpenClaw', 'Claude Code', 'Cursor', 'Hermes', 'Windsurf', 'Cline', 'Continue', 'Codex', 'Gemini CLI', 'MCP SDK'],
         get mcpHasAuth() {
           return this.mcpTokens.length > 0;
         },
@@ -1630,6 +1649,23 @@
           const base = `openlucid-cli --url ${url} setup`;
           return base;
         },
+        // One-liner that chains install + setup. Replaces the old two-step
+        // copy flow — users now paste once and are done. The `/path/to/
+        // OpenLucid` placeholder still requires local edit (we can't know
+        // the user's clone path from the browser), but that's a single
+        // inline edit vs the old two-box copy dance.
+        get cliQuickstartCmd() {
+          const url = `${location.protocol}//${location.host}`;
+          return `cd /path/to/OpenLucid && bash tools/install.sh && openlucid-cli --url ${url} setup`;
+        },
+        // Structured list for the skill-paths card. Each row gets its
+        // own copy button (previously users had to manually type these).
+        agentSkillPaths: [
+          { name: 'Claude Code',      path: '~/.claude/skills/openlucid-cli/SKILL.md', badgeClass: 'text-emerald-700 bg-emerald-100' },
+          { name: 'Cursor',           path: '~/.cursor/skills/openlucid-cli/SKILL.md', badgeClass: 'text-blue-700 bg-blue-100' },
+          { name: 'Hermes',           path: '~/.hermes/skills/openlucid-cli/SKILL.md', badgeClass: 'text-amber-700 bg-amber-100' },
+          { name: 'Codex / OpenHands', path: '~/.agents/skills/openlucid-cli/SKILL.md', badgeClass: 'text-purple-700 bg-purple-100' },
+        ],
         get cliConfigJson() {
           const url = `${location.protocol}//${location.host}`;
           const config = { url };
@@ -1697,7 +1733,8 @@
             const res = await fetch('/api/v1/settings/app-url-status');
             if (res.ok) {
               const d = await res.json();
-              this.appUrlMissing = !d.configured;
+              // Fall back to 'ok' if an older backend doesn't send status.
+              this.appUrlStatus = d.status || (d.configured ? 'ok' : 'invalid');
               this.appUrlCurrent = d.current || '';
             }
           } catch {}

@@ -108,7 +108,16 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             _settings.APP_URL,
         )
 
-    yield
+    # 5. Start MCP Streamable HTTP session manager. When FastMCP is run
+    # as a standalone app it does this via its own lifespan hook — but
+    # we're mounting it behind our top-level dispatcher, which only
+    # forwards lifespan to FastAPI. So we have to run the session
+    # manager here to avoid a "Task group is not initialized" error on
+    # the first /mcp request. (SSE transport doesn't need this — it
+    # initializes per-connection inside sse_app.)
+    from app.mcp_server import mcp as _mcp_server
+    async with _mcp_server.session_manager.run():
+        yield
 
 
 def _log_task_exception(task: "asyncio.Task") -> None:
@@ -477,7 +486,17 @@ _fastapi_app.mount("/", StaticFiles(directory="frontend", html=True), name="fron
 
 from app.mcp_server import mcp as mcp_server
 
+# Dual-transport MCP exposure:
+#   /mcp/sse       → SSE (legacy transport — Claude Code, Cursor, OpenClaw)
+#   /mcp           → Streamable HTTP (modern transport — Hermes, newer SDKs)
+#
+# Both transports share the same tool registry + token auth. Clients that
+# implement only one of the two can pick the matching URL. This keeps the
+# server future-proof: Streamable HTTP is the MCP spec's direction of
+# travel (SSE is being deprecated), but we can't drop SSE yet because
+# most deployed clients still speak it.
 _mcp_sse_app = mcp_server.sse_app()
+_mcp_streamable_app = mcp_server.streamable_http_app()
 
 
 async def _asgi_json_response(send, status: int, body: dict):
@@ -534,38 +553,60 @@ async def _mcp_token_check(scope, receive, send) -> bool:
 
 
 class _TopLevelDispatcher:
-    """Top-level ASGI app that routes /mcp/* to the MCP SSE app and
-    everything else to FastAPI. MCP never touches BaseHTTPMiddleware.
+    """Top-level ASGI app that routes MCP traffic to the right transport
+    and everything else to FastAPI. MCP apps stay outside FastAPI's
+    middleware stack because BaseHTTPMiddleware wraps response bodies in
+    a streaming pipeline that breaks both SSE and streamable-http.
 
-    Lifespan events are forwarded to FastAPI only (MCP SSE manages its
-    own per-connection lifecycle internally).
+    Routing:
+      /mcp            → streamable_http_app (Streamable HTTP transport)
+      /mcp/sse        → sse_app (SSE transport, legacy)
+      /mcp/messages/* → sse_app (SSE's back-channel POST endpoint)
+      else            → FastAPI (all the REST routes + static frontend)
     """
 
-    def __init__(self, fastapi_app, mcp_app):
+    def __init__(self, fastapi_app, mcp_sse_app, mcp_streamable_app):
         self.fastapi_app = fastapi_app
-        self.mcp_app = mcp_app
+        self.mcp_sse_app = mcp_sse_app
+        self.mcp_streamable_app = mcp_streamable_app
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "lifespan":
-            # Forward lifespan to FastAPI (DB migrations, startup tasks, etc.)
+            # Forward lifespan to FastAPI (DB migrations, startup tasks, etc.).
+            # MCP transports manage per-connection lifecycles internally.
             return await self.fastapi_app(scope, receive, send)
 
-        if scope["type"] == "http" and scope.get("path", "").startswith("/mcp/"):
-            # Strip /mcp prefix for the MCP sub-app
-            scope = dict(scope)
-            path = scope["path"][4:]  # /mcp/sse -> /sse
-            scope["path"] = path or "/"
-            scope["root_path"] = scope.get("root_path", "") + "/mcp"
+        if scope["type"] == "http":
+            path = scope.get("path", "")
 
-            # Token auth (pure ASGI, no BaseHTTPMiddleware)
-            if not await _mcp_token_check(scope, receive, send):
-                return
-            return await self.mcp_app(scope, receive, send)
+            # Streamable HTTP: exact /mcp (with optional trailing slash).
+            # Client libraries typically POST JSON-RPC here; the streamable
+            # app's internal router also expects the literal path "/mcp",
+            # so we pass scope through unchanged (no prefix strip).
+            if path == "/mcp" or path == "/mcp/":
+                if not await _mcp_token_check(scope, receive, send):
+                    return
+                # Normalize to /mcp so the internal route matches.
+                if path == "/mcp/":
+                    scope = dict(scope)
+                    scope["path"] = "/mcp"
+                return await self.mcp_streamable_app(scope, receive, send)
+
+            # SSE transport: /mcp/sse, /mcp/messages/...
+            # The SSE app expects paths without the /mcp prefix.
+            if path.startswith("/mcp/"):
+                scope = dict(scope)
+                scope["path"] = path[4:] or "/"
+                scope["root_path"] = scope.get("root_path", "") + "/mcp"
+                if not await _mcp_token_check(scope, receive, send):
+                    return
+                return await self.mcp_sse_app(scope, receive, send)
 
         return await self.fastapi_app(scope, receive, send)
 
 
 # This is the ASGI app that uvicorn runs.
-# `/mcp/*` → MCP SSE app (isolated, no BaseHTTPMiddleware)
-# `/*`     → FastAPI app (with full middleware stack)
-app = _TopLevelDispatcher(_fastapi_app, _mcp_sse_app)
+# `/mcp`         → Streamable HTTP app (Hermes, newer SDKs)
+# `/mcp/sse/*`   → SSE app (Claude Code, Cursor, OpenClaw, ...)
+# `/*`           → FastAPI app (with full middleware stack)
+app = _TopLevelDispatcher(_fastapi_app, _mcp_sse_app, _mcp_streamable_app)

@@ -1,13 +1,15 @@
 ---
 id: xiaohongshu
 name_zh: 小红书
-name_en: Xiaohongshu (RED)
+name_en: RedNote / Lemon8
 emoji: 📖
 region: zh
 content_type: text_post
 max_script_chars: 1000
 ---
-平台写作规范（小红书图文帖子）：
+平台写作规范（小红书 / RedNote / Lemon8 图文帖子）：
+
+**One category, three apps**: 小红书（中国原版）、RedNote（2025 TikTok 禁令后的官方英文品牌）、Lemon8（字节跳动海外对标产品）共享**同一套内容语法**：方形/竖屏图片卡片 + 第一人称短文案 + 生活方式"种草"逻辑。下面的规则以小红书为骨架；对 RedNote / Lemon8（英文、US/JP 市场）的差异化调整会在相关处单独注明。
 
 **内容定位**：小红书是"生活方式种草"平台。用户来这里是为了获得灵感、找共鸣、被安利。以**第一人称分享者**的身份写，不要品牌视角，不要"您"只用"你"或"姐妹们 / 宝子们 / 家人们"。
 
@@ -91,3 +93,23 @@ max_script_chars: 1000
 - 正文段落超过 4 行（手机端阅读疲劳）
 - 结尾硬 CTA / 放二维码 / 要求关注
 - 同一条帖子夸 3 个以上产品（小红书读者质疑"是不是广告"）
+
+---
+
+**RedNote / Lemon8 (English market) adaptations**:
+
+When generating for RedNote (the English rebrand of Xiaohongshu, popular with US users post-2025-TikTok-migration) or Lemon8 (ByteDance's US/JP lifestyle app), keep the same post DNA — image-first cards + short personal caption + lifestyle-adjacent voice — with these specific swaps:
+
+- **Title formulas**: The same 7 archetypes translate well. English equivalents:
+  - 身份+数字+情绪动词 → "Mom of 2 — these 3 things saved my mornings (I wish I knew sooner)"
+  - "不+negative" → "Don't buy skincare on sale until you read this 🫣"
+  - 反问 → "Why is everyone's kitchen spotless on TikTok but mine isn't?"
+  - 超短无承诺 → "Obsessed." / "A love letter to my coffee maker."
+- **Emoji semantics**: Same dictionary (‼️/✅/⚠️/💡/🥰/🌱) carries across; Lemon8 readers are younger (US Gen Z) and tolerate slightly higher emoji density than RedNote.
+- **Voice**: Drop the 宝子们 / 姐妹们 / 家人们 vocatives. English equivalents: "bestie", "friend", or just direct second-person "you". Don't translate literally — "sisters" reads as translated, not native.
+- **Taboo words translate**: Avoid "buy now", "link in bio", "DM to order", "limited time", "X% off". Same "suggest the path, don't state it" principle.
+- **Hashtags**: Lemon8 rewards **3-6 hashtags** (higher than LinkedIn/X); RedNote fewer than 3. Both stay niche-specific ("#cleangirlaesthetic" not "#lifestyle").
+- **Length**: Same ~800 char cap. US/EN text uses more chars per idea than Chinese, so the body gets shorter — 4-6 short paragraphs vs. 小红书's 6-8.
+- **Image count**: RedNote/Lemon8 users skew toward 5-9 cards per post (vs. 小红书's 3-7). More carousel real estate.
+
+If user KB is in English, the output will be English by design (per system KB-language principle); the LLM should output post text in English while preserving the card-based structure above.

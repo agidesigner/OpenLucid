@@ -114,6 +114,7 @@ cleanup_legacy_configs
 install_skill "${HOME}/.claude/skills"
 install_skill "${HOME}/.agents/skills"
 install_skill "${HOME}/.cursor/skills"
+install_skill "${HOME}/.hermes/skills"
 
 if command -v "${CLI_NAME}" &>/dev/null; then
     echo ""
@@ -133,6 +134,7 @@ echo "Skills installed:"
 echo "  Claude Code : ~/.claude/skills/openlucid-cli/SKILL.md"
 echo "  Shared      : ~/.agents/skills/openlucid-cli/SKILL.md"
 echo "  Cursor      : ~/.cursor/skills/openlucid-cli/SKILL.md"
+echo "  Hermes      : ~/.hermes/skills/openlucid-cli/SKILL.md"
 echo ""
 echo "OpenLucid now uses skill-based agent discovery."
 echo ""

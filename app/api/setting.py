@@ -234,10 +234,42 @@ async def check_version():
 
 @router.get("/app-url-status")
 async def app_url_status():
-    """Check if APP_URL is configured for public access."""
+    """Report APP_URL suitability for MCP preview URLs.
+
+    Returns one of three states so the UI can decide what to show:
+
+    - ``invalid``: APP_URL is empty or a known placeholder (nihao.com,
+      example.com, change-me). MCP agents genuinely can't resolve
+      asset URLs — show a hard warning and link to docker/.env.
+    - ``localhost``: APP_URL is http://localhost or 127.0.0.1. Fine
+      IF the MCP agent runs on the same machine (common for self-
+      hosted single-user setups). Show an informational note only —
+      not a warning. The old code called this "unconfigured", which
+      misled every same-machine user into thinking they had a problem.
+    - ``ok``: anything else (assumed reachable by remote agents).
+
+    ``configured`` is kept for backwards compat: true iff status!=invalid.
+    """
     from app.config import settings
-    configured = settings.APP_URL not in ("http://localhost", "http://localhost:8000")
-    return {"configured": configured, "current": settings.APP_URL}
+
+    url = (settings.APP_URL or "").strip().lower()
+    placeholders = ("nihao.com", "example.com", "change-me")
+
+    if not url or any(p in url for p in placeholders):
+        status = "invalid"
+    elif (
+        url in ("http://localhost", "http://localhost:8000", "http://127.0.0.1", "http://[::1]")
+        or url.startswith(("http://localhost:", "http://127.0.0.1:", "http://[::1]:"))
+    ):
+        status = "localhost"
+    else:
+        status = "ok"
+
+    return {
+        "status": status,
+        "configured": status != "invalid",
+        "current": settings.APP_URL,
+    }
 
 
 @router.get("/logs")

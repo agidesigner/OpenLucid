@@ -189,16 +189,38 @@ async def kb_qa_ask_stream(
 @router.get("/script-writer/platforms")
 async def script_writer_list_platforms(lang: str = Query("zh", pattern="^(zh|en)$")):
     from app.application.script_platforms import list_platforms
-    # Sort by relevance to the user's language:
+    # Two-tier sort for the dropdown:
+    #
+    # TIER 1 — region relevance to the user's UI language:
     #   zh user: zh platforms first, then global, then en-only
     #   en user: en platforms first, then global, then zh-only
+    #
+    # TIER 2 — usage priority within the region group, chosen by
+    # real-world marketing use (not alphabetical, which surfaced
+    # "Discord" as the en default and "公众号" as the zh default —
+    # both wrong for a marketing content tool). The ID order inside
+    # each list below is the intended display order; anything not
+    # listed falls to the end, alphabetical by id.
+    platform_priority = {
+        "zh": ["xiaohongshu", "wechat_gzh", "blog", "wechat_video", "douyin", "tiktok", "youtube_shorts",
+               "linkedin", "substack", "instagram_carousel", "x_twitter", "reddit", "discord"],
+        "en": ["linkedin", "substack", "instagram_carousel", "x_twitter", "reddit", "discord", "blog",
+               "tiktok", "youtube_shorts", "wechat_gzh", "xiaohongshu", "wechat_video", "douyin"],
+    }
+    order_index = {pid: i for i, pid in enumerate(platform_priority[lang])}
+
     if lang == "zh":
         region_priority = {"zh": 0, "global": 1, "en": 2}
     else:
         region_priority = {"en": 0, "global": 1, "zh": 2}
+
     sorted_platforms = sorted(
         list_platforms(),
-        key=lambda p: (region_priority.get(p.region, 99), p.id),
+        key=lambda p: (
+            region_priority.get(p.region, 99),
+            order_index.get(p.id, 999),
+            p.id,
+        ),
     )
     return [
         {

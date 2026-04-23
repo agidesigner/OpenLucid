@@ -319,16 +319,87 @@ def _extract_excel_text(content: bytes) -> str:
 
 _MAX_UPLOAD_BYTES = 300 * 1024 * 1024  # 300 MB
 
+# Extraction output caps. Tuned to comfortably fit the LLM's attention
+# budget for a single KB-inference call while leaving headroom for the
+# system prompt and existing-knowledge context.
+#
+# Rationale:
+#   - 50k chars ≈ 25k tokens of input. claude-opus processes it in
+#     ~15-25s and costs ~$0.12 at current prices; trivially fits any
+#     modern context window.
+#   - URLs tend to be single-page marketing copy — 10k is almost always
+#     enough and Jina Reader has already stripped the chrome.
+#   - Files (briefs, decks, whitepapers) are the variable-size source;
+#     50k lets a 100-slide deck through after deduping, but caps
+#     pathological uploads before they tank latency/cost/quality.
+_EXTRACT_CAP_FILE = 50_000
+_EXTRACT_CAP_URL = 10_000
 
-@router.post("/extract-text", response_model=ExtractTextResponse)
-async def extract_text(
-    file: UploadFile | None = File(None),
-    url: str | None = Form(None),
-):
-    """Extract text from a PDF/Word/PowerPoint/Excel file or a URL."""
+
+def _normalize_extracted(text: str, max_chars: int) -> str:
+    """Deduplicate exact-match lines and cap total length.
+
+    Two low-cost cleanups that together kill the dominant sources of
+    repetition in real-world source material:
+
+    1. PPT decks repeat master slides (footer, page number, disclaimers,
+       branding strap-lines) on every slide. Extracting every text frame
+       verbatim produces N copies of the same 3-10 lines. Exact-match
+       line dedup removes them while preserving the first occurrence so
+       content order / `[Slide N]` markers stay intact.
+    2. PDFs inherit the same footer/header repetition.
+    3. URL fallback extracts nav/footer/cookie-banner links repeatedly
+       from multi-column layouts — same pattern, same fix.
+
+    We preserve single blank lines (they anchor section boundaries for
+    the LLM), collapse runs of 3+ blank lines to a single break, and
+    hard-cap at ``max_chars`` so pathologically large inputs can't
+    blow up prompt length / LLM latency / cost.
+    """
+    seen: set[str] = set()
+    lines: list[str] = []
+    for line in text.splitlines():
+        key = line.strip()
+        if not key:
+            # Keep blank lines — they carry paragraph structure. Collapse
+            # runs later.
+            lines.append("")
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(line)
+
+    out = "\n".join(lines)
+    # Collapse 3+ consecutive newlines down to exactly 2 (one blank line).
+    import re
+    out = re.sub(r"\n{3,}", "\n\n", out).strip()
+    return out[:max_chars]
+
+
+async def extract_text_from_source(
+    *,
+    file: UploadFile | None,
+    url: str | None,
+    context_label: str = "extract-text",
+) -> tuple[str, str, str | None]:
+    """Shared helper: normalize a file-or-URL input into clean text.
+
+    Both ``/ai/extract-text`` and ``/brandkits/{id}/extract-profile``
+    consume the exact same set of input formats through the exact same
+    pipeline — this helper is the single source of truth so they can't
+    drift. (Historic drift caused PPTX to silently break on the brandkit
+    path while working on the KB path.)
+
+    Returns ``(normalized_text, source, filename)`` where ``source`` is
+    ``"file"`` or ``"url"``. Raises ``HTTPException`` on unsupported
+    format, oversized upload, empty result, or when neither input was
+    provided.
+
+    Applies ``_normalize_extracted`` (line dedup + length cap) before
+    returning. ``context_label`` is only used in the log line.
+    """
     if file and file.filename:
-        # Reject oversized uploads early — check header-reported size first to
-        # avoid pulling hundreds of MB into memory.
         declared = getattr(file, "size", None)
         if declared is not None and declared > _MAX_UPLOAD_BYTES:
             raise HTTPException(
@@ -354,15 +425,24 @@ async def extract_text(
         elif filename.endswith((".txt", ".csv")):
             text = content.decode("utf-8", errors="ignore")
         else:
-            raise HTTPException(400, f"Unsupported file format: {file.filename}. Supported: PDF, Word, PowerPoint, Excel, CSV, TXT")
+            raise HTTPException(
+                400,
+                f"Unsupported file format: {file.filename}. Supported: PDF, Word, PowerPoint, Excel, CSV, TXT",
+            )
 
         if not text.strip():
             raise HTTPException(400, "Failed to extract text content from the file")
 
-        return ExtractTextResponse(text=text.strip(), source="file", filename=file.filename)
+        raw_len = len(text)
+        normalized = _normalize_extracted(text, max_chars=_EXTRACT_CAP_FILE)
+        logger.info(
+            "%s | file=%s raw=%d normalized=%d (dedup+cap=%.1f%%)",
+            context_label, file.filename, raw_len, len(normalized),
+            100 * (1 - len(normalized) / raw_len) if raw_len else 0,
+        )
+        return normalized, "file", file.filename
 
     if url:
-        # For PDF/Word URLs, fetch directly
         if url.lower().endswith((".pdf", ".docx", ".doc")):
             try:
                 async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
@@ -376,12 +456,32 @@ async def extract_text(
             else:
                 text = _extract_docx_text(resp.content)
         else:
-            # Use Jina Reader to handle JS-rendered pages (Vue/React/SPA)
             text = await _extract_url_text(url)
 
         if not text.strip():
             raise HTTPException(400, "Failed to extract text content from the URL")
 
-        return ExtractTextResponse(text=text.strip()[:10000], source="url")
+        raw_len = len(text)
+        normalized = _normalize_extracted(text, max_chars=_EXTRACT_CAP_URL)
+        logger.info(
+            "%s | url=%s raw=%d normalized=%d (dedup+cap=%.1f%%)",
+            context_label, url[:80], raw_len, len(normalized),
+            100 * (1 - len(normalized) / raw_len) if raw_len else 0,
+        )
+        return normalized, "url", None
 
     raise HTTPException(400, "Please provide a file or URL")
+
+
+@router.post("/extract-text", response_model=ExtractTextResponse)
+async def extract_text(
+    file: UploadFile | None = File(None),
+    url: str | None = Form(None),
+):
+    """Extract text from a PDF/Word/PowerPoint/Excel file or a URL."""
+    text, source, filename = await extract_text_from_source(
+        file=file, url=url, context_label="extract-text",
+    )
+    return ExtractTextResponse(text=text, source=source, filename=filename)
+
+

@@ -26,7 +26,7 @@
   <script src="/js/pinned-apps.js"></script>
   <script src="/js/avatar.js"></script>
   <script src="/js/feedback.js"></script>
-  <script src="/js/topic-picker.js"></script>
+  <script src="/js/apps-shared.js"></script>
   <script src="/js/shared.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
@@ -38,8 +38,7 @@
   </style>
 </head>
 <body class="bg-gray-50 h-screen flex overflow-hidden"
-      x-data="topicStudio()" x-init="init()"
-      @topic-picker-select.window="onTopicPickerSelect($event.detail.unitId)">
+      x-data="topicStudio()" x-init="init()">
 
   <!-- Sidebar -->
   <aside class="w-56 bg-sidebar flex flex-col shrink-0">
@@ -209,10 +208,19 @@
             <div class="bg-white rounded-xl border p-6">
               <!-- Creative brief (free-text instruction) -->
               <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">
-                  <span x-text="t('topic_instruction_label')"></span>
-                  <span class="text-xs text-gray-400 font-normal" x-text="t('topic_instruction_optional')"></span>
-                </label>
+                <div class="flex items-center justify-between mb-1.5">
+                  <label class="block text-sm font-medium text-gray-700">
+                    <span x-text="t('topic_instruction_label')"></span>
+                    <span class="text-xs text-gray-400 font-normal" x-text="t('topic_instruction_optional')"></span>
+                  </label>
+                  <button @click="suggestInstruction()"
+                          :disabled="!offerId || suggestingInstruction"
+                          class="text-xs text-accent hover:text-accent-hover disabled:opacity-40 transition flex items-center gap-1">
+                    <svg x-show="!suggestingInstruction" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                    <svg x-show="suggestingInstruction" class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                    <span x-text="t('suggest_topic')"></span>
+                  </button>
+                </div>
                 <textarea x-model="form.instruction"
                           rows="2"
                           maxlength="1000"
@@ -235,7 +243,7 @@
                     <span class="text-sm text-gray-600 tabular-nums w-4 text-center" x-text="form.count"></span>
                   </div>
                 </div>
-                <button @click="openTopicPicker()" :disabled="generating || !offerId"
+                <button @click="generate()" :disabled="generating || !offerId"
                         class="ai-cta bg-gradient-to-r from-purple-600 to-accent text-white px-6 py-2 rounded-lg text-[13px] font-medium disabled:opacity-50 flex items-center gap-2 ml-auto shrink-0">
                   <svg x-show="generating" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
                   <svg x-show="!generating" class="w-4 h-4 ai-spark" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l1.8 5.5L19 9l-5.2 1.5L12 16l-1.8-5.5L5 9l5.2-1.5z"/><path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8z"/></svg>
@@ -379,8 +387,6 @@
     </main>
   </div>
 
-  <div id="topic-picker-mount"></div>
-
   <script>
     const API = '/api/v1';
 
@@ -419,6 +425,7 @@
           ];
         },
         generating: false,
+        suggestingInstruction: false,
         genProgress: 0,
         genStep: '',
 
@@ -527,14 +534,25 @@
           finally { this.loadingCtx = false; }
         },
 
-        openTopicPicker() {
-          if (!this.offerId) return;
-          window.dispatchEvent(new CustomEvent('open-topic-picker', { detail: { offerId: this.offerId } }));
-        },
-
-        onTopicPickerSelect(unitId) {
-          this.strategyUnitId = unitId || '';
-          this.generate();
+        async suggestInstruction() {
+          // Reuse the shared suggest-topic endpoint (same idea — let the
+          // LLM look at KB + offer and propose one concrete angle). The
+          // suggestion lands in the creative-brief textarea; user can
+          // edit before hitting Generate.
+          if (!this.offerId || this.suggestingInstruction) return;
+          this.suggestingInstruction = true;
+          try {
+            const suggestion = await window.odSuggestTopic({
+              offer_id: this.offerId,
+              strategy_unit_id: this.strategyUnitId || undefined,
+              config_id: this.configId || undefined,
+            });
+            if (suggestion) this.form.instruction = suggestion;
+          } catch (e) {
+            console.error(e);
+            toast.error(e.message || t('save_failed'));
+          }
+          this.suggestingInstruction = false;
         },
 
         _topicToUrl(basePath, plan) {

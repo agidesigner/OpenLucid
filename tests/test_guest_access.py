@@ -124,6 +124,89 @@ class TestGuestAccessHashing:
         assert asyncio.run(_run()) is False
 
 
+class TestRawTokenStorage:
+    """v0.9.9.8 regression: ``enable()`` must persist the raw token so
+    the owner can view + copy the URL anytime (not just once at
+    creation). ``get_raw_token()`` reads that back."""
+
+    def test_enable_stores_raw_token_on_row(self):
+        """Calling enable() must set both token_hash AND raw_token."""
+        from app.application import guest_access_service as svc
+        from app.models.guest_access import GuestAccess
+        import asyncio
+
+        added_rows: list[GuestAccess] = []
+
+        class _FakeDB:
+            async def execute(self, *a, **k):
+                return None
+            def add(self, row):
+                added_rows.append(row)
+            async def commit(self):
+                return None
+
+        raw = asyncio.run(svc.enable(_FakeDB()))
+        assert len(added_rows) == 1
+        row = added_rows[0]
+        assert row.raw_token == raw
+        assert row.token_hash == svc._hash(raw)
+
+    def test_get_raw_token_returns_none_when_disabled(self):
+        from app.application import guest_access_service as svc
+        import asyncio
+
+        class _FakeDB:
+            async def scalar(self, *a, **k):
+                return None  # no row
+
+        assert asyncio.run(svc.get_raw_token(_FakeDB())) is None
+
+    def test_get_raw_token_returns_stored_value(self):
+        from app.application import guest_access_service as svc
+        from app.models.guest_access import GuestAccess
+        import asyncio
+
+        class _FakeDB:
+            async def scalar(self, *a, **k):
+                return GuestAccess(token_hash="x" * 64, raw_token="stored-raw-secret")
+
+        assert asyncio.run(svc.get_raw_token(_FakeDB())) == "stored-raw-secret"
+
+    def test_get_raw_token_returns_none_for_legacy_rows(self):
+        """Pre-v0.9.9.8 rows have token_hash but no raw_token. UI must
+        treat that as "enabled, but URL unavailable — regenerate"."""
+        from app.application import guest_access_service as svc
+        from app.models.guest_access import GuestAccess
+        import asyncio
+
+        class _FakeDB:
+            async def scalar(self, *a, **k):
+                return GuestAccess(token_hash="x" * 64, raw_token=None)
+
+        assert asyncio.run(svc.get_raw_token(_FakeDB())) is None
+
+
+class TestGuestAccessStatusSchema:
+    """Status response must carry url optionally (new in v0.9.9.8)."""
+
+    def test_enabled_without_url_parses(self):
+        from app.schemas.auth import GuestAccessStatusResponse
+        r = GuestAccessStatusResponse(enabled=True)
+        assert r.url is None
+
+    def test_enabled_with_url_parses(self):
+        from app.schemas.auth import GuestAccessStatusResponse
+        r = GuestAccessStatusResponse(
+            enabled=True, url="http://localhost:8000/guest-access?t=abc"
+        )
+        assert r.url == "http://localhost:8000/guest-access?t=abc"
+
+    def test_disabled_is_url_none(self):
+        from app.schemas.auth import GuestAccessStatusResponse
+        r = GuestAccessStatusResponse(enabled=False)
+        assert r.url is None
+
+
 # ── 3. Middleware state contract ───────────────────────────────────────
 # Regression guard: the middleware must set request.state.is_guest for every
 # authenticated branch. Future refactors that forget to set it will leave

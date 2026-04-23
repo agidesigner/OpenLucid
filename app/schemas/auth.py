@@ -44,6 +44,10 @@ class MessageResponse(BaseModel):
 
 class GuestAccessStatusResponse(BaseModel):
     enabled: bool
+    # Present when guest mode is on AND the raw token is stored (rows
+    # from pre-v0.9.9.8 installs have token_hash only — ``url`` is then
+    # None and the UI prompts the owner to regenerate to reveal a URL).
+    url: str | None = None
 
 
 class GuestAccessResponse(BaseModel):

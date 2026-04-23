@@ -34,6 +34,11 @@ _BASE_ZH = (
     "- 禁止使用舞台指示、场景描述标签（不要在正文中写[背景音乐]、[镜头切换]等）\n"
     "- 数字和英文字母会被TTS直接念出，确保语义自然\n"
     "- 口语化，单句精简，用逗号和句号控制节奏\n"
+    "- **具体胜过泛化**：要写真实数字、真实案例、真实时间。写'增长很多'不如写'6 个月内从 500 到 8 200 条订单'\n"
+    "- **第一人称叙事者**：用'我'或'我们'（创作者视角），不要'本品牌'、'您'、机构化语气\n"
+    "- **先交付价值再谈推广**：读者给了你注意力，他们是选择加入内容，不是选择加入广告。正文 80%+ 必须是读者可带走的洞察、方法、故事。品牌/产品提及最多一次，且在最后\n"
+    "- **数字化承诺标题好用**：'5 个误区'、'3 步拆解'这种清晰标题比'一些想法'强得多\n"
+    "- **Hook 必须挣来下一行**：第一行的使命是让读者读第二行。铺垫、感慨、引用名言都不行 —— 直接上冲突、数字或具体问题\n"
     "- **非促销铁律**：每篇内容至少包含一段承认局限 / 讨论取舍 / 说明什么场景不适用的话。缺这一段内容就像广告，会让读者和平台算法双双失信任。\n"
 )
 
@@ -45,6 +50,12 @@ _BASE_EN = (
     "- No stage directions or scene annotation tags in the main text\n"
     "- Numbers and abbreviations will be spoken by TTS — ensure they read naturally aloud\n"
     "- Conversational, concise sentences — use commas and periods to control pacing\n"
+    "- **Specific beats general**: real numbers, real company names, real timeframes. 'Grew fast' loses to '500 to 8,200 orders in 6 months'\n"
+    "- **First-person narrator**: 'I' or 'we' from the creator's seat. No institutional 'this brand', no 'our company believes', no corporate third-person\n"
+    "- **Value first, promotion last**: readers opted into content, not an ad. 80%+ of the body must be insight, method, or story they can take away. Brand/product mention once, at the end, or skip it\n"
+    "- **Numbered-promise titles work**: '5 mistakes I made at $1M ARR' / '7 things I wish I knew' beat 'Some thoughts on X'\n"
+    "- **The hook must earn the next line**: the first line's only job is getting the second line read. No warmup, no 'excited to share', no motivational quotes — lead with the surprising specific\n"
+    "- **Cut corporate buzzwords**: 'synergy', 'leverage', 'disrupt', 'ecosystem', 'stakeholders' as filler. High-intensity voice (blunt, opinionated) is fine when earned by specifics\n"
     "- **Non-promotional requirement**: every piece must include at least one passage that admits a limitation, discusses a tradeoff, or names when the product is the wrong choice. Missing this line makes the content read like an ad and loses trust with both readers and ranking algorithms.\n"
 )
 
