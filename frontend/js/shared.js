@@ -163,6 +163,122 @@ window.formatRelative = function (iso) {
   document.head.appendChild(style);
 })();
 
+// ── Guest-mode visibility ────────────────────────────────────────────
+// Gate `.owner-only` elements (KB / Brand Kit / Settings entry points,
+// destructive edit buttons) on whether the current session is an owner.
+// Also exposes `window._od_is_guest` and emits a `od-auth-me` event with
+// the /auth/me payload so page scripts can adapt without re-fetching.
+(function injectGuestStyles() {
+  if (document.getElementById('od-guest-styles')) return;
+  // Banner is position:fixed so it doesn't become a flex item of the
+  // row-flex body (which was stealing a column on the left). The zh/en
+  // text is short enough to live in a single 24px top strip; full-detail
+  // copy lives on the Settings → 访客分享 card where owners manage it.
+  //
+  // Also upgrade every h-screen page to dvh (dynamic viewport height).
+  // Why: Tailwind's h-screen resolves to 100vh, which on mobile browsers
+  // includes the address bar. Combined with body's overflow-hidden, the
+  // last ~100px of any long result card (notably script-writer + content-
+  // studio) ends up behind the address bar and is unreachable by scroll.
+  // dvh tracks the actual visible viewport as chrome collapses, so the
+  // bottom of long generated content is always scrollable into view.
+  const css = `
+body.h-screen { height: 100dvh; }
+body.is-guest .owner-only { display: none !important; }
+body.is-guest { padding-top: 24px; }
+#od-guest-banner { display: none; }
+body.is-guest #od-guest-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: linear-gradient(90deg, #FEF3C7 0%, #FDE68A 100%);
+  color: #78350F;
+  font-size: 11px;
+  font-weight: 500;
+  height: 24px;
+  padding: 0 14px;
+  border-bottom: 1px solid #FCD34D;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  pointer-events: none;
+}
+#od-guest-banner .od-guest-exit {
+  margin-left: 14px;
+  padding: 3px 12px;
+  border-radius: 9999px;
+  background: #1C1C28;
+  color: #FDE68A;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background 0.15s, transform 0.1s;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
+#od-guest-banner .od-guest-exit:hover { background: #2A2A3C; }
+#od-guest-banner .od-guest-exit:active { transform: translateY(1px); }
+`;
+  const s = document.createElement('style');
+  s.id = 'od-guest-styles';
+  s.textContent = css;
+  document.head.appendChild(s);
+})();
+
+(function ensureGuestBanner() {
+  if (document.getElementById('od-guest-banner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'od-guest-banner';
+  const en = (window._odLang || 'zh') === 'en';
+  banner.innerHTML = `
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+    <span>${en ? 'Guest mode — create content only; knowledge base is read-only' : '访客模式 — 只可以创建内容，不能修改知识库'}</span>
+    <button type="button" class="od-guest-exit" title="${en ? 'Clear guest cookie and go to sign in' : '清除访客 cookie 并前往登录'}">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      ${en ? 'Sign in as owner' : '以创建者身份登录'}
+    </button>
+  `;
+  // Sole interactive element for guests — clicking clears both cookies
+  // and redirects to /signin.html. The guest cookie otherwise has a
+  // sliding 365-day expiry, so without this exit an owner using a
+  // browser that once visited as guest would be stuck in guest mode.
+  banner.querySelector('.od-guest-exit').addEventListener('click', async () => {
+    try {
+      await fetch('/api/v1/auth/signout', { method: 'POST', credentials: 'same-origin' });
+    } catch (_) { /* even if the POST fails, still redirect — the cookie
+                    will either naturally expire or the user can clear
+                    it manually, and we shouldn't block the flow */ }
+    location.href = '/signin.html';
+  });
+  if (document.body) document.body.insertBefore(banner, document.body.firstChild);
+  else document.addEventListener('DOMContentLoaded', () => document.body.insertBefore(banner, document.body.firstChild));
+})();
+
+(function detectSession() {
+  // Skip on unauthenticated pages (they shouldn't hit /auth/me themselves)
+  const p = (location.pathname || '').toLowerCase();
+  if (p.endsWith('/signin.html') || p.endsWith('/install.html')) return;
+  fetch('/api/v1/auth/me', { credentials: 'same-origin' })
+    .then(r => (r.ok ? r.json() : null))
+    .then(me => {
+      const isGuest = !!(me && me.is_guest);
+      document.body.classList.toggle('is-guest', isGuest);
+      document.body.classList.toggle('is-owner', !!me && !isGuest);
+      window._od_is_guest = isGuest;
+      window._od_me = me;
+      document.dispatchEvent(new CustomEvent('od-auth-me', { detail: me }));
+    })
+    .catch(() => {});
+})();
+
 // ── Toast ──────────────────────────────────────────────────────────────
 (function setupToast() {
   const ICONS = { success: '✓', error: '!', warning: '!', info: 'i' };

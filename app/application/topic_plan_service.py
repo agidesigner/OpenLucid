@@ -40,6 +40,19 @@ class TopicPlanService:
         asset_count = len(context_dict.get("assets", []))
         logger.info("Topic Studio: context ready, %d knowledge items, %d assets", ki_count, asset_count)
 
+        # KB-centric language: override request.language with the KB's
+        # detected content language unless the caller manually picked.
+        from app.libs.lang_detect import resolve_output_language
+        kb_sample = " ".join(
+            (k.get("title") or "") + " " + ((k.get("content_raw") or "")[:500])
+            for k in context_dict.get("knowledge_items", [])[:15]
+        )
+        request.language = resolve_output_language(
+            request.language, kb_sample,
+            manual_override=getattr(request, "language_override", False),
+            caller="topic_studio",
+        )
+
         # 2. Build strategy unit context if provided
         strategy_unit_context: dict | None = None
         if request.strategy_unit_id:

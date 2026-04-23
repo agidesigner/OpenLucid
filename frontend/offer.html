@@ -87,7 +87,7 @@
       </button>
 
       <!-- More actions dropdown -->
-      <div class="relative" x-data="{ open: false }" @click.outside="open = false">
+      <div class="relative owner-only" x-data="{ open: false }" @click.outside="open = false">
         <button @click="open = !open" class="h-[33px] w-[33px] flex items-center justify-center border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors">
           <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
         </button>
@@ -200,10 +200,10 @@
       <!-- Tabs -->
       <div class="px-6 py-3 bg-white border-b flex items-center gap-2">
         <button @click="tab='overview'" :class="tab==='overview' && 'active'" class="tab-btn" x-text="t('tab_overview')"></button>
-        <button @click="tab='knowledge'" :class="tab==='knowledge' && 'active'" class="tab-btn" x-text="t('tab_knowledge')"></button>
+        <button @click="tab='knowledge'" :class="tab==='knowledge' && 'active'" class="tab-btn owner-only" x-text="t('tab_knowledge')"></button>
         <button @click="tab='assets'; fetchAssets()" :class="tab==='assets' && 'active'" class="tab-btn" x-text="t('tab_assets')"></button>
         <button @click="tab='strategy'; fetchStrategyUnits()" :class="tab==='strategy' && 'active'" class="tab-btn" x-text="t('tab_strategy')"></button>
-        <button @click="tab='brandkit'; fetchBrandKit()" :class="tab==='brandkit' && 'active'" class="tab-btn" x-text="t('tab_brandkit')"></button>
+        <button @click="tab='brandkit'; fetchBrandKit()" :class="tab==='brandkit' && 'active'" class="tab-btn owner-only" x-text="t('tab_brandkit')"></button>
       </div>
 
       <div class="p-6">
@@ -790,10 +790,8 @@
                   </template>
                 </div>
 
-                <!-- Stage + stats + generate row -->
-                <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-50">
-                  <span :class="unitStageClass(u.strategy_stage)"
-                        x-text="unitStageLabel(u.strategy_stage)"></span>
+                <!-- Stats + generate row -->
+                <div class="flex items-center justify-end mt-3 pt-3 border-t border-gray-50">
                   <div class="flex items-center gap-3 text-[11px] text-gray-400">
                     <span x-text="u.asset_count + ' ' + t('tab_assets')"></span>
                     <span x-text="u.topic_count + ' ' + t('topic_count')"></span>
@@ -1021,8 +1019,12 @@
       </div>
       <div class="px-6 py-5 space-y-4 max-h-[60vh] overflow-y-auto">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1.5"><span x-text="t('unit_name')"></span> <span class="text-red-400">*</span></label>
-          <input x-model="unitForm.name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">
+            <span x-text="t('unit_name')"></span>
+            <span class="text-xs text-gray-400 font-normal ml-1" x-text="t('unit_name_optional_hint')"></span>
+          </label>
+          <input x-model="unitForm.name" :placeholder="t('unit_name_placeholder')"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
         </div>
         <div class="grid grid-cols-2 gap-4">
           <div x-data="{ open: false }" @click.outside="open = false" class="relative">
@@ -1085,25 +1087,15 @@
           </div>
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('unit_stage')"></label>
-          <div class="flex gap-2">
-            <template x-for="[v, tKey] of [['exploring','ss_exploring'],['rising','ss_rising'],['stable','ss_stable'],['declining','ss_declining']]" :key="v">
-              <button @click="unitForm.strategy_stage = v" type="button"
-                      :class="unitForm.strategy_stage === v ? 'bg-accent text-white border-accent' : 'bg-white text-gray-600 border-gray-200 hover:border-accent/50'"
-                      class="flex-1 py-1.5 text-xs font-medium rounded-lg border transition" x-text="t(tKey)"></button>
-            </template>
-          </div>
-        </div>
-        <div>
           <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('unit_notes')"></label>
           <textarea x-model="unitForm.notes" rows="2" :placeholder="t('unit_notes_placeholder')" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none resize-none"></textarea>
         </div>
       </div>
       <div class="px-6 py-4 border-t flex justify-end gap-3">
         <button @click="showUnitForm = false" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg border border-gray-200 transition" x-text="t('btn_cancel')"></button>
-        <button @click="saveUnit()" :disabled="!unitForm.name.trim() || savingUnit"
+        <button @click="saveUnit()" :disabled="!canSaveUnit() || savingUnit"
                 class="bg-accent text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition">
-          <span x-text="savingUnit ? t('saving') : (editingUnit ? t('btn_save') : t('btn_create'))"></span>
+          <span x-text="savingUnit ? (isAutoNaming() ? t('unit_ai_naming') : t('saving')) : (editingUnit ? t('btn_save') : t('btn_create'))"></span>
         </button>
       </div>
     </div>
@@ -1473,7 +1465,7 @@
         // Strategy Units
         strategyUnits: [], strategyUnitsTotal: 0,
         showUnitForm: false, editingUnit: null, savingUnit: false,
-        unitForm: { name: '', audience_segment: '', scenario: '', marketing_objective: '', channel: '', strategy_stage: 'exploring', notes: '' },
+        unitForm: { name: '', audience_segment: '', scenario: '', marketing_objective: '', channel: '', notes: '' },
         audienceOptions: [], scenarioOptions: [],
 
         // Agent activation hint (shown on overview tab when KB is built but no MCP tokens yet)
@@ -2107,27 +2099,37 @@
               scenario: unit.scenario || '',
               marketing_objective: unit.marketing_objective || '',
               channel: unit.channel || '',
-              strategy_stage: unit.strategy_stage,
               notes: unit.notes || '',
             };
           } else {
             this.editingUnit = null;
-            this.unitForm = { name: '', audience_segment: '', scenario: '', marketing_objective: '', channel: '', strategy_stage: 'exploring', notes: '' };
+            this.unitForm = { name: '', audience_segment: '', scenario: '', marketing_objective: '', channel: '', notes: '' };
           }
           this.showUnitForm = true;
           this.loadKBOptions();
         },
 
+        canSaveUnit() {
+          // Either a name was typed, or we have at least one signal the
+          // backend AI can use to auto-summarize one.
+          const f = this.unitForm;
+          if (f.name && f.name.trim()) return true;
+          return !!(f.audience_segment || f.scenario || f.marketing_objective);
+        },
+        isAutoNaming() {
+          return !this.unitForm.name || !this.unitForm.name.trim();
+        },
         async saveUnit() {
-          if (!this.unitForm.name.trim()) return;
+          if (!this.canSaveUnit()) return;
           this.savingUnit = true;
+          const typedName = (this.unitForm.name || '').trim();
           const body = {
-            name: this.unitForm.name.trim(),
+            // Omit name when blank — backend auto-summarizes via AI.
+            name: typedName || null,
             audience_segment: this.unitForm.audience_segment || null,
             scenario: this.unitForm.scenario || null,
             marketing_objective: this.unitForm.marketing_objective || null,
             channel: this.unitForm.channel || null,
-            strategy_stage: this.unitForm.strategy_stage,
             notes: this.unitForm.notes || null,
           };
           try {
@@ -2172,12 +2174,6 @@
 
         unitObjectiveLabel(v) {
           return { reach_growth: t('mo_reach_growth'), lead_generation: t('mo_lead_generation'), conversion: t('mo_conversion'), education: t('mo_education'), traffic_redirect: t('mo_traffic_redirect'), other: t('mo_other') }[v] || v;
-        },
-        unitStageLabel(v) {
-          return { exploring: t('ss_exploring'), rising: t('ss_rising'), stable: t('ss_stable'), declining: t('ss_declining') }[v] || v;
-        },
-        unitStageClass(v) {
-          return { exploring:'od-chip od-chip-neutral', rising:'od-chip od-chip-success', stable:'od-chip od-chip-primary', declining:'od-chip od-chip-warning' }[v] || 'od-chip od-chip-neutral';
         },
       };
     }

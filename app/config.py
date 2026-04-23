@@ -1,6 +1,17 @@
+import secrets
+
 from pydantic_settings import BaseSettings
 
-VERSION = "0.9.9.7"
+VERSION = "0.9.9.8"
+
+# Browser cache-bust token. VERSION alone isn't enough — we don't bump it
+# for every frontend tweak, but we still need users to see the change on
+# the next page load (not after F12 + hard-reload). A random suffix is
+# regenerated every process start, so any docker rebuild (new container →
+# new process) rotates this automatically. Served HTML has every local
+# /js/, /css/, /images/ URL rewritten with ?v=<CACHE_TAG>; those URLs are
+# then marked immutable so the browser caches them until the tag changes.
+CACHE_TAG = f"{VERSION}-{secrets.token_hex(4)}"
 
 
 class Settings(BaseSettings):

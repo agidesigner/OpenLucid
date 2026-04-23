@@ -13,6 +13,7 @@ from app.adapters.prompt_builder import format_asset_context, format_knowledge_f
 from app.application.context_service import ContextService
 from app.application.script_composer import compose_system_prompt
 from app.infrastructure.strategy_unit_repo import StrategyUnitRepository
+from app.libs.lang_detect import detect_text_language, matches as lang_matches
 from app.models.merchant import Merchant
 from app.models.offer import Offer
 from app.schemas.app import ScriptWriterRequest
@@ -348,6 +349,7 @@ class ScriptWriterService:
         context = await ctx_service.get_offer_context(request.offer_id)
 
         knowledge_items = []
+        kb_sample_parts = []
         for k in context.knowledge_items:
             content = (k.content_raw or "")[:_MAX_CONTENT_CHARS]
             knowledge_items.append({
@@ -355,6 +357,20 @@ class ScriptWriterService:
                 "title": k.title,
                 "content_raw": content,
             })
+            kb_sample_parts.append((k.title or "") + " " + content)
+
+        # KB-centric language: if the caller didn't manually pick a
+        # language in the UI, follow the KB's detected content language.
+        # script-writer.html exposes a picker and sets language_override
+        # when the user flips it; content-studio/kb-qa have no picker and
+        # always let the KB win.
+        from app.libs.lang_detect import resolve_output_language
+        request.language = resolve_output_language(
+            request.language,
+            " ".join(kb_sample_parts[:_MAX_KNOWLEDGE_ITEMS]),
+            manual_override=getattr(request, "language_override", False),
+            caller="script_writer",
+        )
 
         knowledge_text = format_knowledge_flat(
             knowledge_items[:_MAX_KNOWLEDGE_ITEMS], language=request.language
@@ -541,7 +557,6 @@ class ScriptWriterService:
                 self.session, scene_key="script_writer", config_id=config_id
             )
 
-        is_en = language.startswith("en")
         goal_zh, goal_en = _GOAL_LABELS.get(goal, ("其他", "Other"))
 
         # Load knowledge
@@ -549,6 +564,7 @@ class ScriptWriterService:
         context = await ctx_service.get_offer_context(_uuid.UUID(offer_id))
 
         knowledge_items = []
+        kb_raw_sample = []
         for k in context.knowledge_items:
             content = (k.content_raw or "")[:_MAX_CONTENT_CHARS]
             knowledge_items.append({
@@ -556,8 +572,23 @@ class ScriptWriterService:
                 "title": k.title,
                 "content_raw": content,
             })
+            kb_raw_sample.append((k.title or "") + " " + content)
+
+        # The caller's `language` reflects the UI locale, not the KB's.
+        # A Chinese UI + English KB produced jarring zh topics that cited
+        # English knowledge. Let the content speak for itself: detect the
+        # dominant language of the sampled KB text and prefer that.
+        detected = detect_text_language(" ".join(kb_raw_sample[:_MAX_KNOWLEDGE_ITEMS]))
+        effective_language = detected or language
+        if detected and not lang_matches(language, detected):
+            logger.info(
+                "suggest_topic: UI language=%s but KB content detected as %s — following KB",
+                language, detected,
+            )
+        is_en = effective_language.startswith("en")
+
         knowledge_text = format_knowledge_flat(
-            knowledge_items[:_MAX_KNOWLEDGE_ITEMS], language=language
+            knowledge_items[:_MAX_KNOWLEDGE_ITEMS], language=effective_language
         )
 
         # Load strategy unit
@@ -574,13 +605,13 @@ class ScriptWriterService:
                     "channel": unit.channel,
                     "notes": unit.notes,
                 }
-                strategy_text = format_strategy_focus(su_dict, language=language)
+                strategy_text = format_strategy_focus(su_dict, language=effective_language)
 
         offer_name = context.offer.name
 
         # Format asset content as supplementary context
         asset_text = format_asset_context(
-            context.assets, language=language
+            context.assets, language=effective_language
         )
 
         if is_en:

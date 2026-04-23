@@ -104,6 +104,16 @@ class KBQAService:
         ranked = _rank_knowledge(request.question, all_items)
         knowledge_items = ranked[:_MAX_KNOWLEDGE_ITEMS]
 
+        # KB-centric language: override request.language with detected
+        # content language unless the caller explicitly picked in UI.
+        from app.libs.lang_detect import resolve_output_language
+        kb_sample = " ".join((k.get("title") or "") + " " + (k.get("content_raw") or "") for k in knowledge_items)
+        request.language = resolve_output_language(
+            request.language, kb_sample,
+            manual_override=getattr(request, "language_override", False),
+            caller="kb_qa",
+        )
+
         type_counts = {}
         for k in knowledge_items:
             t = k.get("knowledge_type", "unknown")
@@ -112,7 +122,7 @@ class KBQAService:
                      len(knowledge_items), len(all_items), _MAX_KNOWLEDGE_ITEMS, type_counts)
 
         style = STYLE_TEMPLATES.get(request.style_id) or STYLE_TEMPLATES[DEFAULT_STYLE_ID]
-        logger.info("KB QA: style=%s, question=\"%s\"", request.style_id, request.question[:80])
+        logger.info("KB QA: style=%s, lang=%s, question=\"%s\"", request.style_id, request.language, request.question[:80])
 
         return self.ai, knowledge_items, all_items, style.system_prompt_prefix, context
 

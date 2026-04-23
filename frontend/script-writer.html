@@ -1022,6 +1022,9 @@ Output language MUST match the language of the knowledge base content and topic.
                 reference: this.reference || undefined,
                 extra_req: this.extraReq || undefined,
                 language: this.outputLang === 'zh' ? 'zh-CN' : 'en',
+                // Only honored when the user manually flipped the picker;
+                // otherwise the backend follows the KB's detected language.
+                language_override: !!this.languageManualOverride,
                 config_id: this.configId || undefined,
                 // Composer dimensions
                 platform_id: this.platformId || undefined,

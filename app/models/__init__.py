@@ -16,6 +16,7 @@ from app.models.asset_metric import AssetMetric
 from app.models.brandkit import BrandKit
 from app.models.brandkit_asset_link import BrandKitAssetLink
 from app.models.mcp_token import McpToken
+from app.models.guest_access import GuestAccess
 from app.models.creation import Creation
 from app.models.media_provider_config import MediaProviderConfig
 from app.models.video_generation_job import VideoGenerationJob
@@ -41,6 +42,7 @@ __all__ = [
     "BrandKit",
     "BrandKitAssetLink",
     "McpToken",
+    "GuestAccess",
     "Creation",
     "MediaProviderConfig",
     "VideoGenerationJob",

@@ -115,13 +115,6 @@ class MarketingObjective(str, Enum):
     OTHER = "other"
 
 
-class StrategyStage(str, Enum):
-    EXPLORING = "exploring"
-    RISING = "rising"
-    STABLE = "stable"
-    DECLINING = "declining"
-
-
 class TrendStatus(str, Enum):
     UP = "up"
     FLAT = "flat"

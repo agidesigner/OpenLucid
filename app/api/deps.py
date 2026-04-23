@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import Depends, Query
+from fastapi import Depends, HTTPException, Query, Request
 
 from app.database import get_db
 
@@ -16,3 +16,13 @@ def pagination_params(
 
 
 PaginationDep = Annotated[dict[str, int], Depends(pagination_params)]
+
+
+async def require_owner(request: Request) -> str:
+    """Reject guest sessions. Use on endpoints that manage the guest toggle
+    itself or any other action that must stay inside the owner's scope even
+    when the middleware allowlist would otherwise permit it."""
+    uid = getattr(request.state, "user_id", None)
+    if not uid or uid == "guest":
+        raise HTTPException(status_code=403, detail="Owner-only endpoint")
+    return uid

@@ -21,7 +21,6 @@ class StrategyUnit(BaseModel):
     scenario: Mapped[str | None] = mapped_column(String(255), nullable=True)
     marketing_objective: Mapped[str | None] = mapped_column(String(32), nullable=True)
     channel: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    strategy_stage: Mapped[str] = mapped_column(String(32), nullable=False, default="exploring")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     language: Mapped[str] = mapped_column(String(16), nullable=False, default="zh-CN")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

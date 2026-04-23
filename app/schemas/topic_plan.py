@@ -9,6 +9,9 @@ class TopicPlanGenerateRequest(BaseModel):
     offer_id: uuid.UUID
     channel: str | None = None
     language: str = "zh-CN"
+    # When False (default), the service overrides ``language`` with the
+    # KB's detected content language so planning output matches the KB.
+    language_override: bool = False
     count: int = Field(5, ge=1, le=20)
     strategy_unit_id: uuid.UUID | None = None
     config_id: str | None = None

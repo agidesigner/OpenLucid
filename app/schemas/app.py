@@ -59,6 +59,11 @@ class KBQAAskRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     style_id: str = "professional"
     language: str = "zh-CN"
+    # When False (default), the service may override ``language`` with
+    # the KB content's detected language so a Chinese UI + English KB
+    # doesn't produce a jarring Chinese answer. Set True only when the
+    # user explicitly picked the language in the UI.
+    language_override: bool = False
     config_id: str | None = None
 
 
@@ -93,6 +98,9 @@ class ScriptWriterRequest(BaseModel):
     reference: str | None = Field(None, max_length=5000)
     extra_req: str | None = Field(None, max_length=2000)
     language: str = "zh-CN"
+    # True when the caller manually picked the output language in the
+    # UI. Otherwise the service follows the KB's detected language.
+    language_override: bool = False
     config_id: str | None = None
     # ── Composer dimensions (new) ─────────────────────────────────
     platform_id: str | None = None    # e.g. "douyin" — defaults to "douyin" if not set

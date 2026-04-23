@@ -6,14 +6,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
-from app.application import auth_service
+from app.api.deps import get_db, require_owner
+from app.application import auth_service, guest_access_service
 from app.config import settings
 from app.libs.jwt_utils import create_access_token, create_reset_token, decode_token, _pwh_snapshot
+from app.libs.url_utils import get_public_base_url
 from app.models.user import User
 from app.schemas.auth import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
+    GuestAccessResponse,
+    GuestAccessStatusResponse,
     MeResponse,
     MessageResponse,
     ResetPasswordRequest,
@@ -28,6 +31,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 COOKIE = "od_access_token"
+GUEST_COOKIE = "od_guest"
 
 
 def _set_cookie(response: Response, token: str) -> None:
@@ -75,6 +79,7 @@ async def signin(body: SignInRequest, request: Request, response: Response, db: 
 @router.post("/signout", response_model=MessageResponse)
 async def signout(response: Response):
     response.delete_cookie(COOKIE, path="/")
+    response.delete_cookie(GUEST_COOKIE, path="/")
     return MessageResponse(message="Signed out")
 
 
@@ -83,11 +88,43 @@ async def me(request: Request, db: AsyncSession = Depends(get_db)):
     uid = getattr(request.state, "user_id", None)
     if not uid:
         raise HTTPException(401, "Not authenticated")
+    if uid == "guest":
+        return MeResponse(id=None, email=None, is_active=True, is_guest=True)
+    if uid == "api-token":
+        return MeResponse(id=None, email=None, is_active=True, is_guest=False)
     result = await db.execute(select(User).where(User.id == uid))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(401, "User not found")
     return MeResponse(id=str(user.id), email=user.email, is_active=user.is_active)
+
+
+# ── Guest mode ─────────────────────────────────────────────────────────
+#
+# Owner-only: toggles the shareable guest link on/off. A single row in
+# `guest_access` encodes the currently-valid token (hashed). Disabling
+# deletes the row and instantly invalidates any outstanding cookies.
+
+
+@router.get("/guest", response_model=GuestAccessStatusResponse, dependencies=[Depends(require_owner)])
+async def guest_status(db: AsyncSession = Depends(get_db)):
+    return GuestAccessStatusResponse(enabled=await guest_access_service.is_enabled(db))
+
+
+@router.post("/guest", response_model=GuestAccessResponse, dependencies=[Depends(require_owner)])
+async def enable_guest(request: Request, db: AsyncSession = Depends(get_db)):
+    raw_token = await guest_access_service.enable(db)
+    base = get_public_base_url(request)
+    return GuestAccessResponse(
+        enabled=True,
+        url=f"{base}/guest-access?t={raw_token}",
+    )
+
+
+@router.delete("/guest", response_model=MessageResponse, dependencies=[Depends(require_owner)])
+async def disable_guest(db: AsyncSession = Depends(get_db)):
+    await guest_access_service.disable(db)
+    return MessageResponse(message="Guest mode disabled")
 
 
 @router.post("/change-password", response_model=MessageResponse)
@@ -115,7 +152,8 @@ async def forgot_password(body: ForgotPasswordRequest, request: Request, db: Asy
     user = await auth_service.get_user_by_email(db, str(body.email))
     if user:
         token = create_reset_token(user.email, user.hashed_password)
-        reset_url = f"{settings.APP_URL}/signin.html?reset_token={token}"
+        base = get_public_base_url(request)
+        reset_url = f"{base}/signin.html?reset_token={token}"
         await auth_service.send_reset_email(user.email, reset_url)
     # Always return success to avoid email enumeration
     return MessageResponse(message="If the email is registered, a reset link has been sent")

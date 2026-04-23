@@ -17,9 +17,10 @@ class SignInRequest(BaseModel):
 
 
 class MeResponse(BaseModel):
-    id: str
-    email: str
+    id: str | None
+    email: str | None
     is_active: bool
+    is_guest: bool = False
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -39,3 +40,12 @@ class ChangePasswordRequest(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class GuestAccessStatusResponse(BaseModel):
+    enabled: bool
+
+
+class GuestAccessResponse(BaseModel):
+    enabled: bool
+    url: str

@@ -1,14 +1,15 @@
+import re
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
 from app.api.health import health_router
-from app.config import VERSION, settings
+from app.config import CACHE_TAG, VERSION, settings
 from app.exceptions import register_exception_handlers
 from app.libs.jwt_utils import decode_token
 
@@ -31,6 +32,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     logger = logging.getLogger(__name__)
     os.makedirs(settings.STORAGE_BASE_PATH, exist_ok=True)
     os.makedirs(os.path.join(settings.STORAGE_BASE_PATH, "composited"), exist_ok=True)
+
+    logger.info("Cache tag: %s — rotates on every process start", CACHE_TAG)
 
     # 0a. Warn if SECRET_KEY is still the default — tokens can be forged
     _DEFAULT_KEYS = {
@@ -206,6 +209,122 @@ async def limit_body_size(request: Request, call_next):
     return await call_next(request)
 
 
+# ── Cache-bust middleware ─────────────────────────────────────────────
+#
+# Problem: after a `docker compose up --build -d`, browsers still show
+# stale /js/ and /css/ until the user hits F12 + Disable cache + reload.
+# We flip the contract:
+#   1. HTML is *always* revalidated (Cache-Control: no-cache). Unchanged
+#      bytes come back as 304s, so bandwidth stays flat.
+#   2. The HTML body is rewritten at serve time — every local reference
+#      to /js/foo.js, /css/bar.css, /images/baz.png gets a ?v=<CACHE_TAG>
+#      query-string suffix. CACHE_TAG rotates on every process start, so
+#      a rebuild guarantees a fresh URL → the browser has no choice but
+#      to re-download the file.
+#   3. Static assets fetched WITH the ?v= param are treated as immutable
+#      (max-age=1y). Browsers cache them forever until the URL changes.
+#
+# Net effect: zero user action needed after a rebuild. All future page
+# loads pick up the new assets immediately.
+
+_CACHE_BUST_SUFFIX = f"?v={CACHE_TAG}".encode()
+# Matches local asset URLs in src/href attributes. Skips anything that
+# already has a query (`?`) or fragment (`#`) so re-runs are idempotent
+# and externally-versioned CDN paths don't get double-tagged.
+_ASSET_HREF_RE = re.compile(rb'(src|href)="(/(?:js|css|images)/[^"?#]+)"')
+
+
+def _rewrite_asset_ref(m: "re.Match[bytes]") -> bytes:
+    return m.group(1) + b'="' + m.group(2) + _CACHE_BUST_SUFFIX + b'"'
+
+
+@_fastapi_app.middleware("http")
+async def cache_control(request: Request, call_next):
+    response = await call_next(request)
+    content_type = (response.headers.get("content-type") or "").lower()
+    path = request.url.path
+
+    # HTML: rewrite asset refs + force revalidation.
+    if "text/html" in content_type:
+        body = b""
+        async for chunk in response.body_iterator:
+            body += chunk if isinstance(chunk, (bytes, bytearray)) else chunk.encode()
+        body = _ASSET_HREF_RE.sub(_rewrite_asset_ref, body)
+        headers = dict(response.headers)
+        headers["cache-control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        headers["pragma"] = "no-cache"
+        headers["expires"] = "0"
+        headers["content-length"] = str(len(body))
+        # Length changed — drop any chunked-transfer markers the original
+        # response may have carried so downstream honors the new length.
+        headers.pop("transfer-encoding", None)
+        # Strip validators: StaticFiles populates Last-Modified/ETag from
+        # the file's mtime, but our rewritten body changes every process
+        # start (new CACHE_TAG). If we left the validators, browsers would
+        # send If-Modified-Since on next load, StaticFiles would return 304,
+        # and the browser would keep its stale pre-rewrite cached HTML.
+        # Drop them → browser has no basis to 304 → always gets fresh body.
+        headers.pop("last-modified", None)
+        headers.pop("etag", None)
+        return Response(
+            content=body,
+            status_code=response.status_code,
+            headers=headers,
+            media_type="text/html",
+        )
+
+    # Static assets served with a ?v= param are content-addressed — safe
+    # to cache aggressively. Without the param (someone typed /js/foo.js
+    # directly), let the default short-cache behavior stand.
+    if path.startswith(("/js/", "/css/", "/images/")) and request.query_params.get("v"):
+        response.headers["cache-control"] = "public, max-age=31536000, immutable"
+
+    return response
+
+
+# Guest mode: only these (method, path_prefix) pairs may be invoked by a
+# visitor holding a valid od_guest cookie. Every other non-GET request is
+# refused with 403. GETs are unrestricted (owner can hide owner-only links
+# in the UI; data reads power the content-creation apps).
+GUEST_WRITE_ALLOWLIST: tuple[tuple[str, str], ...] = (
+    ("POST", "/api/v1/ai/extract-text"),
+    ("POST", "/api/v1/ai/infer-offer-knowledge"),
+    ("POST", "/api/v1/ai/infer-offer-knowledge-stream"),
+    ("POST", "/api/v1/apps/"),
+    ("POST", "/api/v1/creations"),
+    ("POST", "/api/v1/videos"),
+    ("PATCH", "/api/v1/topic-plans/"),
+    ("POST", "/api/v1/feedback"),
+    ("POST", "/api/v1/auth/signout"),
+)
+
+
+def _guest_write_allowed(method: str, path: str) -> bool:
+    if method == "GET":
+        return True
+    return any(method == m and path.startswith(p) for m, p in GUEST_WRITE_ALLOWLIST)
+
+
+# Guest cookie lifetime. Sliding session: every authenticated request
+# refreshes the cookie's expiry, so an active guest never gets booted.
+# Only 365 days of inactivity invalidates it client-side (and browsers
+# cap at ~400 days regardless). Server-side the row never expires —
+# owner toggle / regenerate is the only kill switch.
+GUEST_COOKIE_MAX_AGE = 365 * 24 * 3600
+
+
+def _set_guest_cookie(response, raw_token: str) -> None:
+    response.set_cookie(
+        "od_guest",
+        value=raw_token,
+        httponly=True,
+        samesite="lax",
+        path="/",
+        max_age=GUEST_COOKIE_MAX_AGE,
+        secure=settings.APP_URL.startswith("https"),
+    )
+
+
 @_fastapi_app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
@@ -237,12 +356,13 @@ async def auth_middleware(request: Request, call_next):
     if settings.DISABLE_AUTH:
         return await call_next(request)
 
-    # 1. Try cookie-based JWT auth
+    # 1. Try cookie-based JWT auth (owner session)
     token = request.cookies.get("od_access_token")
     if token:
         try:
             payload = decode_token(token)
             request.state.user_id = payload["user_id"]
+            request.state.is_guest = False
             return await call_next(request)
         except Exception:
             return JSONResponse({"detail": "Invalid token"}, status_code=401)
@@ -264,10 +384,39 @@ async def auth_middleware(request: Request, call_next):
                 )
             if match:
                 request.state.user_id = "api-token"
+                request.state.is_guest = False
                 return await call_next(request)
         except Exception:
             pass
         return JSONResponse({"detail": "Invalid API token"}, status_code=401)
+
+    # 3. Try guest cookie (shareable WebUI link)
+    guest_token = request.cookies.get("od_guest")
+    if guest_token:
+        from app.application import guest_access_service
+        from app.database import async_session_factory
+
+        try:
+            async with async_session_factory() as session:
+                ok = await guest_access_service.verify(session, guest_token)
+        except Exception:
+            ok = False
+        if ok:
+            if not _guest_write_allowed(request.method, path):
+                return JSONResponse(
+                    {"detail": "Guest mode is read-only on this endpoint"},
+                    status_code=403,
+                )
+            request.state.user_id = "guest"
+            request.state.is_guest = True
+            response = await call_next(request)
+            # Sliding session: every authenticated request pushes the
+            # cookie's expiry back out to GUEST_COOKIE_MAX_AGE. An active
+            # guest never gets logged out.
+            _set_guest_cookie(response, guest_token)
+            return response
+        # Cookie present but no match — owner likely disabled guest mode.
+        return JSONResponse({"detail": "Guest session expired"}, status_code=401)
 
     return JSONResponse({"detail": "Not authenticated"}, status_code=401)
 
@@ -285,6 +434,32 @@ _fastapi_app.include_router(api_router, prefix="/api/v1")
 async def _favicon():
     from fastapi.responses import FileResponse
     return FileResponse("frontend/images/logo.png", media_type="image/png")
+
+
+# Guest-mode portal: owner shares APP_URL/guest-access?t=<secret>; clicking
+# verifies the token, drops an HttpOnly cookie, and redirects to the app.
+# Returns 404 on miss so the endpoint doesn't reveal whether guest mode is on.
+@_fastapi_app.get("/guest-access", include_in_schema=False)
+async def _guest_access_portal(request: Request):
+    from fastapi.responses import RedirectResponse
+    from app.application import guest_access_service
+    from app.database import async_session_factory
+
+    raw_token = request.query_params.get("t", "")
+    if not raw_token:
+        return JSONResponse({"detail": "Not found"}, status_code=404)
+
+    try:
+        async with async_session_factory() as session:
+            ok = await guest_access_service.verify(session, raw_token)
+    except Exception:
+        ok = False
+    if not ok:
+        return JSONResponse({"detail": "Not found"}, status_code=404)
+
+    resp = RedirectResponse(url="/", status_code=302)
+    _set_guest_cookie(resp, raw_token)
+    return resp
 
 
 _fastapi_app.mount("/uploads", StaticFiles(directory=settings.STORAGE_BASE_PATH), name="uploads")
