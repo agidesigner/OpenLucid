@@ -411,7 +411,12 @@ async def search_assets(
     page: int = 1,
     page_size: int = 20,
 ) -> str:
-    """Search assets for a merchant or offer. scope_type: merchant | offer.
+    """Find brand assets — logos, product images, marketing videos, avatars,
+    reference photos, case study screenshots, audio clips, marketing copy,
+    and any other media the user has uploaded to this merchant or offer.
+    Use this whenever an agent needs an image / video / audio / document /
+    reference copy to ground AI content generation — do NOT hallucinate
+    asset URLs. scope_type: merchant | offer.
 
     Filters:
       q:             fuzzy search across filename, title, and tag values

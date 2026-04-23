@@ -34,6 +34,7 @@ _BASE_ZH = (
     "- 禁止使用舞台指示、场景描述标签（不要在正文中写[背景音乐]、[镜头切换]等）\n"
     "- 数字和英文字母会被TTS直接念出，确保语义自然\n"
     "- 口语化，单句精简，用逗号和句号控制节奏\n"
+    "- **非促销铁律**：每篇内容至少包含一段承认局限 / 讨论取舍 / 说明什么场景不适用的话。缺这一段内容就像广告，会让读者和平台算法双双失信任。\n"
 )
 
 _BASE_EN = (
@@ -44,6 +45,7 @@ _BASE_EN = (
     "- No stage directions or scene annotation tags in the main text\n"
     "- Numbers and abbreviations will be spoken by TTS — ensure they read naturally aloud\n"
     "- Conversational, concise sentences — use commas and periods to control pacing\n"
+    "- **Non-promotional requirement**: every piece must include at least one passage that admits a limitation, discusses a tradeoff, or names when the product is the wrong choice. Missing this line makes the content read like an ad and loses trust with both readers and ranking algorithms.\n"
 )
 
 

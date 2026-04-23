@@ -72,7 +72,20 @@ def _build_user_message(
     if request.reference:
         parts.append(f"\n{'reference (reference script):' if is_en else 'reference（参考文案）：'}\n{request.reference}")
     if request.extra_req:
-        parts.append(f"\n{'extra_req (additional requirements):' if is_en else 'extra_req（额外要求）：'}\n{request.extra_req}")
+        if is_en:
+            parts.append(
+                f"\nextra_req (additional requirements — may contain structural hints AND "
+                f"citable data like numbers, percentages, ranks, metrics):\n{request.extra_req}\n"
+                f"IMPORTANT: If extra_req contains concrete figures (e.g. '26% drop', 'ranked #1'), "
+                f"quote the exact numbers verbatim in the body, not only in a summary table. "
+                f"Data-driven claims with specific figures convert better than vague prose."
+            )
+        else:
+            parts.append(
+                f"\nextra_req（额外要求 —— 可能包含结构提示 + 可引用数据 / 数字 / 百分比 / 排名 / 实测指标）：\n{request.extra_req}\n"
+                f"重要：如果 extra_req 中含有具体数字（如『下降 26%』、『排名第一』），"
+                f"请在正文中**原样引用这些数字**，不要只放在总结表里。具体数据比空话更有说服力。"
+            )
 
     # Contextual info
     if strategy_text:
