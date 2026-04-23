@@ -277,6 +277,16 @@ register_exception_handlers(_fastapi_app)
 _fastapi_app.include_router(health_router)
 _fastapi_app.include_router(api_router, prefix="/api/v1")
 
+
+# Serve the logo as favicon.ico so browsers' default /favicon.ico request
+# doesn't 404 on every page load. Registered BEFORE the "/" static mount so
+# the route wins the match. Accepts GET (browsers) and HEAD (crawlers).
+@_fastapi_app.api_route("/favicon.ico", methods=["GET", "HEAD"], include_in_schema=False)
+async def _favicon():
+    from fastapi.responses import FileResponse
+    return FileResponse("frontend/images/logo.png", media_type="image/png")
+
+
 _fastapi_app.mount("/uploads", StaticFiles(directory=settings.STORAGE_BASE_PATH), name="uploads")
 _fastapi_app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 

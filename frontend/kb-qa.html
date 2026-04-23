@@ -197,9 +197,9 @@
                 <span class="text-xs text-gray-400" x-text="question.length + ' / 2000'"></span>
                 <button @click="doAsk()"
                         :disabled="loading || !question.trim() || !offerId"
-                        class="bg-gradient-to-r from-purple-600 to-accent text-white px-6 py-2 rounded-lg text-[13px] font-medium hover:opacity-90 disabled:opacity-50 transition flex items-center gap-2">
+                        class="ai-cta bg-gradient-to-r from-purple-600 to-accent text-white px-6 py-2 rounded-lg text-[13px] font-medium disabled:opacity-50 flex items-center gap-2">
                   <svg x-show="loading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
-                  <svg x-show="!loading" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                  <svg x-show="!loading" class="w-4 h-4 ai-spark" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l1.8 5.5L19 9l-5.2 1.5L12 16l-1.8-5.5L5 9l5.2-1.5z"/><path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8z"/></svg>
                   <span x-text="loading ? t('thinking') : t('ask_btn')"></span>
                 </button>
               </div>

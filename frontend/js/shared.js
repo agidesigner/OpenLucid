@@ -36,9 +36,57 @@ window.formatRelative = function (iso) {
 };
 
 // ── Design tokens (injected once) ──────────────────────────────────────
+// Preconnect + load Bricolage Grotesque (variable display face).
+// Used only on large numbers (.num-display) and AI CTAs — not body text —
+// so the 1 stylesheet stays worth its <100KB subset.
+(function injectBrand() {
+  if (document.getElementById('od-brand-font')) return;
+  const pre1 = document.createElement('link');
+  pre1.rel = 'preconnect';
+  pre1.href = 'https://fonts.googleapis.com';
+  const pre2 = document.createElement('link');
+  pre2.rel = 'preconnect';
+  pre2.href = 'https://fonts.gstatic.com';
+  pre2.crossOrigin = 'anonymous';
+  const link = document.createElement('link');
+  link.id = 'od-brand-font';
+  link.rel = 'stylesheet';
+  link.href = 'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&display=swap';
+  document.head.appendChild(pre1);
+  document.head.appendChild(pre2);
+  document.head.appendChild(link);
+})();
+
 (function injectTokens() {
   if (document.getElementById('od-tokens')) return;
   const css = `
+/* ── Signature numerals ──────────────────────────────────────────
+   Use on large displayed numbers only (scores, counts, versions,
+   timestamps). Gives the product a non-generic numeric voice while
+   leaving body text on the system stack (fast FCP, 0 CLS in CJK).
+*/
+.num-display {
+  font-family: 'Bricolage Grotesque', ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  font-feature-settings: 'ss01' on;
+}
+
+/* ── AI-CTA shimmer ──────────────────────────────────────────────
+   Add .ai-cta alongside the existing Tailwind gradient classes
+   (from-purple-600 to-accent). On hover the gradient slides, giving
+   AI-powered actions a subtle visual signature distinct from
+   regular accent buttons.
+*/
+.ai-cta {
+  background-size: 200% 100%;
+  background-position: 0% 50%;
+  transition: background-position 0.5s ease, opacity 0.2s ease, transform 0.1s ease;
+}
+.ai-cta:hover { background-position: 100% 50%; opacity: 1 !important; }
+.ai-cta:active { transform: translateY(1px); }
+.ai-cta .ai-spark { flex: none; opacity: 0.95; }
+
 /* ── Semantic tag/pill tokens ─────────────────────────────────────
    Usage: <span class="od-tag od-tag-primary">Script</span>
    Shapes: .od-tag (pill). Colors: primary / success / warning / danger / info / neutral.

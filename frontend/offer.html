@@ -81,8 +81,8 @@
       <span class="text-sm font-medium text-gray-800" x-text="offer?.name || '...'"></span>
       <div class="flex-1"></div>
       <button @click="openTopicPicker()"
-              class="bg-gradient-to-r from-purple-600 to-accent text-white px-4 py-[7px] rounded-lg text-[13px] font-medium hover:opacity-90 transition-opacity flex items-center gap-1.5">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              class="ai-cta bg-gradient-to-r from-purple-600 to-accent text-white px-4 py-[7px] rounded-lg text-[13px] font-medium flex items-center gap-1.5">
+        <svg class="w-4 h-4 ai-spark" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l1.8 5.5L19 9l-5.2 1.5L12 16l-1.8-5.5L5 9l5.2-1.5z"/><path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8z"/></svg>
         <span x-text="t('generate_topics')"></span>
       </button>
 
@@ -224,7 +224,7 @@
               <div class="flex items-start justify-between gap-4 mb-3 flex-wrap">
                 <div class="flex items-baseline gap-3">
                   <span class="text-sm font-medium text-gray-700" x-text="t('readiness')"></span>
-                  <span class="text-2xl font-bold text-accent tabular-nums" x-text="Math.round((overview?.readiness_score ?? 0) * 100) + '%'"></span>
+                  <span class="text-2xl font-bold text-accent num-display" x-text="Math.round((overview?.readiness_score ?? 0) * 100) + '%'"></span>
                 </div>
                 <div class="flex items-center gap-3 text-[12px] text-gray-500 tabular-nums flex-wrap">
                   <a href="#" @click.prevent="tab='knowledge'" class="hover:text-accent transition-colors">
@@ -304,8 +304,8 @@
           <!-- Action Bar -->
           <div class="flex items-center gap-3 mb-3">
             <button @click="inferKnowledge()" :disabled="inferring"
-                    class="bg-gradient-to-r from-purple-600 to-accent text-white px-4 py-2 rounded-lg text-[13px] font-medium hover:opacity-90 disabled:opacity-50 transition flex items-center gap-2">
-              <svg x-show="!inferring" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                    class="ai-cta bg-gradient-to-r from-purple-600 to-accent text-white px-4 py-2 rounded-lg text-[13px] font-medium disabled:opacity-50 flex items-center gap-2">
+              <svg x-show="!inferring" class="w-4 h-4 ai-spark" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l1.8 5.5L19 9l-5.2 1.5L12 16l-1.8-5.5L5 9l5.2-1.5z"/><path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8z"/></svg>
               <svg x-show="inferring" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
               <span x-text="inferring ? t('ai_analyzing') : t('ai_smart_update')"></span>
             </button>
@@ -1002,7 +1002,8 @@
       <div class="flex gap-3">
         <button @click="showInferInput=false" class="flex-1 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50" x-text="t('btn_cancel')"></button>
         <button @click="startInfer()" :disabled="inferExtracting"
-                class="flex-1 py-2 bg-gradient-to-r from-purple-600 to-accent text-white rounded-xl text-sm font-medium hover:opacity-90 disabled:opacity-60">
+                class="ai-cta flex-1 py-2 bg-gradient-to-r from-purple-600 to-accent text-white rounded-xl text-sm font-medium disabled:opacity-60 inline-flex items-center justify-center gap-1.5">
+          <svg x-show="!inferExtracting" class="w-4 h-4 ai-spark" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l1.8 5.5L19 9l-5.2 1.5L12 16l-1.8-5.5L5 9l5.2-1.5z"/><path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8z"/></svg>
           <span x-text="inferExtracting ? t('extracting_content') : t('start_analysis')"></span>
         </button>
       </div>

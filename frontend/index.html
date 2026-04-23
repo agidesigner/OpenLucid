@@ -166,7 +166,7 @@
             <div class="h-full rounded-full transition-all duration-700 ease-out"
                  :style="`width:${overallScore.total}%; background:${scoreColor(overallScore.total)}`"></div>
           </div>
-          <span class="text-xs font-semibold tabular-nums shrink-0" :style="`color:${scoreColor(overallScore.total)}`"
+          <span class="text-xs font-bold num-display shrink-0" :style="`color:${scoreColor(overallScore.total)}`"
                 x-text="overallScore.total"></span>
           <span class="text-[11px] text-gray-400 shrink-0 hidden sm:inline" x-text="scoreLabel(overallScore.total)"></span>
           <a x-show="overallScore.next_action !== 'done'" :href="'#'" @click.prevent.stop="goNextAction()"
@@ -282,7 +282,7 @@
                     <div class="h-full rounded-full transition-all duration-700"
                          :style="`width:${getScore(o.id)?.total || 0}%; background:${scoreColor(getScore(o.id)?.total || 0)}`"></div>
                   </div>
-                  <span class="text-xs font-semibold tabular-nums shrink-0" :style="`color:${scoreColor(getScore(o.id)?.total || 0)}`"
+                  <span class="text-xs font-bold num-display shrink-0" :style="`color:${scoreColor(getScore(o.id)?.total || 0)}`"
                         x-text="getScore(o.id)?.total || 0"></span>
                   <span class="text-[11px] text-gray-400 shrink-0 hidden sm:inline" x-text="scoreLabel(getScore(o.id)?.total || 0)"></span>
                 </div>
@@ -591,8 +591,8 @@
           <template x-if="aiReady !== false">
             <button x-show="wizard.step === 0" @click="startInfer()"
                     :disabled="!wizard.name.trim() || aiReady === null"
-                    class="bg-gradient-to-r from-purple-600 to-accent text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition flex items-center gap-2">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                    class="ai-cta bg-gradient-to-r from-purple-600 to-accent text-white px-5 py-2 rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-2">
+              <svg class="w-4 h-4 ai-spark" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l1.8 5.5L19 9l-5.2 1.5L12 16l-1.8-5.5L5 9l5.2-1.5z"/><path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8z"/></svg>
               <span x-text="t('ai_fill')"></span>
             </button>
           </template>
