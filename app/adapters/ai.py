@@ -22,6 +22,29 @@ from app.adapters.prompt_builder import (
 logger = logging.getLogger(__name__)
 
 
+def _looks_like_temperature_unsupported(msg: str) -> bool:
+    """Narrow test: is this 400 error specifically about the model not
+    SUPPORTING the `temperature` parameter (as o1/o3 and some proxied Claude
+    variants report), vs. the user passing an invalid temperature VALUE
+    (e.g. out-of-range, wrong type)?
+
+    Matching only on "temperature in msg" is too permissive — it silently
+    retries without temperature on value-range errors, masking real bugs.
+    This helper requires a co-occurring "model-doesn't-support" keyword.
+    """
+    m = msg.lower()
+    if "temperature" not in m:
+        return False
+    return any(kw in m for kw in (
+        "deprecat",       # "temperature is deprecated for this model"
+        "not supported",  # "temperature is not supported"
+        "unsupported",    # "unsupported parameter 'temperature'"
+        "not compatible", # "temperature is not compatible with ..."
+        "does not accept",
+        "not allowed",
+    ))
+
+
 def _extract_thinking(text: str) -> tuple[str, str]:
     """Extract <think>...</think> content from LLM output.
     Returns (thinking_text, remaining_text). thinking_text is empty if no think block found.
@@ -442,19 +465,33 @@ class OpenAICompatibleAdapter(AIAdapter):
         last_err = None
         for attempt in range(3):
             try:
-                response = await self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
+                kwargs = {
+                    "model": self.model,
+                    "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
+                    "max_tokens": max_tokens,
+                }
+                # Some modern reasoning models (o1/o3 + some proxied Claude
+                # variants) deprecate temperature and reject the call with
+                # a 400 if it's present. Remember that per-adapter and skip
+                # it on subsequent calls.
+                if not getattr(self, "_skip_temperature", False):
+                    kwargs["temperature"] = temperature
+                response = await self.client.chat.completions.create(**kwargs)
                 return response.choices[0].message.content or ""
             except Exception as e:
                 last_err = e
                 status = getattr(e, "status_code", None) or getattr(e, "status", 0)
+                msg = str(e).lower()
+                # Compatibility fallback: strip temperature on the "deprecated
+                # for this model" 400 and retry immediately (not counted as
+                # a failed attempt).
+                if status == 400 and _looks_like_temperature_unsupported(msg) and not getattr(self, "_skip_temperature", False):
+                    logger.info("LLM model %s rejected temperature — retrying without it (memoized on adapter).", self.model)
+                    self._skip_temperature = True
+                    continue
                 # Only retry on transient errors (network, 429, 5xx)
                 if status and 400 <= status < 500 and status != 429:
                     raise
@@ -474,21 +511,28 @@ class OpenAICompatibleAdapter(AIAdapter):
 
         # First attempt: use response_format for strict JSON
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
+            kwargs = {
+                "model": self.model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=temperature,
-                response_format={"type": "json_object"},
-            )
+                "response_format": {"type": "json_object"},
+            }
+            if not getattr(self, "_skip_temperature", False):
+                kwargs["temperature"] = temperature
+            response = await self.client.chat.completions.create(**kwargs)
             raw = response.choices[0].message.content or ""
             return self._parse_json_response(raw)
         except Exception as e:
             status = getattr(e, "status_code", None) or getattr(e, "status", 0)
+            msg = str(e).lower()
+            if status == 400 and "temperature" in msg and not getattr(self, "_skip_temperature", False):
+                logger.info("_chat_json: model %s rejected temperature — memoizing skip and falling back to plain _chat", self.model)
+                self._skip_temperature = True
+                # Fall through to prompt-constrained mode (via _chat) which will now omit temperature too
             # If the model doesn't support response_format, fall through to prompt-constrained mode
-            if status and 400 <= status < 500 and status != 429:
+            elif status and 400 <= status < 500 and status != 429:
                 logger.info("_chat_json: response_format not supported (%s), falling back to prompt mode", e)
             else:
                 raise
@@ -506,16 +550,18 @@ class OpenAICompatibleAdapter(AIAdapter):
         for attempt in range(3):
             try:
                 deadline = asyncio.get_running_loop().time() + timeout
-                stream = await self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
+                kwargs = {
+                    "model": self.model,
+                    "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    stream=True,
-                )
+                    "max_tokens": max_tokens,
+                    "stream": True,
+                }
+                if not getattr(self, "_skip_temperature", False):
+                    kwargs["temperature"] = temperature
+                stream = await self.client.chat.completions.create(**kwargs)
                 thinking_open = False
                 async for chunk in stream:
                     if asyncio.get_running_loop().time() > deadline:
@@ -543,6 +589,11 @@ class OpenAICompatibleAdapter(AIAdapter):
             except Exception as e:
                 last_err = e
                 status = getattr(e, "status_code", None) or getattr(e, "status", 0)
+                msg = str(e).lower()
+                if status == 400 and _looks_like_temperature_unsupported(msg) and not getattr(self, "_skip_temperature", False):
+                    logger.info("LLM stream model %s rejected temperature — retrying without it.", self.model)
+                    self._skip_temperature = True
+                    continue
                 if status and 400 <= status < 500 and status != 429:
                     raise
                 if attempt < 2:
@@ -1064,9 +1115,12 @@ Return JSON: {"title": "...", "content_structured": {"key": "value"}, "confidenc
         try:
             parsed = self._parse_json_response(result)
         except (json.JSONDecodeError, ValueError):
+            head = result[:800]
+            tail = result[-800:] if len(result) > 1600 else ""
             logger.error(
-                "Failed to parse infer-knowledge response | offer=%s model=%s prompt_len=%d response_len=%d | response: %s",
-                offer_name, self.model, prompt_len, len(result), result[:1000],
+                "Failed to parse infer-knowledge response | offer=%s model=%s prompt_len=%d response_len=%d\n"
+                "--- HEAD ---\n%s\n--- TAIL ---\n%s",
+                offer_name, self.model, prompt_len, len(result), head, tail,
             )
             raise ValueError(f"LLM returned unparseable response for offer '{offer_name}'")
 
@@ -1114,8 +1168,18 @@ Return JSON: {"title": "...", "content_structured": {"key": "value"}, "confidenc
         try:
             parsed = self._parse_json_response(full_text)
         except (json.JSONDecodeError, ValueError):
-            logger.error("Failed to parse streamed infer-knowledge | offer=%s response_len=%d | %s",
-                         offer_name, len(full_text), full_text[:1000])
+            # Log both head and tail — the opening of the response is usually
+            # fine (proper ```json + {), the failure almost always lives at
+            # the tail (mid-string truncation, unclosed brace, stray suffix
+            # text). Seeing both sides distinguishes stream-truncation from
+            # bad-character-in-string.
+            head = full_text[:800]
+            tail = full_text[-800:] if len(full_text) > 1600 else ""
+            logger.error(
+                "Failed to parse streamed infer-knowledge | offer=%s model=%s/%s response_len=%d\n"
+                "--- HEAD ---\n%s\n--- TAIL ---\n%s",
+                offer_name, self.provider, self.model, len(full_text), head, tail,
+            )
             parsed = {}
             yield ("error", "AI 未能生成有效结果，请重试")
 
