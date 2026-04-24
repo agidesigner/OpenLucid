@@ -1666,29 +1666,29 @@
           return `${base} \\\n  --header "Authorization: Bearer ${this.mcpTokenPlaceholder}"`;
         },
         get cliInstallCmd() {
-          return 'cd /path/to/OpenLucid    # 进入项目根目录\nbash tools/install.sh';
+          return 'bash tools/install.sh';
         },
         get cliSetupCmd() {
           const url = `${location.protocol}//${location.host}`;
-          const base = `openlucid-cli --url ${url} setup`;
+          const base = `openlucid --url ${url} setup`;
           return base;
         },
-        // One-liner that chains install + setup. Replaces the old two-step
-        // copy flow — users now paste once and are done. The `/path/to/
-        // OpenLucid` placeholder still requires local edit (we can't know
-        // the user's clone path from the browser), but that's a single
-        // inline edit vs the old two-box copy dance.
+        // One-liner that chains install + setup. Assumes the user is
+        // already in the cloned OpenLucid root — trying to embed a
+        // ``cd /path/to/OpenLucid`` placeholder just led to users
+        // pasting it verbatim and getting a "no such directory" error.
+        // The card copy now explicitly tells them to cd in first.
         get cliQuickstartCmd() {
           const url = `${location.protocol}//${location.host}`;
-          return `cd /path/to/OpenLucid && bash tools/install.sh && openlucid-cli --url ${url} setup`;
+          return `bash tools/install.sh && openlucid --url ${url} setup`;
         },
         // Structured list for the skill-paths card. Each row gets its
         // own copy button (previously users had to manually type these).
         agentSkillPaths: [
-          { name: 'Claude Code',      path: '~/.claude/skills/openlucid-cli/SKILL.md', badgeClass: 'text-emerald-700 bg-emerald-100' },
-          { name: 'Cursor',           path: '~/.cursor/skills/openlucid-cli/SKILL.md', badgeClass: 'text-blue-700 bg-blue-100' },
-          { name: 'Hermes',           path: '~/.hermes/skills/openlucid-cli/SKILL.md', badgeClass: 'text-amber-700 bg-amber-100' },
-          { name: 'Codex / OpenHands', path: '~/.agents/skills/openlucid-cli/SKILL.md', badgeClass: 'text-purple-700 bg-purple-100' },
+          { name: 'Claude Code',      path: '~/.claude/skills/openlucid/SKILL.md', badgeClass: 'text-emerald-700 bg-emerald-100' },
+          { name: 'Cursor',           path: '~/.cursor/skills/openlucid/SKILL.md', badgeClass: 'text-blue-700 bg-blue-100' },
+          { name: 'Hermes',           path: '~/.hermes/skills/openlucid/SKILL.md', badgeClass: 'text-amber-700 bg-amber-100' },
+          { name: 'Codex / OpenHands', path: '~/.agents/skills/openlucid/SKILL.md', badgeClass: 'text-purple-700 bg-purple-100' },
         ],
         get cliConfigJson() {
           const url = `${location.protocol}//${location.host}`;

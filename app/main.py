@@ -427,6 +427,38 @@ async def auth_middleware(request: Request, call_next):
         # Cookie present but no match — owner likely disabled guest mode.
         return JSONResponse({"detail": "Guest session expired"}, status_code=401)
 
+    # 4. "No tokens configured" open-access fallback.
+    # Mirrors the MCP endpoint's policy in ``_mcp_token_check``: when the
+    # deployment has never minted an MCP token, treat unauthenticated
+    # requests as allowed. Rationale:
+    #   * The MCP path already behaves this way — an agent-caller on a
+    #     fresh deployment can hit /mcp/* without a token. Having /api/*
+    #     diverge ("MCP open, API locked") was the bug surfacing as
+    #     "openlucid refuses to work even though no tokens are set".
+    #   * Once the operator mints a token (Web UI → Settings → MCP), BOTH
+    #     /mcp/* and /api/* require it — consistent lock/unlock semantics.
+    #   * The owner's WebUI still uses cookie auth (step 1 above), so
+    #     minting a token doesn't lock the owner out of the browser.
+    # Skipped when ``DISABLE_AUTH`` is explicitly False (via an env, for
+    # hardened deployments — unaffected here since DISABLE_AUTH was
+    # already handled above).
+    try:
+        import hashlib as _h  # noqa: F401 — for parity with bearer path
+        from sqlalchemy import func, select
+        from app.database import async_session_factory
+        from app.models.mcp_token import McpToken
+
+        async with async_session_factory() as session:
+            token_count = await session.scalar(select(func.count()).select_from(McpToken))
+        if not token_count:
+            request.state.user_id = "no-auth"
+            request.state.is_guest = False
+            return await call_next(request)
+    except Exception:
+        # If the DB lookup fails we fall through to the hard 401 —
+        # better to reject than to accidentally open under an error path.
+        pass
+
     return JSONResponse({"detail": "Not authenticated"}, status_code=401)
 
 

@@ -1,11 +1,11 @@
 ---
-name: openlucid-cli
-description: Use this skill whenever the user wants to query, operate, or create marketing data — products, merchants, selling points, audiences, knowledge base, assets, topics, or content creations. Also use when the user mentions OpenLucid, openlucid-cli, marketing data, 营销数据, 商品, 商户, 选题, 知识库, or 素材.
+name: openlucid
+description: Use this skill whenever the user wants to query, operate, or create marketing data — products, merchants, selling points, audiences, knowledge base, assets, topics, or content creations. Also use when the user mentions OpenLucid, openlucid, marketing data, 营销数据, 商品, 商户, 选题, 知识库, or 素材.
 ---
 
 # OpenLucid CLI — AI Agent Guide
 
-`openlucid-cli` is a standalone command-line tool that queries the OpenLucid REST API over HTTP. All output is JSON. It uses only Python standard library — no pip install needed.
+`openlucid` is a standalone command-line tool that queries the OpenLucid REST API over HTTP. All output is JSON. It uses only Python standard library — no pip install needed.
 
 ## Command Reference
 
@@ -49,13 +49,13 @@ description: Use this skill whenever the user wants to query, operate, or create
 ## Typical Workflow
 
 ```
-1. openlucid-cli list-merchants
+1. openlucid list-merchants
    → Get merchant UUIDs
 
-2. openlucid-cli list-offers --merchant-id <merchant_uuid>
+2. openlucid list-offers --merchant-id <merchant_uuid>
    → Get product/offer UUIDs
 
-3. openlucid-cli offer-context --id <offer_uuid>
+3. openlucid offer-context --id <offer_uuid>
    → Full context: description, selling points, audiences, knowledge, assets
 
 0. Or create a new offer first:
@@ -71,7 +71,7 @@ description: Use this skill whenever the user wants to query, operate, or create
    - search-assets --scope-type offer --scope-id <id> --q "keyword"
    - list-knowledge --scope-type offer --scope-id <id>
 
-5. openlucid-cli save-creation --title "..." --content "..." --offer-id <id>
+5. openlucid save-creation --title "..." --content "..." --offer-id <id>
    → Save final outputs back to OpenLucid
 ```
 
@@ -80,13 +80,13 @@ description: Use this skill whenever the user wants to query, operate, or create
 ### Pagination
 Most list commands support `--page` and `--page-size`:
 ```bash
-openlucid-cli list-offers --merchant-id <id> --page 1 --page-size 50
+openlucid list-offers --merchant-id <id> --page 1 --page-size 50
 ```
 
 ### Offer Creation
 ```bash
 # Create an offer directly
-openlucid-cli create-offer \
+openlucid create-offer \
   --merchant-id <merchant_uuid> \
   --name "公仔牌顽渍净洗衣粉" \
   --offer-type product \
@@ -96,10 +96,10 @@ openlucid-cli create-offer \
   --scenarios "日常洗衣,顽渍清洁"
 
 # Extract text from a product page
-openlucid-cli extract-text --url "https://example.com/product-page"
+openlucid extract-text --url "https://example.com/product-page"
 
 # Extract text, infer knowledge, create the offer, and save inferred knowledge
-openlucid-cli create-offer-from-url \
+openlucid create-offer-from-url \
   --merchant-id <merchant_uuid> \
   --name "抖音导入商品" \
   --url "https://example.com/product-page"
@@ -108,13 +108,13 @@ openlucid-cli create-offer-from-url \
 ### Knowledge Base
 ```bash
 # List knowledge for an offer
-openlucid-cli list-knowledge --scope-type offer --scope-id <offer_uuid>
+openlucid list-knowledge --scope-type offer --scope-id <offer_uuid>
 
 # List knowledge for a merchant
-openlucid-cli list-knowledge --scope-type merchant --scope-id <merchant_uuid>
+openlucid list-knowledge --scope-type merchant --scope-id <merchant_uuid>
 
 # Add knowledge
-openlucid-cli add-knowledge --scope-type offer --scope-id <offer_uuid> \
+openlucid add-knowledge --scope-type offer --scope-id <offer_uuid> \
   --title "核心卖点" --content "3倍洁净去渍力" --type selling_point
 ```
 
@@ -123,19 +123,19 @@ Knowledge types: `brand`, `audience`, `scenario`, `selling_point`, `objection`, 
 ### Creations (Topics, Scripts, Posts)
 ```bash
 # List all creations for a product
-openlucid-cli list-creations --offer-id <offer_uuid>
+openlucid list-creations --offer-id <offer_uuid>
 
 # Filter by content type
-openlucid-cli list-creations --offer-id <offer_uuid> --content-type post
+openlucid list-creations --offer-id <offer_uuid> --content-type post
 
 # Filter by source app
-openlucid-cli list-creations --offer-id <offer_uuid> --source-app topic-studio
+openlucid list-creations --offer-id <offer_uuid> --source-app topic-studio
 
 # Search in title and content
-openlucid-cli list-creations --q "洗衣粉"
+openlucid list-creations --q "洗衣粉"
 
 # Save a new creation
-openlucid-cli save-creation --title "标题" --content "正文内容" \
+openlucid save-creation --title "标题" --content "正文内容" \
   --offer-id <offer_uuid> --type post --tags "选题,洗护"
 ```
 
@@ -144,19 +144,19 @@ Content types: `post`, `script`, `email`, `caption`, `hook`, `general`
 ### Assets
 ```bash
 # Search by keyword
-openlucid-cli search-assets --scope-type offer --scope-id <id> --q "logo"
+openlucid search-assets --scope-type offer --scope-id <id> --q "logo"
 
 # Filter by type
-openlucid-cli search-assets --scope-type offer --scope-id <id> --asset-type image
+openlucid search-assets --scope-type offer --scope-id <id> --asset-type image
 
 # Filter by tags
-openlucid-cli search-assets --scope-type offer --scope-id <id> --tags "产品图"
+openlucid search-assets --scope-type offer --scope-id <id> --tags "产品图"
 
 # Filter by content-form (e.g. unboxing/review/tutorial — closed-set categories)
-openlucid-cli search-assets --scope-type offer --scope-id <id> --content-form unboxing,review
+openlucid search-assets --scope-type offer --scope-id <id> --content-form unboxing,review
 
 # Filter by campaign-type (e.g. flash_sale/bogo/first_purchase)
-openlucid-cli search-assets --scope-type offer --scope-id <id> --campaign-type flash_sale
+openlucid search-assets --scope-type offer --scope-id <id> --campaign-type flash_sale
 ```
 
 Asset types: `image`, `video`, `document`
@@ -166,23 +166,23 @@ Campaign types: `flash_sale`, `bogo`, `bundle_discount`, `free_shipping`, `free_
 ### Topic Studio
 ```bash
 # Generate 5 topics (default)
-openlucid-cli topic-studio --offer-id <offer_uuid>
+openlucid topic-studio --offer-id <offer_uuid>
 
 # Generate 10 topics with a specific strategy
-openlucid-cli topic-studio --offer-id <offer_uuid> --count 10 --strategy-unit-id <id>
+openlucid topic-studio --offer-id <offer_uuid> --count 10 --strategy-unit-id <id>
 
 # List past topic plans (history from Topic Studio)
-openlucid-cli list-topic-plans --offer-id <offer_uuid>
+openlucid list-topic-plans --offer-id <offer_uuid>
 
 # Drill into one specific topic plan (full fields: hook, angle, key_points)
-openlucid-cli get-topic-plan --id <plan_uuid>
+openlucid get-topic-plan --id <plan_uuid>
 ```
 
 ## Authentication
 
 Two auth methods (stored in `~/.openlucid.json`):
 
-1. **Cookie auth** — `openlucid-cli login` (session, expires 168h)
+1. **Cookie auth** — `openlucid login` (session, expires 168h)
 2. **API token** — from Web UI Settings > MCP > Access Tokens (long-lived, recommended)
 
 ```json
@@ -195,12 +195,12 @@ Config priority: `--url` flag > `OPENLUCID_URL` env > `~/.openlucid.json` > `htt
 
 | Error | Fix |
 |-------|-----|
-| `401 Not authenticated` | Run `openlucid-cli login` or `openlucid-cli setup` |
+| `401 Not authenticated` | Run `openlucid login` or `openlucid setup` |
 | `Connection refused` | Start server: `cd docker && docker compose up -d` |
 | `command not found` | Run `bash tools/install.sh` or `export PATH="$HOME/.local/bin:$PATH"` |
 
 ## Notes
 
 - All output is JSON — pipe to `jq` for filtering
-- Run `openlucid-cli COMMAND --help` for full parameter details
+- Run `openlucid COMMAND --help` for full parameter details
 - The script uses only Python standard library

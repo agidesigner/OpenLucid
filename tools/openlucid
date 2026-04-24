@@ -16,12 +16,19 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 
-CLI_VERSION = "0.9.9.2"
+CLI_VERSION = "0.9.9.3"
+
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+
+
+def _is_uuid(s: str | None) -> bool:
+    return bool(s and _UUID_RE.match(s))
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -94,7 +101,7 @@ def _request(base: str, token: str, cookie: str, method: str, path: str,
         if exc.code == 401:
             print(
                 json.dumps({"error": detail, "status": 401,
-                            "hint": "Run `openlucid-cli login` first."}, ensure_ascii=False, indent=2),
+                            "hint": "Run `openlucid login` first."}, ensure_ascii=False, indent=2),
                 file=sys.stderr,
             )
         else:
@@ -150,6 +157,201 @@ def _out(data):
 
 def _csv_list(raw: str) -> list[str]:
     return [item.strip() for item in (raw or "").split(",") if item.strip()]
+
+
+# ---------------------------------------------------------------------------
+# Name/UUID reference resolution
+#
+# Humans don't remember UUIDs. Every command that takes a merchant/offer
+# reference accepts EITHER a UUID or a (case-insensitive, substring) name
+# match. Unambiguous matches resolve silently; ambiguous ones surface the
+# candidates and bail. None + exactly-one-item in the list → auto-pick
+# (the "only one merchant" shortcut).
+# ---------------------------------------------------------------------------
+
+
+def _resolve_merchant(
+    base: str, token: str, cookie: str, ref: str | None,
+    *, silent_auto: bool = False,
+) -> str | None:
+    """Resolve a merchant reference to a UUID. See module-level docstring."""
+    if ref and _is_uuid(ref):
+        return ref
+    resp = _request(base, token, cookie, "GET", "/merchants", {"page_size": 100})
+    items = resp.get("items") or []
+    if ref:
+        needle = ref.strip().lower()
+        exact = [m for m in items if (m.get("name") or "").lower() == needle]
+        partial = [m for m in items if needle in (m.get("name") or "").lower()]
+        match = exact if exact else partial
+        if len(match) == 1:
+            return match[0]["id"]
+        if not match:
+            names = [m.get("name") for m in items]
+            print(
+                f"Error: no merchant matches {ref!r}. Available: {names}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        lines = [f"  {m.get('name')!r} (UUID: {m.get('id')})" for m in match]
+        print(
+            f"Error: {ref!r} matches multiple merchants. Pass the UUID:\n"
+            + "\n".join(lines),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    # No ref → auto-pick when unambiguous
+    if len(items) == 1:
+        if not silent_auto:
+            print(
+                f"(auto-selected merchant: {items[0].get('name')})",
+                file=sys.stderr,
+            )
+        return items[0]["id"]
+    return None
+
+
+def _resolve_offer(
+    base: str, token: str, cookie: str, ref: str | None,
+    *, merchant_id: str | None = None, silent_auto: bool = False,
+) -> str | None:
+    if ref and _is_uuid(ref):
+        return ref
+    # Fall back to the pinned merchant when the caller didn't specify one.
+    # This disambiguates names shared across merchants — the common case
+    # of "I work on merchant X, want offer Y within X".
+    if merchant_id is None:
+        merchant_id = _context_get("merchant_id")
+    params = {"page_size": 100}
+    if merchant_id:
+        params["merchant_id"] = merchant_id
+    resp = _request(base, token, cookie, "GET", "/offers", params)
+    items = resp.get("items") or []
+    if ref:
+        needle = ref.strip().lower()
+        exact = [o for o in items if (o.get("name") or "").lower() == needle]
+        partial = [o for o in items if needle in (o.get("name") or "").lower()]
+        match = exact if exact else partial
+        if len(match) == 1:
+            return match[0]["id"]
+        if not match:
+            names = [o.get("name") for o in items]
+            print(f"Error: no offer matches {ref!r}. Available: {names}", file=sys.stderr)
+            sys.exit(1)
+        # Duplicate names happen in practice (e.g. two "jogg" offers).
+        # Print UUIDs so the user can copy one rather than rename.
+        lines = [f"  {o.get('name')!r} (UUID: {o.get('id')})" for o in match]
+        print(
+            f"Error: {ref!r} matches multiple offers. Pass the UUID:\n"
+            + "\n".join(lines),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if len(items) == 1:
+        if not silent_auto:
+            print(f"(auto-selected offer: {items[0].get('name')})", file=sys.stderr)
+        return items[0]["id"]
+    return None
+
+
+def _context_get(key: str) -> str | None:
+    cfg = _load_config_file()
+    return (cfg.get("context") or {}).get(key)
+
+
+def _context_set(key: str, value: str | None) -> None:
+    cfg = _load_config_file()
+    ctx = dict(cfg.get("context") or {})
+    if value:
+        ctx[key] = value
+    else:
+        ctx.pop(key, None)
+    if ctx:
+        cfg["context"] = ctx
+    else:
+        cfg.pop("context", None)
+    _save_config_file(cfg)
+
+
+def _resolve_merchant_arg(base, token, cookie, args) -> str:
+    """Precedence: --merchant-id (UUID) > --merchant (name/UUID) >
+    saved context.merchant_id > auto-pick if only one merchant exists.
+    Exits with a useful hint when nothing resolves."""
+    ref = getattr(args, "merchant_id", None) or getattr(args, "merchant", None)
+    if ref:
+        mid = _resolve_merchant(base, token, cookie, ref)
+        if not mid:
+            print(f"Error: cannot resolve merchant {ref!r}", file=sys.stderr)
+            sys.exit(1)
+        return mid
+    saved = _context_get("merchant_id")
+    if saved:
+        return saved
+    mid = _resolve_merchant(base, token, cookie, None)
+    if mid:
+        return mid
+    print(
+        "Error: no merchant specified. Options:\n"
+        "  --merchant NAME_OR_ID          # one-off\n"
+        "  openlucid use-merchant X   # remember for later commands",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def _resolve_offer_arg(base, token, cookie, args) -> str:
+    ref = getattr(args, "offer_id", None) or getattr(args, "offer", None)
+    if ref:
+        oid = _resolve_offer(base, token, cookie, ref)
+        if not oid:
+            print(f"Error: cannot resolve offer {ref!r}", file=sys.stderr)
+            sys.exit(1)
+        return oid
+    saved = _context_get("offer_id")
+    if saved:
+        return saved
+    oid = _resolve_offer(base, token, cookie, None)
+    if oid:
+        return oid
+    print(
+        "Error: no offer specified. Options:\n"
+        "  --offer NAME_OR_ID            # one-off\n"
+        "  openlucid use-offer X     # remember for later commands",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def _resolve_scope_arg(base, token, cookie, args) -> tuple[str, str]:
+    """Precedence: --offer > --merchant > --scope-type+--scope-id
+       > context.offer_id > context.merchant_id > auto-pick (offer first,
+       then merchant). Returns (scope_type, scope_id) or exits."""
+    if getattr(args, "offer", None):
+        return "offer", _resolve_offer(base, token, cookie, args.offer) or ""
+    if getattr(args, "merchant", None):
+        return "merchant", _resolve_merchant(base, token, cookie, args.merchant) or ""
+    scope_t = getattr(args, "scope_type", None)
+    scope_i = getattr(args, "scope_id", None)
+    if scope_t and scope_i:
+        return scope_t, scope_i
+    if _context_get("offer_id"):
+        return "offer", _context_get("offer_id")  # type: ignore[return-value]
+    if _context_get("merchant_id"):
+        return "merchant", _context_get("merchant_id")  # type: ignore[return-value]
+    oid = _resolve_offer(base, token, cookie, None)
+    if oid:
+        return "offer", oid
+    mid = _resolve_merchant(base, token, cookie, None)
+    if mid:
+        return "merchant", mid
+    print(
+        "Error: no scope specified. Options:\n"
+        "  --offer NAME_OR_ID        # pick an offer directly\n"
+        "  --merchant NAME_OR_ID     # pick a merchant directly\n"
+        "  use-offer / use-merchant  # remember for later commands",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 def _titles_from_suggestions(suggestions: dict, category: str) -> list[str]:
@@ -312,7 +514,7 @@ def cmd_login(base, token, cookie, args):
             print("    - Check your email and password", file=sys.stderr)
             print("    - If you forgot your password, reset it in the Web UI", file=sys.stderr)
         print(f"    - Server URL: {base}", file=sys.stderr)
-        print(f"    - Override with: openlucid-cli --url <URL> login", file=sys.stderr)
+        print(f"    - Override with: openlucid --url <URL> login", file=sys.stderr)
         sys.exit(1)
 
     cfg = _load_config_file()
@@ -323,7 +525,7 @@ def cmd_login(base, token, cookie, args):
     print(f"\n  Logged in as {user_email}")
     print(f"  Config saved to {_CONFIG_PATH}")
     print(f"  Server: {base}")
-    print(f"\n  Try: openlucid-cli list-merchants\n")
+    print(f"\n  Try: openlucid list-merchants\n")
 
 
 # -- Setup --
@@ -350,39 +552,69 @@ def cmd_setup(base, token, cookie, args):
         print(f"  Try: curl {url}/health\n", file=sys.stderr)
         sys.exit(1)
 
-    # Ask for token or login
-    print("\nAuthentication:")
-    print("  1) Login with email/password (creates session cookie)")
-    print("  2) Use an MCP token (long-lived, from Web UI Settings > MCP > Access Tokens)")
-    choice = _prompt_input("Choose [1/2]", "1")
+    # Probe whether the server actually requires authentication. A fully
+    # open deployment (DISABLE_AUTH=true, or any reverse-proxy that
+    # terminates auth upstream) responds 200 to an unauth'd API call —
+    # no point forcing the user to invent credentials. The prior flow
+    # always asked for login / token, which confused fresh deployments
+    # where the operator hadn't set either up yet.
+    print("\nProbing authentication ...", end=" ", flush=True)
+    try:
+        probe_req = urllib.request.Request(f"{url}/api/v1/merchants", method="GET")
+        with urllib.request.urlopen(probe_req, timeout=10) as resp:
+            resp.read()
+        server_is_open = True
+    except urllib.error.HTTPError as e:
+        server_is_open = (e.code not in (401, 403))
+    except Exception:
+        server_is_open = False
 
-    if choice == "2":
-        mcp_token = _prompt_input("MCP Token")
-        if not mcp_token:
-            print("Error: token is required.", file=sys.stderr)
-            sys.exit(1)
+    if server_is_open:
+        print("open (no auth required)")
         cfg = _load_config_file()
         cfg["url"] = url
-        cfg["token"] = mcp_token
+        cfg.pop("token", None)
         cfg.pop("cookie", None)
         _save_config_file(cfg)
-        print(f"\n  Config saved to {_CONFIG_PATH}")
+        print(f"\n  Config saved to {_CONFIG_PATH} (url only)")
     else:
-        email = _prompt_input("Email")
-        if not email:
-            print("Error: email is required.", file=sys.stderr)
-            sys.exit(1)
-        password = getpass.getpass("Password: ")
+        print("auth required")
+        # Ask for token or login
+        print("\nAuthentication:")
+        print("  1) Login with email/password (creates session cookie)")
+        print("  2) Use an MCP token (long-lived, from Web UI Settings > MCP > Access Tokens)")
+        choice = _prompt_input("Choose [1/2]", "1")
 
-        ok, result, user_email = _do_login(url, email, password)
-        if not ok:
-            print(f"\n  Login failed: {result}", file=sys.stderr)
-            sys.exit(1)
-        cfg = _load_config_file()
-        cfg["url"] = url
-        cfg["cookie"] = result
-        _save_config_file(cfg)
-        print(f"\n  Logged in as {user_email}")
+        # Empty token on option 2 silently falls through to email/password.
+        # Fresh installs rarely have a token handy; "Enter" should be safe.
+        mcp_token = ""
+        if choice == "2":
+            mcp_token = _prompt_input("MCP Token (leave blank to use email/password instead)").strip()
+        if mcp_token:
+            cfg = _load_config_file()
+            cfg["url"] = url
+            cfg["token"] = mcp_token
+            cfg.pop("cookie", None)
+            _save_config_file(cfg)
+            print(f"\n  Config saved to {_CONFIG_PATH}")
+        else:
+            if choice == "2":
+                print("  No token entered — falling back to email/password login.\n")
+            email = _prompt_input("Email")
+            if not email:
+                print("Error: email is required.", file=sys.stderr)
+                sys.exit(1)
+            password = getpass.getpass("Password: ")
+
+            ok, result, user_email = _do_login(url, email, password)
+            if not ok:
+                print(f"\n  Login failed: {result}", file=sys.stderr)
+                sys.exit(1)
+            cfg = _load_config_file()
+            cfg["url"] = url
+            cfg["cookie"] = result
+            _save_config_file(cfg)
+            print(f"\n  Logged in as {user_email}")
 
     # Verify connectivity with an actual API call
     print("\nVerifying API access ...", end=" ", flush=True)
@@ -398,14 +630,182 @@ def cmd_setup(base, token, cookie, args):
     print(f"\n=== Setup complete! ===")
     print(f"  Config: {_CONFIG_PATH}")
     print(f"  Server: {new_base}")
-    print(f"\n  Try: openlucid-cli list-merchants\n")
+    # Peek at the merchant list so the next-step suggestion uses the
+    # user's actual data. A fresh deployment gets "create one in the
+    # Web UI"; one with data gets concrete ``use-merchant`` commands.
+    try:
+        resp = _request(new_base, new_token, new_cookie, "GET",
+                        "/merchants", {"page_size": 5})
+        merchants = resp.get("items") or []
+    except SystemExit:
+        merchants = []
+    except Exception:
+        merchants = []
+
+    print("\nNext steps:")
+    if not merchants:
+        print("  Your OpenLucid server has no merchants yet. Create one in the")
+        print(f"  Web UI:  {new_base}/merchants")
+        print("  Then:    openlucid list-merchants")
+    elif len(merchants) == 1:
+        only = merchants[0].get("name", "")
+        print(f"  openlucid use-merchant {only!r:50}  # pin the default merchant")
+        print(f"  openlucid list-offers")
+        print(f"  openlucid --help                                       # all commands")
+    else:
+        names = [m.get("name", "") for m in merchants]
+        print(f"  openlucid list-merchants                 # see all ({len(merchants)})")
+        print(f"  openlucid use-merchant <name>            # e.g. {names[0]!r}")
+        print(f"  openlucid --help                         # all commands")
+    print()
 
 
 # -- Version --
 
 def cmd_version(base, token, cookie, args):
     """Print CLI version."""
-    print(f"openlucid-cli {CLI_VERSION}")
+    print(f"openlucid {CLI_VERSION}")
+
+
+# -- Context (sticky merchant / offer) --
+
+def cmd_use_merchant(base, token, cookie, args):
+    """Pin a merchant as the default for subsequent commands.
+
+    Accepts a name or UUID. Stored in ``~/.openlucid.json`` under
+    ``context.merchant_id`` and overridden by explicit ``--merchant``
+    on individual commands."""
+    mid = _resolve_merchant(base, token, cookie, args.ref, silent_auto=True)
+    if not mid:
+        print(f"Error: cannot resolve merchant {args.ref!r}", file=sys.stderr)
+        sys.exit(1)
+    _context_set("merchant_id", mid)
+    # If pinned merchant has exactly one offer AND no offer already pinned,
+    # opportunistically pin that too — common flow is "use-merchant X" then
+    # immediately run an offer-scoped command.
+    if not _context_get("offer_id"):
+        resp = _request(base, token, cookie, "GET", "/offers",
+                        {"merchant_id": mid, "page_size": 2})
+        items = resp.get("items") or []
+        if len(items) == 1:
+            _context_set("offer_id", items[0]["id"])
+            print(
+                f"Pinned merchant → {mid}\n"
+                f"Also pinned its single offer → {items[0]['id']} ({items[0].get('name')})",
+            )
+            return
+    print(f"Pinned merchant → {mid}")
+
+
+def cmd_use_offer(base, token, cookie, args):
+    oid = _resolve_offer(base, token, cookie, args.ref, silent_auto=True)
+    if not oid:
+        print(f"Error: cannot resolve offer {args.ref!r}", file=sys.stderr)
+        sys.exit(1)
+    _context_set("offer_id", oid)
+    print(f"Pinned offer → {oid}")
+
+
+def cmd_unset_context(base, token, cookie, args):
+    """Clear the pinned merchant / offer so subsequent commands stop
+    auto-using them. After this, only explicit flags or the
+    single-item auto-pick will resolve a scope."""
+    _context_set("merchant_id", None)
+    _context_set("offer_id", None)
+    print("Context cleared.")
+
+
+def cmd_status(base, token, cookie, args):
+    """Print CLI state: server URL, auth mode, pinned context.
+
+    Humans get a two-column aligned table by default. Scripts / agents
+    pass ``--json`` to get the stable key-value shape. Names are looked
+    up on the server when possible (skipped on any error — ``status``
+    must never fail because the server is down)."""
+    cfg = _load_config_file()
+    ctx = cfg.get("context") or {}
+    auth_mode = (
+        "bearer token" if cfg.get("token")
+        else "session cookie" if cfg.get("cookie")
+        else "open (no credentials)"
+    )
+    mid = ctx.get("merchant_id")
+    oid = ctx.get("offer_id")
+    m_label = mid
+    o_label = oid
+    # Best-effort name resolution; failure is silent to keep ``status``
+    # useful even when the server is unreachable.
+    if mid:
+        try:
+            m = _request(base, token, cookie, "GET", f"/merchants/{mid}")
+            m_label = f"{m.get('name')} ({mid})"
+        except SystemExit:
+            pass
+        except Exception:
+            pass
+    if oid:
+        try:
+            o = _request(base, token, cookie, "GET", f"/offers/{oid}")
+            o_label = f"{o.get('name')} ({oid})"
+        except SystemExit:
+            pass
+        except Exception:
+            pass
+
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "url": cfg.get("url") or base,
+            "auth": auth_mode,
+            "pinned_merchant_id": mid,
+            "pinned_offer_id": oid,
+        }, ensure_ascii=False, indent=2))
+        return
+
+    print(f"Server    {cfg.get('url') or base}")
+    print(f"Auth      {auth_mode}")
+    print(f"Merchant  {m_label or '(none pinned — openlucid use-merchant <name>)'}")
+    print(f"Offer     {o_label or '(none pinned — openlucid use-offer <name>)'}")
+
+
+def _cmd_welcome():
+    """Landing page shown when ``openlucid`` is run with no arguments.
+
+    Contextual: different hints when setup hasn't run yet, when the
+    server is unreachable, or when nothing is pinned. The goal is that
+    a new user can always see *the one command to run next* without
+    reading ``--help``."""
+    cfg = _load_config_file()
+    has_config = bool(cfg.get("url")) and (os.path.isfile(_CONFIG_PATH))
+    ctx = cfg.get("context") or {}
+    print(f"OpenLucid CLI {CLI_VERSION}\n")
+    if not has_config:
+        print("First time here. Run setup to point at your OpenLucid server:")
+        print("  openlucid setup\n")
+        print("Then:")
+        print("  openlucid list-merchants")
+        print("  openlucid --help     # full command list")
+        return
+    # Configured — show pinning hints or list-first suggestion
+    print(f"Server: {cfg.get('url')}\n")
+    if not ctx.get("merchant_id") and not ctx.get("offer_id"):
+        print("Pick something to work on (optional — makes later commands shorter):")
+        print("  openlucid use-merchant <name>")
+        print("  openlucid use-offer <name>\n")
+        print("Or just query directly:")
+        print("  openlucid list-merchants")
+        print("  openlucid list-offers --merchant <name>")
+    else:
+        print("Currently pinned:")
+        if ctx.get("merchant_id"):
+            print(f"  merchant  {ctx['merchant_id']}")
+        if ctx.get("offer_id"):
+            print(f"  offer     {ctx['offer_id']}")
+        print("\nCommon next steps:")
+        print("  openlucid list-knowledge          # context-driven")
+        print("  openlucid kb-qa --question '...'")
+        print("  openlucid topic-studio")
+        print("  openlucid status                  # full state")
+    print("\nAll commands: openlucid --help")
 
 
 # -- Data Insights --
@@ -422,8 +822,14 @@ def cmd_get_merchant(base, token, cookie, args):
 
 def cmd_list_offers(base, token, cookie, args):
     params = {"page": args.page, "page_size": args.page_size}
-    if args.merchant_id:
-        params["merchant_id"] = args.merchant_id
+    # --merchant (name or UUID) wins over bare --merchant-id. Falls back
+    # to saved context and, when only one merchant exists, auto-picks
+    # that merchant rather than requiring the user to repeat its UUID.
+    mref = getattr(args, "merchant", None) or args.merchant_id or _context_get("merchant_id")
+    if mref:
+        mid = _resolve_merchant(base, token, cookie, mref, silent_auto=True) if not _is_uuid(mref) else mref
+        if mid:
+            params["merchant_id"] = mid
     _out(_request(base, token, cookie, "GET", "/offers", params))
 
 
@@ -479,16 +885,18 @@ def cmd_create_offer_from_url(base, token, cookie, args):
 # -- Knowledge --
 
 def cmd_list_knowledge(base, token, cookie, args):
+    scope_type, scope_id = _resolve_scope_arg(base, token, cookie, args)
     _out(_request(base, token, cookie, "GET", "/knowledge", {
-        "scope_type": args.scope_type, "scope_id": args.scope_id,
+        "scope_type": scope_type, "scope_id": scope_id,
         "page": args.page, "page_size": args.page_size,
     }))
 
 
 def cmd_add_knowledge(base, token, cookie, args):
+    scope_type, scope_id = _resolve_scope_arg(base, token, cookie, args)
     _out(_request(base, token, cookie, "POST", "/knowledge", body={
-        "scope_type": args.scope_type,
-        "scope_id": args.scope_id,
+        "scope_type": scope_type,
+        "scope_id": scope_id,
         "title": args.title,
         "content_raw": args.content or None,
         "knowledge_type": args.type,
@@ -499,8 +907,9 @@ def cmd_add_knowledge(base, token, cookie, args):
 # -- Assets --
 
 def cmd_search_assets(base, token, cookie, args):
+    scope_type, scope_id = _resolve_scope_arg(base, token, cookie, args)
     params = {
-        "scope_type": args.scope_type, "scope_id": args.scope_id,
+        "scope_type": scope_type, "scope_id": scope_id,
         "page": args.page, "page_size": args.page_size,
     }
     if args.q:
@@ -520,8 +929,11 @@ def cmd_search_assets(base, token, cookie, args):
 
 def cmd_list_strategy_units(base, token, cookie, args):
     params = {"page": args.page, "page_size": args.page_size}
-    if args.offer_id:
-        params["offer_id"] = args.offer_id
+    oref = getattr(args, "offer", None) or args.offer_id or _context_get("offer_id")
+    if oref:
+        oid = _resolve_offer(base, token, cookie, oref, silent_auto=True) if not _is_uuid(oref) else oref
+        if oid:
+            params["offer_id"] = oid
     _out(_request(base, token, cookie, "GET", "/strategy-units", params))
 
 
@@ -532,8 +944,9 @@ def cmd_list_apps(base, token, cookie, args):
 
 
 def cmd_kb_qa(base, token, cookie, args):
+    offer_id = _resolve_offer_arg(base, token, cookie, args)
     _out(_request(base, token, cookie, "POST", "/apps/kb-qa/ask", body={
-        "offer_id": args.offer_id,
+        "offer_id": offer_id,
         "question": args.question,
         "style_id": args.style,
         "language": args.language,
@@ -541,7 +954,8 @@ def cmd_kb_qa(base, token, cookie, args):
 
 
 def cmd_topic_studio(base, token, cookie, args):
-    body = {"offer_id": args.offer_id, "count": args.count, "language": args.language}
+    offer_id = _resolve_offer_arg(base, token, cookie, args)
+    body = {"offer_id": offer_id, "count": args.count, "language": args.language}
     if args.strategy_unit_id:
         body["strategy_unit_id"] = args.strategy_unit_id
     _out(_request(base, token, cookie, "POST", "/apps/topic-studio/run", body=body))
@@ -549,8 +963,11 @@ def cmd_topic_studio(base, token, cookie, args):
 
 def cmd_list_topic_plans(base, token, cookie, args):
     params = {"page": args.page, "page_size": args.page_size}
-    if args.offer_id:
-        params["offer_id"] = args.offer_id
+    oref = getattr(args, "offer", None) or args.offer_id or _context_get("offer_id")
+    if oref:
+        oid = _resolve_offer(base, token, cookie, oref, silent_auto=True) if not _is_uuid(oref) else oref
+        if oid:
+            params["offer_id"] = oid
     if args.strategy_unit_id:
         params["strategy_unit_id"] = args.strategy_unit_id
     _out(_request(base, token, cookie, "GET", "/topic-plans", params))
@@ -564,10 +981,16 @@ def cmd_get_topic_plan(base, token, cookie, args):
 
 def cmd_list_creations(base, token, cookie, args):
     params = {"page": args.page, "page_size": args.page_size}
-    if args.offer_id:
-        params["offer_id"] = args.offer_id
-    if args.merchant_id:
-        params["merchant_id"] = args.merchant_id
+    oref = getattr(args, "offer", None) or args.offer_id or _context_get("offer_id")
+    if oref:
+        oid = _resolve_offer(base, token, cookie, oref, silent_auto=True) if not _is_uuid(oref) else oref
+        if oid:
+            params["offer_id"] = oid
+    mref = getattr(args, "merchant", None) or args.merchant_id or _context_get("merchant_id")
+    if mref and "offer_id" not in params:
+        mid = _resolve_merchant(base, token, cookie, mref, silent_auto=True) if not _is_uuid(mref) else mref
+        if mid:
+            params["merchant_id"] = mid
     if args.content_type:
         params["content_type"] = args.content_type
     if args.source_app:
@@ -598,21 +1021,42 @@ def cmd_save_creation(base, token, cookie, args):
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="openlucid-cli",
+        prog="openlucid",
         description="Query and operate your OpenLucid marketing data via REST API.",
         epilog="Config: --url flag > OPENLUCID_URL env > ~/.openlucid.json > http://localhost",
     )
     parser.add_argument("--url", help="Override the server URL")
-    parser.add_argument("--version", action="version", version=f"openlucid-cli {CLI_VERSION}")
-    sub = parser.add_subparsers(dest="command", required=True,
+    parser.add_argument("--version", action="version", version=f"openlucid {CLI_VERSION}")
+    # ``required=False`` so the bare ``openlucid`` call reaches main()
+    # instead of argparse printing its own terse usage. We then show a
+    # friendlier landing page with next-step suggestions tailored to the
+    # user's current config (setup run yet? merchant pinned? etc.).
+    sub = parser.add_subparsers(dest="command", required=False,
                                 metavar="COMMAND",
-                                help="Run `openlucid-cli COMMAND --help` for details")
+                                help="Run `openlucid COMMAND --help` for details")
 
     # -- setup --
     sub.add_parser("setup", help="Interactive first-time setup (URL + auth + verify)")
 
     # -- version --
     sub.add_parser("version", help="Print CLI version")
+
+    # -- context pinning (use-*, unset-context, status) --
+    p = sub.add_parser("use-merchant",
+                       help="Pin a merchant as the default for subsequent commands")
+    p.add_argument("ref", help="Merchant name or UUID")
+
+    p = sub.add_parser("use-offer",
+                       help="Pin an offer as the default for subsequent commands")
+    p.add_argument("ref", help="Offer name or UUID")
+
+    sub.add_parser("unset-context",
+                   help="Clear the pinned merchant / offer")
+
+    p = sub.add_parser("status",
+                       help="Show current CLI config: URL, auth mode, pinned context")
+    p.add_argument("--json", action="store_true",
+                   help="Emit machine-readable JSON instead of the aligned text view")
 
     # -- login --
     p = sub.add_parser("login", help="Authenticate and save session to ~/.openlucid.json")
@@ -630,7 +1074,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # -- list-offers --
     p = sub.add_parser("list-offers", help="List offers (products/services)")
-    p.add_argument("--merchant-id", help="Filter by merchant UUID")
+    p.add_argument("--merchant", help="Merchant name or UUID (preferred)")
+    p.add_argument("--merchant-id", help="Merchant UUID (legacy; --merchant is preferred)")
     p.add_argument("--page", type=int, default=1)
     p.add_argument("--page-size", type=int, default=20)
 
@@ -674,15 +1119,19 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # -- list-knowledge --
     p = sub.add_parser("list-knowledge", help="List knowledge items")
-    p.add_argument("--scope-type", required=True, choices=["merchant", "offer"])
-    p.add_argument("--scope-id", required=True, help="Scope UUID")
+    p.add_argument("--offer", help="Offer name or UUID (preferred)")
+    p.add_argument("--merchant", help="Merchant name or UUID")
+    p.add_argument("--scope-type", choices=["merchant", "offer"], help="(legacy) scope kind")
+    p.add_argument("--scope-id", help="(legacy) scope UUID; use --offer/--merchant instead")
     p.add_argument("--page", type=int, default=1)
     p.add_argument("--page-size", type=int, default=20)
 
     # -- add-knowledge --
     p = sub.add_parser("add-knowledge", help="Add a knowledge item")
-    p.add_argument("--scope-type", required=True, choices=["merchant", "offer"])
-    p.add_argument("--scope-id", required=True, help="Scope UUID")
+    p.add_argument("--offer", help="Offer name or UUID (preferred)")
+    p.add_argument("--merchant", help="Merchant name or UUID")
+    p.add_argument("--scope-type", choices=["merchant", "offer"], help="(legacy)")
+    p.add_argument("--scope-id", help="(legacy)")
     p.add_argument("--title", required=True)
     p.add_argument("--content", default="")
     p.add_argument("--type", default="general",
@@ -691,8 +1140,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # -- search-assets --
     p = sub.add_parser("search-assets", help="Search assets (images, videos, docs)")
-    p.add_argument("--scope-type", required=True, choices=["merchant", "offer"])
-    p.add_argument("--scope-id", required=True, help="Scope UUID")
+    p.add_argument("--offer", help="Offer name or UUID (preferred)")
+    p.add_argument("--merchant", help="Merchant name or UUID")
+    p.add_argument("--scope-type", choices=["merchant", "offer"], help="(legacy)")
+    p.add_argument("--scope-id", help="(legacy)")
     p.add_argument("--q", default="", help="Fuzzy search keyword")
     p.add_argument("--tags", default="", help="Comma-separated exact tag match")
     p.add_argument("--asset-type", default="", help="Filter: image|video|document")
@@ -705,7 +1156,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # -- list-strategy-units --
     p = sub.add_parser("list-strategy-units", help="List strategy units")
-    p.add_argument("--offer-id", help="Filter by offer UUID")
+    p.add_argument("--offer", help="Offer name or UUID (preferred)")
+    p.add_argument("--offer-id", help="Offer UUID (legacy)")
     p.add_argument("--page", type=int, default=1)
     p.add_argument("--page-size", type=int, default=20)
 
@@ -715,7 +1167,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # -- kb-qa --
     p = sub.add_parser("kb-qa", help="Ask a question against the knowledge base")
-    p.add_argument("--offer-id", required=True, help="Offer UUID")
+    p.add_argument("--offer", help="Offer name or UUID (preferred)")
+    p.add_argument("--offer-id", help="Offer UUID (legacy)")
     p.add_argument("--question", required=True, help="Your question")
     p.add_argument("--style", default="professional",
                    help="Style: professional|friendly|expert")
@@ -723,14 +1176,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # -- topic-studio --
     p = sub.add_parser("topic-studio", help="Generate topic plans")
-    p.add_argument("--offer-id", required=True, help="Offer UUID")
+    p.add_argument("--offer", help="Offer name or UUID (preferred)")
+    p.add_argument("--offer-id", help="Offer UUID (legacy)")
     p.add_argument("--strategy-unit-id", help="Optional strategy unit UUID")
     p.add_argument("--count", type=int, default=5, help="Number of topics")
     p.add_argument("--language", default="zh-CN")
 
     # -- list-topic-plans --
     p = sub.add_parser("list-topic-plans", help="List topic plans generated by Topic Studio (history)")
-    p.add_argument("--offer-id", help="Filter by offer UUID")
+    p.add_argument("--offer", help="Offer name or UUID (preferred)")
+    p.add_argument("--offer-id", help="Offer UUID (legacy)")
     p.add_argument("--strategy-unit-id", help="Filter by strategy unit UUID")
     p.add_argument("--page", type=int, default=1)
     p.add_argument("--page-size", type=int, default=20)
@@ -741,8 +1196,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # -- list-creations --
     p = sub.add_parser("list-creations", help="List saved creations (topics, scripts, posts)")
-    p.add_argument("--offer-id", help="Filter by offer UUID")
-    p.add_argument("--merchant-id", help="Filter by merchant UUID")
+    p.add_argument("--offer", help="Offer name or UUID (preferred)")
+    p.add_argument("--merchant", help="Merchant name or UUID (preferred)")
+    p.add_argument("--offer-id", help="Offer UUID (legacy)")
+    p.add_argument("--merchant-id", help="Merchant UUID (legacy)")
     p.add_argument("--content-type", help="Filter: post|script|email|caption|hook|general")
     p.add_argument("--source-app", help="Filter by source app (e.g. topic-studio)")
     p.add_argument("--q", help="Search in title and content")
@@ -773,6 +1230,10 @@ def _build_parser() -> argparse.ArgumentParser:
 _DISPATCH = {
     "setup": cmd_setup,
     "version": cmd_version,
+    "use-merchant": cmd_use_merchant,
+    "use-offer": cmd_use_offer,
+    "unset-context": cmd_unset_context,
+    "status": cmd_status,
     "login": cmd_login,
     "list-merchants": cmd_list_merchants,
     "get-merchant": cmd_get_merchant,
@@ -800,6 +1261,14 @@ _DISPATCH = {
 def main():
     parser = _build_parser()
     args = parser.parse_args()
+
+    # Bare ``openlucid`` (no command) → contextual welcome page. Better
+    # than argparse's terse "COMMAND required" error: users see the one
+    # command that matters next, tailored to whether setup has run /
+    # something is pinned.
+    if not args.command:
+        _cmd_welcome()
+        return
 
     base, token, cookie = _resolve_config(cli_url=args.url)
     handler = _DISPATCH.get(args.command)

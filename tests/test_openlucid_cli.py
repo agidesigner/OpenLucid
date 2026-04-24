@@ -6,7 +6,7 @@ import pytest
 
 
 def load_cli_module():
-    path = Path(__file__).resolve().parents[1] / "tools" / "openlucid-cli"
+    path = Path(__file__).resolve().parents[1] / "tools" / "openlucid"
     loader = importlib.machinery.SourceFileLoader("openlucid_cli_test", str(path))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)

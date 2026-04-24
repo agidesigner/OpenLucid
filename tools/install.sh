@@ -5,10 +5,10 @@ set -euo pipefail
 # Usage: bash tools/install.sh  (run from the project root)
 
 INSTALL_DIR="${HOME}/.local/bin"
-CLI_NAME="openlucid-cli"
+CLI_NAME="openlucid"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CLI_SRC="${SCRIPT_DIR}/openlucid-cli"
-SKILL_SRC="${SCRIPT_DIR}/../skills/openlucid-cli/SKILL.md"
+CLI_SRC="${SCRIPT_DIR}/openlucid"
+SKILL_SRC="${SCRIPT_DIR}/../skills/openlucid/SKILL.md"
 
 echo "=== OpenLucid CLI Installer ==="
 echo ""
@@ -30,7 +30,7 @@ fi
 
 if [ ! -f "${SKILL_SRC}" ]; then
     echo "Error: ${SKILL_SRC} not found."
-    echo "Expected skill source at skills/openlucid-cli/SKILL.md"
+    echo "Expected skill source at skills/openlucid/SKILL.md"
     exit 1
 fi
 
@@ -69,7 +69,7 @@ fi
 
 install_skill() {
     local skill_root="$1"
-    local skill_dir="${skill_root}/openlucid-cli"
+    local skill_dir="${skill_root}/openlucid"
     mkdir -p "${skill_dir}"
     cp "${SKILL_SRC}" "${skill_dir}/SKILL.md"
     echo "Installed skill: ${skill_dir}/SKILL.md"
@@ -77,8 +77,8 @@ install_skill() {
 
 remove_marked_block() {
     local filepath="$1"
-    local begin_marker="<!-- BEGIN openlucid-cli -->"
-    local end_marker="<!-- END openlucid-cli -->"
+    local begin_marker="<!-- BEGIN openlucid -->"
+    local end_marker="<!-- END openlucid -->"
     if [ ! -f "${filepath}" ] || ! grep -qF "${begin_marker}" "${filepath}" 2>/dev/null; then
         return 0
     fi
@@ -95,9 +95,9 @@ remove_marked_block() {
 cleanup_legacy_configs() {
     remove_marked_block "${HOME}/.claude/CLAUDE.md"
     remove_marked_block "${HOME}/.agents/AGENTS.md"
-    if [ -f "${HOME}/.cursor/rules/openlucid-cli.mdc" ]; then
-        rm -f "${HOME}/.cursor/rules/openlucid-cli.mdc"
-        echo "Removed legacy rule: ~/.cursor/rules/openlucid-cli.mdc"
+    if [ -f "${HOME}/.cursor/rules/openlucid.mdc" ]; then
+        rm -f "${HOME}/.cursor/rules/openlucid.mdc"
+        echo "Removed legacy rule: ~/.cursor/rules/openlucid.mdc"
     fi
     if [ -f "${HOME}/.claude/CLAUDE.md" ] && ! grep -q '[^[:space:]]' "${HOME}/.claude/CLAUDE.md"; then
         rm -f "${HOME}/.claude/CLAUDE.md"
@@ -107,6 +107,22 @@ cleanup_legacy_configs() {
         rm -f "${HOME}/.agents/AGENTS.md"
         echo "Removed empty legacy file: ~/.agents/AGENTS.md"
     fi
+
+    # Remove the pre-rename binary + skill dirs. Without this, an agent
+    # that indexed ``~/.claude/skills/openlucid-cli`` before the rename
+    # would keep seeing stale tool metadata pointing at the missing
+    # ``openlucid-cli`` binary.
+    if [ -f "${HOME}/.local/bin/openlucid-cli" ]; then
+        rm -f "${HOME}/.local/bin/openlucid-cli"
+        echo "Removed legacy binary: ~/.local/bin/openlucid-cli"
+    fi
+    for skill_root in "${HOME}/.claude/skills" "${HOME}/.agents/skills" \
+                      "${HOME}/.cursor/skills" "${HOME}/.hermes/skills"; do
+        if [ -d "${skill_root}/openlucid-cli" ]; then
+            rm -rf "${skill_root}/openlucid-cli"
+            echo "Removed legacy skill dir: ${skill_root}/openlucid-cli"
+        fi
+    done
 }
 
 cleanup_legacy_configs
@@ -127,14 +143,14 @@ fi
 
 echo ""
 echo "=== Next steps ==="
-echo "  openlucid-cli setup           # Configure server URL and authenticate"
-echo "  openlucid-cli list-merchants  # Verify it works"
+echo "  openlucid setup           # Configure server URL and authenticate"
+echo "  openlucid list-merchants  # Verify it works"
 echo ""
 echo "Skills installed:"
-echo "  Claude Code : ~/.claude/skills/openlucid-cli/SKILL.md"
-echo "  Shared      : ~/.agents/skills/openlucid-cli/SKILL.md"
-echo "  Cursor      : ~/.cursor/skills/openlucid-cli/SKILL.md"
-echo "  Hermes      : ~/.hermes/skills/openlucid-cli/SKILL.md"
+echo "  Claude Code : ~/.claude/skills/openlucid/SKILL.md"
+echo "  Shared      : ~/.agents/skills/openlucid/SKILL.md"
+echo "  Cursor      : ~/.cursor/skills/openlucid/SKILL.md"
+echo "  Hermes      : ~/.hermes/skills/openlucid/SKILL.md"
 echo ""
 echo "OpenLucid now uses skill-based agent discovery."
 echo ""
