@@ -156,3 +156,17 @@ class BrandKitAssetRole(str, Enum):
     PERSONA_REFERENCE = "persona_reference"
     STYLE_REFERENCE = "style_reference"
     NEGATIVE_REFERENCE = "negative_reference"
+
+
+class BrandKitColorRole(str, Enum):
+    PRIMARY = "primary"
+    SECONDARY = "secondary"
+    TERTIARY = "tertiary"
+    ACCENT = "accent"
+    CUSTOM = "custom"
+
+
+class BrandKitFontRole(str, Enum):
+    TITLE = "title"
+    BODY = "body"
+    CUSTOM = "custom"

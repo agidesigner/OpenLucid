@@ -162,27 +162,12 @@ def _aspect_to_canvas(aspect_ratio: AspectRatio) -> tuple[int, int, int, int, in
     return (1080, 1080, 0, 0, 1080, 1080)
 
 
-# Three subtitle presets — each has genuinely different CHARACTER, not just color.
-# Fields: color, stroke_color, stroke_width, size_boost (added to base font),
-#         y_ratio (vertical position as fraction of canvas height)
-SUBTITLE_STYLES: dict[str, dict[str, Any]] = {
-    "classic": {
-        # Standard — white on black outline, normal size, bottom 82%
-        "color": "#FFFFFF", "stroke_color": "#000000",
-        "stroke_width": 8, "size_boost": 0, "y_ratio": 0.82,
-    },
-    "bold": {
-        # Impact — yellow, larger, thicker outline, positioned slightly higher (78%)
-        # so the bigger text doesn't get cropped in safe zone
-        "color": "#FFE033", "stroke_color": "#1A1A1A",
-        "stroke_width": 10, "size_boost": 6, "y_ratio": 0.78,
-    },
-    "minimal": {
-        # Understated — light gray, smaller, thin stroke, lower (86%)
-        "color": "#E8E8E8", "stroke_color": "#555555",
-        "stroke_width": 4, "size_boost": -4, "y_ratio": 0.86,
-    },
-}
+# Subtitle presets live in ``subtitle_styles.py`` now so the B-roll compositor
+# and this provider-side burn-in share the exact same style configuration.
+from app.adapters.video.subtitle_styles import (
+    compute_font_size,
+    resolve_style,
+)
 
 
 def _subtitle_config(
@@ -201,15 +186,13 @@ def _subtitle_config(
     if not show:
         return {"show": False}
 
-    preset = SUBTITLE_STYLES.get(style, SUBTITLE_STYLES["classic"])
-
+    style_params = resolve_style(style, color_override, stroke_override)
     canvas_w, canvas_h, *_ = _aspect_to_canvas(aspect_ratio)
     text_w = int(canvas_w * 0.9)
     text_x = (canvas_w - text_w) // 2
-    text_y = int(canvas_h * preset["y_ratio"])
+    text_y = int(canvas_h * style_params["y_ratio"])
     text_h = int(canvas_h * 0.12)
-    base_font = 48 if canvas_h >= 1920 else 40
-    font_size = base_font + preset["size_boost"]
+    font_size = compute_font_size(aspect_ratio, style)
 
     return {
         "show": True,
@@ -218,9 +201,9 @@ def _subtitle_config(
         "width": text_w,
         "height": text_h,
         "font_size": font_size,
-        "color": color_override or preset["color"],
-        "stroke_color": stroke_override or preset["stroke_color"],
-        "stroke_width": preset["stroke_width"],
+        "color": style_params["color"],
+        "stroke_color": style_params["stroke_color"],
+        "stroke_width": style_params["stroke_width"],
     }
 
 

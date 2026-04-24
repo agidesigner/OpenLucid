@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Float, String, Text
+from sqlalchemy import Float, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -9,6 +9,12 @@ from app.models.base import BaseModel
 
 class KnowledgeItem(BaseModel):
     __tablename__ = "knowledge_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "scope_type", "scope_id", "knowledge_type", "title",
+            name="uq_knowledge_title",
+        ),
+    )
 
     scope_type: Mapped[str] = mapped_column(String(32), nullable=False)
     scope_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)

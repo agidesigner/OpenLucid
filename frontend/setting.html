@@ -473,7 +473,11 @@
                       x-text="editingId ? t('edit_provider') : t('add_provider_title')"></h3>
                 </div>
 
-                <div class="px-6 py-5 space-y-4 overflow-y-auto">
+                <!-- ``form @submit.prevent`` silences Chrome's "Password
+                     field is not contained in a form" DOM warning and gives
+                     password managers the right structural cue; actual
+                     submission is still handled by the explicit button below. -->
+                <form @submit.prevent class="px-6 py-5 space-y-4 overflow-y-auto">
                   <!-- Provider type -->
                   <div>
                     <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('provider_type')"></label>
@@ -498,7 +502,7 @@
                     <div class="relative" x-data="{ show: true }">
                       <input :type="show ? 'text' : 'password'"
                              x-model="form.api_key"
-                             :placeholder="form.api_key_masked || PROVIDER_PRESETS[form.provider]?.key_hint || 'sk-...'"
+                             :placeholder="PROVIDER_PRESETS[form.provider]?.key_hint || 'sk-...'"
                              @input="onApiKeyInput()"
                              autocomplete="off"
                              class="w-full border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
@@ -592,7 +596,7 @@
                     <span x-show="validateStatus === 'ok'" x-text="t('validate_ok')"></span>
                     <span x-show="validateStatus === 'error'" x-text="validateError || t('validate_error')"></span>
                   </div>
-                </div>
+                </form>
 
                 <!-- Footer actions (sticky) -->
                 <div class="px-6 py-4 border-t border-gray-100 shrink-0 flex items-center gap-3">
@@ -897,10 +901,10 @@
                         <span class="text-gray-400 w-16 shrink-0" x-text="t('mp_label')"></span>
                         <span class="font-medium text-gray-700" x-text="getConfigByProvider(meta.key).label"></span>
                       </div>
-                      <template x-for="(masked, key) in getConfigByProvider(meta.key).credentials_masked" :key="key">
+                      <template x-for="(val, key) in getConfigByProvider(meta.key).credentials" :key="key">
                         <div class="flex items-baseline gap-2">
                           <span class="text-gray-400 w-16 shrink-0 font-mono" x-text="key"></span>
-                          <span class="font-mono text-gray-600" x-text="masked"></span>
+                          <span class="font-mono text-gray-600" x-text="maskCred(val)"></span>
                         </div>
                       </template>
                       <div class="flex items-baseline gap-2 pt-1 border-t border-gray-200">
@@ -986,7 +990,10 @@
                 <p class="text-xs text-gray-400 mb-5"
                    x-text="editingId ? t('mp_modal_edit_subtitle') : t('mp_modal_add_subtitle')"></p>
 
-                <div class="space-y-4">
+                <!-- ``form @submit.prevent`` silences Chrome's "Password
+                     field is not contained in a form" warning; submission
+                     is handled by the explicit Save button below. -->
+                <form @submit.prevent class="space-y-4">
                   <!-- Label -->
                   <div>
                     <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('mp_label')"></label>
@@ -1001,16 +1008,23 @@
                       <div>
                         <label class="block text-xs font-medium text-gray-500 mb-1.5">App ID</label>
                         <input type="text" x-model="form.app_id"
-                               :placeholder="editingId ? t('mp_keep_unchanged') : 'cj_xxxxxxx'"
+                               placeholder="cj_xxxxxxx"
                                autocomplete="off"
                                class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
                       </div>
                       <div>
                         <label class="block text-xs font-medium text-gray-500 mb-1.5">Secret Key</label>
-                        <input type="password" x-model="form.secret_key"
-                               :placeholder="editingId ? t('mp_keep_unchanged') : '••••••••••'"
-                               autocomplete="off"
-                               class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                        <div class="relative" x-data="{ show: false }">
+                          <input :type="show ? 'text' : 'password'" x-model="form.secret_key"
+                                 placeholder="••••••••••"
+                                 autocomplete="off"
+                                 class="w-full border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                          <button type="button" @click="show = !show"
+                                  class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors">
+                            <svg x-show="show" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
+                            <svg x-show="!show" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </template>
@@ -1019,10 +1033,17 @@
                   <template x-if="form.provider === 'jogg'">
                     <div>
                       <label class="block text-xs font-medium text-gray-500 mb-1.5">API Key</label>
-                      <input type="password" x-model="form.api_key"
-                             :placeholder="editingId ? t('mp_keep_unchanged') : 'jogg-xxxx...'"
-                             autocomplete="off"
-                             class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                      <div class="relative" x-data="{ show: false }">
+                        <input :type="show ? 'text' : 'password'" x-model="form.api_key"
+                               placeholder="jogg-xxxx..."
+                               autocomplete="off"
+                               class="w-full border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                        <button type="button" @click="show = !show"
+                                class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors">
+                          <svg x-show="show" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
+                          <svg x-show="!show" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                        </button>
+                      </div>
                     </div>
                   </template>
 
@@ -1033,7 +1054,7 @@
                     <span x-show="validateStatus === 'ok'" x-text="t('mp_validate_ok')"></span>
                     <span x-show="validateStatus === 'error'" x-text="validateError || t('mp_validate_error')"></span>
                   </div>
-                </div>
+                </form>
 
                 <div class="flex items-center gap-3 mt-6 pt-4 border-t border-gray-100">
                   <button @click="validateConnection()"
@@ -1952,6 +1973,16 @@
           return this.providers.find(p => p.provider === provider) || null;
         },
 
+        // Display-only mask: summary card shows ``••••••••xxxx`` even though
+        // the API now returns plaintext. Keeps the at-a-glance view tidy
+        // while the edit modal still pre-fills the raw value.
+        maskCred(val) {
+          const s = String(val || '');
+          if (!s) return '';
+          if (s.length <= 4) return '••••';
+          return '••••••••' + s.slice(-4);
+        },
+
         formatDefaults(cfg) {
           const d = cfg.defaults || {};
           const parts = [];
@@ -1980,12 +2011,15 @@
           this.editingId = cfg.id;
           this.validateStatus = '';
           this.validateError = '';
+          // Plaintext credentials come back in the list response — pre-fill
+          // the form directly. UI masks via type=password + eye toggle.
+          const c = cfg.credentials || {};
           this.form = {
             provider: cfg.provider,
             label: cfg.label,
-            app_id: '',
-            secret_key: '',
-            api_key: '',
+            app_id: c.app_id || '',
+            secret_key: c.secret_key || '',
+            api_key: c.api_key || '',
           };
           this.showForm = true;
         },
@@ -2195,7 +2229,7 @@
         formSaving: false,
         validateStatus: '',
         validateError: '',
-        form: { label: '', provider: 'openai', api_key: '', base_url: '', model_name: '', api_key_masked: '' },
+        form: { label: '', provider: 'openai', api_key: '', base_url: '', model_name: '' },
 
         // Scene model config state
         showSceneModal: false,
@@ -2442,11 +2476,13 @@
           this.fetchModelsError = '';
           if (cfg) {
             this.editingId = cfg.id;
+            // Plaintext ``api_key`` comes back in the list response — no
+            // extra fetch needed. UI masks it via type=password + eye
+            // toggle; users can edit directly without re-typing.
             this.form = {
               label: cfg.label,
               provider: cfg.provider,
-              api_key: '',
-              api_key_masked: cfg.api_key_masked || '',
+              api_key: cfg.api_key || '',
               base_url: cfg.base_url,
               model_name: cfg.model_name,
             };
@@ -2459,7 +2495,7 @@
           } else {
             this.editingId = null;
             const preset = PROVIDER_PRESETS.openai;
-            this.form = { label: '', provider: 'openai', api_key: '', api_key_masked: '', base_url: preset.base_url, model_name: '' };
+            this.form = { label: '', provider: 'openai', api_key: '', base_url: preset.base_url, model_name: '' };
           }
           this.showForm = true;
         },
@@ -2703,8 +2739,16 @@
 
         async loadCapabilityView() {
           if (!this.llmConfigs.length) await this.loadLLMConfigs();
+          // One silent retry after 1s covers the common "user refreshed
+          // right when the container restarted" window — fetch throws
+          // ``TypeError: Failed to fetch`` during the few seconds where
+          // uvicorn isn't accepting connections yet.
           try { await this._loadSceneAndMediaState(); }
-          catch (e) { console.error('loadCapabilityView failed', e); }
+          catch (e1) {
+            await new Promise(r => setTimeout(r, 1000));
+            try { await this._loadSceneAndMediaState(); }
+            catch (e2) { console.error('loadCapabilityView failed', e2); }
+          }
         },
 
         applyTextLlmDefaultInline() {

@@ -9,6 +9,22 @@ import json
 import re
 from typing import Any
 
+
+def format_brand_voice_layer(brand_voice: str | None, language: str = "zh-CN") -> str:
+    """Return a BRAND layer block ready to concatenate onto a system prompt,
+    or ``""`` when no voice is configured. Uses the same header wording as
+    ``script_composer``'s Layer 6 so all three generation paths (script,
+    topic, kb_qa) render a consistent "Brand Voice Override" section.
+
+    Callers just do ``system += format_brand_voice_layer(voice, lang)`` —
+    zero check needed when voice is empty.
+    """
+    if not brand_voice or not brand_voice.strip():
+        return ""
+    is_en = language.startswith("en")
+    header = "## Brand Voice Override" if is_en else "## 品牌语气覆盖"
+    return f"\n\n---\n\n{header}\n{brand_voice.strip()}"
+
 # ── Shared label maps ───────────────────────────────────────────────
 
 KNOWLEDGE_TYPE_LABELS_ZH: dict[str, str] = {

@@ -827,25 +827,9 @@
                   <a :href="'/brandkit.html?id=' + offerBrandKit.id"
                      class="text-sm text-accent hover:text-accent-hover font-medium" x-text="t('tab_brandkit') + ' &rarr;'"></a>
                 </div>
-                <!-- Summary of profile fields -->
-                <div class="grid grid-cols-2 gap-3 text-sm">
-                  <div class="p-3 bg-gray-50 rounded-lg">
-                    <div class="text-xs text-gray-400 mb-1" x-text="t('style_profile')"></div>
-                    <div x-text="offerBrandKit.style_profile_json ? t('configured') : t('not_configured')" :class="offerBrandKit.style_profile_json ? 'text-green-600' : 'text-gray-300'"></div>
-                  </div>
-                  <div class="p-3 bg-gray-50 rounded-lg">
-                    <div class="text-xs text-gray-400 mb-1" x-text="t('product_visual')"></div>
-                    <div x-text="offerBrandKit.product_visual_profile_json ? t('configured') : t('not_configured')" :class="offerBrandKit.product_visual_profile_json ? 'text-green-600' : 'text-gray-300'"></div>
-                  </div>
-                  <div class="p-3 bg-gray-50 rounded-lg">
-                    <div class="text-xs text-gray-400 mb-1" x-text="t('visual_rules')"></div>
-                    <div x-text="(offerBrandKit.visual_do_json || offerBrandKit.visual_dont_json) ? t('configured') : t('not_configured')" :class="(offerBrandKit.visual_do_json || offerBrandKit.visual_dont_json) ? 'text-green-600' : 'text-gray-300'"></div>
-                  </div>
-                  <div class="p-3 bg-gray-50 rounded-lg">
-                    <div class="text-xs text-gray-400 mb-1" x-text="t('reference_prompt')"></div>
-                    <div x-text="offerBrandKit.reference_prompt_json ? t('configured') : t('not_configured')" :class="offerBrandKit.reference_prompt_json ? 'text-green-600' : 'text-gray-300'"></div>
-                  </div>
-                </div>
+                <!-- Brand voice preview -->
+                <div class="text-sm text-gray-600 bg-gray-50 rounded-lg p-3"
+                     x-text="offerBrandKit.brand_voice ? (offerBrandKit.brand_voice.length > 200 ? offerBrandKit.brand_voice.slice(0, 200) + '…' : offerBrandKit.brand_voice) : t('no_description')"></div>
               </div>
             </template>
             <template x-if="!offerBrandKit">

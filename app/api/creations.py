@@ -73,3 +73,21 @@ async def delete_creation(creation_id: uuid.UUID, db: AsyncSession = Depends(get
     svc = CreationService(db)
     await svc.delete(creation_id)
     await db.commit()
+
+
+@router.post("/{creation_id}/regenerate-broll-plan")
+async def regenerate_broll_plan(
+    creation_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Ask the LLM for a fresh ``broll_plan`` while keeping the script text
+    untouched. Persists the new plan onto ``creation.structured_content`` so
+    the Generate Video modal (which deep-copies from there) picks it up.
+    """
+    svc = CreationService(db)
+    creation = await svc.regenerate_broll_plan(creation_id)
+    await db.commit()
+    await db.refresh(creation)
+    return {
+        "broll_plan": (creation.structured_content or {}).get("broll_plan", []),
+    }

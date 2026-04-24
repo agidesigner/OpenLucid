@@ -40,20 +40,6 @@ REQUIRED_CREDENTIAL_KEYS: dict[str, tuple[str, ...]] = {
 # ── Helpers ─────────────────────────────────────────────────────────
 
 
-def _mask_value(value: str) -> str:
-    if not value:
-        return ""
-    if len(value) <= 4:
-        return "••••"
-    return "••••••••" + value[-4:]
-
-
-def _mask_credentials(provider: str, credentials: dict) -> dict[str, str]:
-    """Return a dict with the same keys as the original, values masked."""
-    keys = REQUIRED_CREDENTIAL_KEYS.get(provider, tuple(credentials.keys()))
-    return {k: _mask_value(str(credentials.get(k, ""))) for k in keys}
-
-
 def _validate_credentials_shape(provider: str, credentials: dict) -> None:
     """Raise AppError if required keys are missing or empty."""
     required = REQUIRED_CREDENTIAL_KEYS.get(provider)
@@ -73,11 +59,15 @@ def _validate_credentials_shape(provider: str, credentials: dict) -> None:
 
 
 def _to_response(config: MediaProviderConfig) -> MediaProviderConfigResponse:
+    # Only return the keys the provider actually expects — keeps legacy
+    # fields (from old schemas) out of the response surface.
+    required_keys = REQUIRED_CREDENTIAL_KEYS.get(config.provider) or tuple((config.credentials or {}).keys())
+    credentials = {k: str((config.credentials or {}).get(k, "")) for k in required_keys}
     return MediaProviderConfigResponse(
         id=str(config.id),
         provider=config.provider,
         label=config.label,
-        credentials_masked=_mask_credentials(config.provider, config.credentials or {}),
+        credentials=credentials,
         defaults=MediaProviderDefaults(**(config.defaults or {})),
         is_active=config.is_active,
     )

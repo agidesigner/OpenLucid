@@ -51,7 +51,7 @@ def test_response_schema_is_permissive():
         id=str(uuid.uuid4()),
         provider="anything_goes",
         label="x",
-        credentials_masked={},
+        credentials={},
         defaults={},  # type: ignore[arg-type]
         is_active=True,
     )

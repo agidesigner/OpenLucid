@@ -5,7 +5,6 @@ import logging
 import time
 from typing import AsyncIterator
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.ai import AIAdapter, OpenAICompatibleAdapter, _extract_thinking, get_ai_adapter
@@ -13,8 +12,6 @@ from app.adapters.prompt_builder import format_asset_context, format_knowledge_f
 from app.application.context_service import ContextService
 from app.application.script_composer import compose_system_prompt
 from app.infrastructure.strategy_unit_repo import StrategyUnitRepository
-from app.libs.lang_detect import detect_text_language, matches as lang_matches
-from app.models.merchant import Merchant
 from app.models.offer import Offer
 from app.schemas.app import ScriptWriterRequest
 
@@ -99,6 +96,98 @@ def _build_user_message(
     return "\n".join(parts)
 
 
+def _sanitize_broll_plan(raw_plan, sections: dict, section_ids: list[str]) -> list[dict]:
+    """Enforce the broll_plan schema the composer prompt asks for.
+
+    The LLM routinely:
+    - Writes ``insert_after_char`` as a Chinese/English sentence (the
+      narration it wants the cut to land over) instead of an int.
+    - Sets ``duration_seconds`` outside the 5-10 range (often 3 or 15).
+    - Skips ``type``, producing untagged entries.
+
+    Without sanitization these break the compositor downstream — some get
+    coerced at Generate-Video time, others silently drop. Fix them once,
+    here, at persist time, so ``creation.structured_content.broll_plan``
+    stays clean and every downstream call can rely on it.
+
+    Returns a list of entries each with:
+      {type: "retention"|"illustrative", insert_after_char: int,
+       duration_seconds: int (5-10), prompt: str}
+    """
+    if not isinstance(raw_plan, list):
+        return []
+
+    narration = "".join((sections.get(sid) or {}).get("text", "") for sid in section_ids)
+    narration_len = len(narration)
+    sanitized: list[dict] = []
+
+    for entry in raw_plan:
+        if not isinstance(entry, dict):
+            continue
+
+        # ── type ─────────────────────────────────────────────────
+        t = str(entry.get("type") or "illustrative").strip().lower()
+        if t not in ("retention", "illustrative"):
+            t = "illustrative"
+
+        # ── insert_after_char ───────────────────────────────────
+        pos = entry.get("insert_after_char", 0)
+        if isinstance(pos, bool):
+            pos = 0  # bool is a subclass of int; guard against accidental True/False
+        if isinstance(pos, int):
+            resolved = pos
+        elif isinstance(pos, float):
+            resolved = int(pos)
+        elif isinstance(pos, str):
+            needle = pos.strip()
+            # Try pure-digit first
+            if needle.isdigit():
+                resolved = int(needle)
+            elif narration and needle:
+                # Substring match — the LLM probably wrote the narration
+                # excerpt it wants the cut to land after
+                idx = narration.find(needle)
+                if idx >= 0:
+                    resolved = idx + len(needle)
+                else:
+                    continue  # unresolvable — drop this entry
+            else:
+                continue
+        else:
+            continue
+        # Clamp to narration range
+        if narration_len > 0:
+            resolved = max(0, min(resolved, narration_len))
+        else:
+            resolved = max(0, resolved)
+
+        # ── duration_seconds ────────────────────────────────────
+        dur_raw = entry.get("duration_seconds")
+        try:
+            dur = int(dur_raw) if dur_raw is not None else (5 if t == "retention" else 6)
+        except (ValueError, TypeError):
+            dur = 5 if t == "retention" else 6
+        dur = max(5, min(dur, 10))
+        if t == "retention":
+            dur = 5  # spec-enforced: retention always 5s
+
+        # ── prompt ───────────────────────────────────────────────
+        prompt = str(entry.get("prompt") or "").strip()
+        if not prompt:
+            continue  # no prompt means nothing to render — drop
+
+        sanitized.append({
+            "type": t,
+            "insert_after_char": resolved,
+            "duration_seconds": dur,
+            "prompt": prompt,
+        })
+
+    # Sort by insert position so downstream consumers see narration order
+    sanitized.sort(key=lambda e: e["insert_after_char"])
+    return sanitized
+
+
 def _normalize_structured_content(raw: dict, platform, structure) -> dict:
     """Ensure structured JSON from LLM conforms to our schema. Best-effort."""
     sections_raw = raw.get("sections") or {}
@@ -128,7 +217,9 @@ def _normalize_structured_content(raw: dict, platform, structure) -> dict:
     if platform.is_video and raw.get("estimated_total_seconds"):
         result["estimated_total_seconds"] = raw["estimated_total_seconds"]
     if platform.is_video and raw.get("broll_plan"):
-        result["broll_plan"] = raw["broll_plan"]
+        result["broll_plan"] = _sanitize_broll_plan(
+            raw["broll_plan"], sections, structure.section_ids,
+        )
     if not platform.is_video and raw.get("metadata"):
         result["metadata"] = raw["metadata"]
     return result
@@ -359,16 +450,13 @@ class ScriptWriterService:
             })
             kb_sample_parts.append((k.title or "") + " " + content)
 
-        # KB-centric language: if the caller didn't manually pick a
-        # language in the UI, follow the KB's detected content language.
-        # script-writer.html exposes a picker and sets language_override
-        # when the user flips it; content-studio/kb-qa have no picker and
-        # always let the KB win.
+        # KB-centric language rule: if ``request.language`` is set the
+        # caller explicitly picked; otherwise follow the KB's detected
+        # content language.
         from app.libs.lang_detect import resolve_output_language
         request.language = resolve_output_language(
             request.language,
             " ".join(kb_sample_parts[:_MAX_KNOWLEDGE_ITEMS]),
-            manual_override=getattr(request, "language_override", False),
             caller="script_writer",
         )
 
@@ -438,12 +526,14 @@ class ScriptWriterService:
         ])
 
         if use_composer:
+            brand_voice = await ctx_service.resolve_brand_voice(request.offer_id)
             system_prompt, platform, structure = compose_system_prompt(
                 platform_id=request.platform_id,
                 persona_id=request.persona_id,
                 goal_id=request.goal_id or request.goal,
                 structure_id=request.structure_id,
                 language=request.language,
+                brand_tone=brand_voice,
             )
         else:
             # Legacy path: use system_prompt from request (or built-in default)
@@ -546,7 +636,7 @@ class ScriptWriterService:
         offer_id: str,
         strategy_unit_id: str | None = None,
         goal: str = "reach_growth",
-        language: str = "zh-CN",
+        language: str | None = None,
         config_id: str | None = None,
     ) -> str:
         """Use LLM to suggest a topic based on knowledge base + strategy context."""
@@ -574,17 +664,12 @@ class ScriptWriterService:
             })
             kb_raw_sample.append((k.title or "") + " " + content)
 
-        # The caller's `language` reflects the UI locale, not the KB's.
-        # A Chinese UI + English KB produced jarring zh topics that cited
-        # English knowledge. Let the content speak for itself: detect the
-        # dominant language of the sampled KB text and prefer that.
-        detected = detect_text_language(" ".join(kb_raw_sample[:_MAX_KNOWLEDGE_ITEMS]))
-        effective_language = detected or language
-        if detected and not lang_matches(language, detected):
-            logger.info(
-                "suggest_topic: UI language=%s but KB content detected as %s — following KB",
-                language, detected,
-            )
+        # Presence-of-language rule (matches _prepare): explicit wins, else KB.
+        from app.libs.lang_detect import resolve_output_language
+        effective_language = resolve_output_language(
+            language, " ".join(kb_raw_sample[:_MAX_KNOWLEDGE_ITEMS]),
+            caller="suggest_topic",
+        )
         is_en = effective_language.startswith("en")
 
         knowledge_text = format_knowledge_flat(
@@ -618,29 +703,46 @@ class ScriptWriterService:
             system = (
                 "You are a creative short-video content planner. "
                 "Suggest ONE specific, compelling topic for a spoken-word video script. "
-                "Return ONLY the topic text, nothing else — no quotes, no explanation."
+                "Return ONLY the topic text, nothing else — no quotes, no explanation. "
+                "**Output language: English.** Even if the knowledge base below contains "
+                "Chinese phrases or mixed content, your topic MUST be written in English."
             )
+            # Dual-anchor the language directive (top + bottom of the user
+            # message) — previous runs saw the LLM mirror the KB's dominant
+            # language when instructions lived only in the system prompt,
+            # producing Chinese topics for English KBs with Chinese-named
+            # products or mixed KB entries.
             user = (
+                "OUTPUT LANGUAGE: English. Do not produce any Chinese characters.\n\n"
                 f"Product: {offer_name}\n"
                 f"Goal: {goal_en}\n"
                 f"{strategy_text}\n{knowledge_text}\n{asset_text}\n\n"
                 "Based on the product info, knowledge base, and goal above, "
                 "suggest one specific, creative topic for a short video script. "
-                "Be concrete — not generic. Output the topic only."
+                "Be concrete — not generic. Output the topic only.\n\n"
+                "Reminder: output the topic in English only."
             )
         else:
             system = (
                 "你是一位短视频内容策划专家。"
                 "根据提供的信息，推荐一个具体的、有吸引力的口播选题。"
                 "只返回选题文字本身，不要加引号、不要解释。"
+                "**输出语言：中文。** 即便知识库里混有英文片段，输出的选题也必须是中文。"
             )
             user = (
+                "输出语言：中文。选题中不得出现英文整句。\n\n"
                 f"商品：{offer_name}\n"
                 f"内容目标：{goal_zh}\n"
                 f"{strategy_text}\n{knowledge_text}\n{asset_text}\n\n"
                 "根据以上商品信息、知识库和目标，推荐一个具体的、有创意的口播选题。"
-                "要具体，不要泛泛而谈。只输出选题本身。"
+                "要具体，不要泛泛而谈。只输出选题本身。\n\n"
+                "提醒：选题只用中文输出。"
             )
+
+        # Brand voice overlay — keeps the single-topic suggestion on-brand.
+        from app.adapters.prompt_builder import format_brand_voice_layer
+        brand_voice = await ctx_service.resolve_brand_voice(_uuid.UUID(offer_id))
+        system += format_brand_voice_layer(brand_voice, effective_language)
 
         if isinstance(self.ai, OpenAICompatibleAdapter):
             # Use streaming to collect the response — non-streaming can return empty content

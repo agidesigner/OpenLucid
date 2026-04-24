@@ -8,7 +8,15 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    fonts-noto-cjk \
+    fonts-noto-core \
     && rm -rf /var/lib/apt/lists/*
+# fonts-noto-cjk gives the ffmpeg drawtext filter a font that can actually
+# render CJK characters for the B-roll subtitle overlay. Without it, the
+# compositor's ``drawtext=font=Noto Sans CJK SC`` falls through fontconfig
+# to ffmpeg's built-in Latin-only font and every Chinese char renders as
+# tofu boxes. The avatar provider burns its own subtitles server-side so
+# that path was unaffected — only the B-roll section was broken.
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

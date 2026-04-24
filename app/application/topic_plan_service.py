@@ -41,16 +41,14 @@ class TopicPlanService:
         logger.info("Topic Studio: context ready, %d knowledge items, %d assets", ki_count, asset_count)
 
         # KB-centric language: override request.language with the KB's
-        # detected content language unless the caller manually picked.
+        # Presence-of-language rule: explicit API value wins, else KB.
         from app.libs.lang_detect import resolve_output_language
         kb_sample = " ".join(
             (k.get("title") or "") + " " + ((k.get("content_raw") or "")[:500])
             for k in context_dict.get("knowledge_items", [])[:15]
         )
         request.language = resolve_output_language(
-            request.language, kb_sample,
-            manual_override=getattr(request, "language_override", False),
-            caller="topic_studio",
+            request.language, kb_sample, caller="topic_studio",
         )
 
         # 2. Build strategy unit context if provided
@@ -108,7 +106,8 @@ class TopicPlanService:
         logger.info("Topic Studio: dedup=%d existing (%s), %d liked, %d disliked",
                      len(existing_titles), request.language, len(liked_topics), len(disliked_topics))
 
-        # 4. Generate plans via AI adapter
+        # 4. Generate plans via AI adapter (with brand voice overlay if set)
+        brand_voice = await ctx_service.resolve_brand_voice(request.offer_id)
         raw_plans = await self.ai.generate_topic_plans(
             offer_context=context_dict,
             count=request.count,
@@ -119,6 +118,7 @@ class TopicPlanService:
             liked_titles=liked_topics or None,
             disliked_titles=disliked_topics or None,
             user_instruction=request.instruction,
+            brand_voice=brand_voice,
         )
 
         logger.info("Topic Studio: generated %d plans", len(raw_plans))

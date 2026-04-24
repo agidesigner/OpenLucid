@@ -246,6 +246,7 @@ class AIAdapter(ABC):
         liked_titles: list[dict[str, str]] | None = None,
         disliked_titles: list[dict[str, str]] | None = None,
         user_instruction: str | None = None,
+        brand_voice: str | None = None,
     ) -> list[dict[str, Any]]:
         """Generate topic plan candidates. Each dict should contain:
         title, angle, hook, key_points, target_audience, target_scenario,
@@ -282,19 +283,26 @@ class AIAdapter(ABC):
         knowledge_items: list[dict[str, Any]],
         style_prompt: str,
         language: str = "zh-CN",
+        brand_voice: str | None = None,
     ) -> dict[str, Any]:
         """Answer a question strictly based on provided knowledge items.
         Returns {answer, referenced_titles: [str], has_relevant_knowledge: bool}."""
 
     @abstractmethod
-    async def extract_brandkit_profiles(self, text: str, language: str = "zh-CN") -> dict[str, Any]:
-        """Extract brand specification profiles from text (website/document content).
-        Returns dict with 7 profile fields, each value is a JSON-serializable object or null."""
-
-    @abstractmethod
     async def infer_offer_model(self, name: str, description: str, offer_type: str) -> str:
         """Infer the offer_model (delivery sub-type) from offer name, description and type.
         Returns one of: physical_product, digital_product, local_service, professional_service, package, solution."""
+
+    @abstractmethod
+    async def suggest_brand_voice(self, text: str, language: str = "zh-CN") -> str:
+        """Given a brand document (PPT/PDF/website text), produce a 3-5 paragraph
+        description of the brand's voice: tone, register, signature phrases,
+        banned words, narrator stance. Returns plain text — callers drop this
+        into ``brandkits.brand_voice`` and/or the composer's BRAND layer.
+
+        Unlike the dropped ``extract_brandkit_profiles`` method, this does NOT
+        try to enumerate visual style fields; voice is what text generation
+        consumes, so voice is all we extract."""
 
 
 class StubAIAdapter(AIAdapter):
@@ -319,6 +327,7 @@ class StubAIAdapter(AIAdapter):
         liked_titles: list[dict[str, str]] | None = None,
         disliked_titles: list[dict[str, str]] | None = None,
         user_instruction: str | None = None,
+        brand_voice: str | None = None,  # stub ignores — deterministic templates
     ) -> list[dict[str, Any]]:
         offer = offer_context.get("offer", {})
         offer_name = offer.get("name", "Product")
@@ -410,6 +419,7 @@ class StubAIAdapter(AIAdapter):
         knowledge_items: list[dict[str, Any]],
         style_prompt: str,
         language: str = "zh-CN",
+        brand_voice: str | None = None,  # stub ignores — deterministic echo
     ) -> dict[str, Any]:
         is_en = language.startswith("en")
         if not knowledge_items:
@@ -426,9 +436,6 @@ class StubAIAdapter(AIAdapter):
             "has_relevant_knowledge": True,
         }
 
-    async def extract_brandkit_profiles(self, text: str, language: str = "zh-CN") -> dict[str, Any]:
-        raise RuntimeError("NO_LLM_CONFIGURED")
-
     async def infer_offer_model(self, name: str, description: str, offer_type: str) -> str:
         mapping = {
             "product": "physical_product",
@@ -437,6 +444,9 @@ class StubAIAdapter(AIAdapter):
             "solution": "solution",
         }
         return mapping.get(offer_type, "physical_product")
+
+    async def suggest_brand_voice(self, text: str, language: str = "zh-CN") -> str:
+        raise RuntimeError("NO_LLM_CONFIGURED")
 
     async def infer_knowledge(
         self, offer_data: dict[str, Any], language: str = "zh-CN", user_hint: str | None = None,
@@ -728,6 +738,7 @@ class OpenAICompatibleAdapter(AIAdapter):
         liked_titles: list[dict[str, str]] | None = None,
         disliked_titles: list[dict[str, str]] | None = None,
         user_instruction: str | None = None,
+        brand_voice: str | None = None,
     ) -> list[dict[str, Any]]:
         offer = offer_context.get("offer", {})
         offer_name = offer.get("name", "商品")
@@ -870,11 +881,17 @@ Generate {count} topic plans that honor the Creative Brief above. The brief shou
 {asset_text}
 {self._format_existing_titles(existing_titles, is_en)}{self._format_rated_titles(liked_titles, disliked_titles, is_en)}{tail}"""
 
+        # Brand voice overlay — applied to system prompt so the LLM's choice of
+        # words/tone for titles + hooks reflects the brand, not generic virality.
+        from app.adapters.prompt_builder import format_brand_voice_layer
+        system += format_brand_voice_layer(brand_voice, language)
+
         logger.info(
-            "Generating %d topic plans for offer '%s'%s via %s",
+            "Generating %d topic plans for offer '%s'%s via %s%s",
             count, offer_name,
             f" (strategy_unit={su.get('name', su.get('id', ''))})" if su else "",
             self.provider,
+            " [+brand_voice]" if brand_voice else "",
         )
 
         result = await self._chat(system, user)
@@ -975,14 +992,18 @@ Generate {count} topic plans that honor the Creative Brief above. The brief shou
         knowledge_items: list[dict[str, Any]],
         style_prompt: str,
         language: str = "zh-CN",
+        brand_voice: str | None = None,
     ) -> dict[str, Any]:
         import time as _time
+        from app.adapters.prompt_builder import format_brand_voice_layer
         t0 = _time.monotonic()
 
         system = self._build_kb_qa_prompt(knowledge_items, style_prompt, language=language)
+        system += format_brand_voice_layer(brand_voice, language)
 
-        logger.info("KB QA: system_prompt='%s…', knowledge=%d items",
-                     system[:200], len(knowledge_items))
+        logger.info("KB QA: system_prompt='%s…', knowledge=%d items%s",
+                     system[:200], len(knowledge_items),
+                     " [+brand_voice]" if brand_voice else "")
 
         result = await self._chat(system, question, temperature=0.3)
         elapsed = _time.monotonic() - t0
@@ -1212,67 +1233,55 @@ Return JSON: {"title": "...", "content_structured": {"key": "value"}, "confidenc
 
         yield ("result", parsed)
 
-    async def extract_brandkit_profiles(self, text: str, language: str = "zh-CN") -> dict[str, Any]:
-        # Truncate to ~8000 chars to fit context window
+    async def suggest_brand_voice(self, text: str, language: str = "zh-CN") -> str:
+        # Cap source text — a brand PPT / "about us" page is rarely useful
+        # beyond the first 8000 chars, and the output is a fixed-size voice
+        # description either way.
         text = text[:8000]
         is_en = language.startswith("en")
 
-        lang_instruction = "Write all profile descriptions in English." if is_en else "所有描述内容使用中文。"
+        if is_en:
+            system = (
+                "You are a senior brand strategist. From the brand document below, "
+                "write a 3-5 paragraph Brand Voice specification that a copywriter "
+                "or AI content tool can apply directly. Cover, in order:\n"
+                "1. Tone and register (warm / clinical / self-deprecating / authoritative — pick ONE dominant).\n"
+                "2. Narrator stance — first person (we / I), third person, or product-facing. Which pronouns.\n"
+                "3. Sentence rhythm and structure — short punchy? Long flowing? Mix?\n"
+                "4. Signature words or phrases this brand uses. Banned words / jargon this brand refuses.\n"
+                "5. Opening moves and CTAs the brand tends to reach for.\n\n"
+                "Rules:\n"
+                "- Be specific. 'Professional yet approachable' is useless; "
+                "'First-person plural, never says synergy or ecosystem, opens with a customer quote' is useful.\n"
+                "- No bullet lists in your output — write in cohesive paragraphs that feel like briefing a writer.\n"
+                "- Output the voice spec only. No preface, no labels like 'Brand Voice:'.\n"
+                "- Write in English."
+            )
+            user = f"Brand document:\n\n{text}\n\nWrite the Brand Voice specification:"
+        else:
+            system = (
+                "你是资深品牌策略师。基于下方品牌资料，写一份 3-5 段的"
+                "「品牌语气说明」(Brand Voice)，让文案或 AI 内容工具能直接套用。按顺序覆盖：\n"
+                "1. 调性与语域（温暖 / 冷静 / 自嘲 / 权威——锁定 1 种主导调性）。\n"
+                "2. 叙述视角——第一人称（我们/我）、第三人称、还是物为主语？用什么代称？\n"
+                "3. 句子节奏——短促有力？长句铺陈？混合？\n"
+                "4. 品牌常用签名词/短语；品牌拒绝使用的黑话/禁用词。\n"
+                "5. 品牌偏好的开场套路与 CTA 话术。\n\n"
+                "规则：\n"
+                "- 要具体。「专业又亲切」等于没说；「第一人称复数，从不说 '赋能/闭环/抓手'，"
+                "常以用户场景开头」才有用。\n"
+                "- 不要用 bullet 列表；写成连贯的段落，像在给文案写作者口头交代。\n"
+                "- 只输出品牌语气说明本身。不要加前言，不要写「品牌语气：」这种标签。\n"
+                "- 用中文撰写。"
+            )
+            user = f"品牌资料：\n\n{text}\n\n请写品牌语气说明："
 
-        system = f"""You are a brand visual specification expert. Based on the provided text (company website content or brand document), extract brand visual guidelines and populate the following 7 fields.
-
-Each field should be a natural-language description (not nested JSON) — be specific and actionable:
-
-1. style_profile_json — Brand identity & visual style
-   Overall brand tone, primary/secondary colors, mood keywords, typography preferences, etc.
-
-2. product_visual_profile_json — Product visual guidelines
-   Product photography angles, backgrounds, lighting, composition, props, etc.
-
-3. service_scene_profile_json — Service scene guidelines
-   Environment, atmosphere, human interaction style for service scenarios.
-
-4. persona_profile_json — Character/persona guidelines
-   On-screen talent appearance, attire, expression, gestures, demographic traits.
-
-5. visual_do_json — Recommended visual expressions
-   Recommended visual techniques, compositions, color combinations.
-
-6. visual_dont_json — Prohibited visual expressions
-   Visual elements, styles, or expressions to avoid.
-
-7. reference_prompt_json — Reference prompt templates
-   Ready-to-use prompts for AI image/video generation.
-
-Rules:
-- Return a strict JSON object with the 7 keys above
-- Each value is a plain text string (not a nested JSON object)
-- Set fields to null if they cannot be inferred from the text
-- {lang_instruction}
-- Return JSON only, no other text"""
-
-        user = f"{'Extract brand visual guidelines from the following text' if is_en else '请从以下文本中提取品牌视觉规范信息'}:\n\n{text}"
-
-        logger.info("Extracting brandkit profiles via %s, text length=%d", self.provider, len(text))
-
-        result = await self._chat(system, user, temperature=0.4)
-        thinking, clean_result = _extract_thinking(result)
-        try:
-            parsed = self._parse_json_response(clean_result)
-        except (json.JSONDecodeError, ValueError):
-            logger.error("Failed to parse brandkit extract response: %s", clean_result[:500])
-            raise RuntimeError("Failed to parse AI response, please retry" if is_en else "AI 返回的内容无法解析，请重试")
-
-        # Ensure all 7 keys exist
-        profile_keys = [
-            "style_profile_json", "product_visual_profile_json", "service_scene_profile_json",
-            "persona_profile_json", "visual_do_json", "visual_dont_json", "reference_prompt_json",
-        ]
-        for key in profile_keys:
-            if key not in parsed:
-                parsed[key] = None
-
-        return parsed
+        logger.info("Suggesting brand voice via %s (text_len=%d)", self.provider, len(text))
+        # 0.5 — balanced between creative voice description and consistency
+        # with the source. Default 0.8 produced too-fanciful voice specs.
+        result = await self._chat(system, user, temperature=0.5, max_tokens=2048)
+        _, clean = _extract_thinking(result)
+        return clean.strip()
 
     async def infer_offer_model(self, name: str, description: str, offer_type: str) -> str:
         from app.domain.enums import OfferModel

@@ -149,3 +149,109 @@ class CreationService:
         ok = await self.repo.delete(creation_id)
         if not ok:
             raise NotFoundError("Creation", str(creation_id))
+
+    async def regenerate_broll_plan(self, creation_id: uuid.UUID) -> Creation:
+        """Ask the LLM to propose a new ``broll_plan`` for this creation's
+        existing script. Re-uses the composer's shot-design rules so the new
+        plan follows the same distribution discipline. Persists the sanitized
+        result onto ``structured_content.broll_plan``.
+
+        Script text / structure_id / platform_id stay unchanged — only the
+        broll_plan array is replaced. Users hit this when the current plan
+        doesn't match their taste and they'd rather not rewrite the script.
+        """
+        import json
+        from app.adapters.ai import OpenAICompatibleAdapter, get_ai_adapter
+        from app.application.script_writer_service import _sanitize_broll_plan
+
+        creation = await self.get(creation_id)
+        sc = dict(creation.structured_content or {})
+        sections = sc.get("sections") or {}
+        section_ids = sc.get("section_ids") or list(sections.keys())
+        if not sections or not section_ids:
+            raise AppError("This creation has no script sections to plan B-roll over")
+
+        narration = "".join((sections.get(sid) or {}).get("text", "") for sid in section_ids)
+        total_chars = len(narration)
+        est_seconds = sc.get("estimated_total_seconds") or max(20, int(total_chars / 5))
+
+        # Target shot count per composer rules
+        if est_seconds < 30:
+            target_count = 2
+        elif est_seconds < 60:
+            target_count = 3
+        elif est_seconds < 90:
+            target_count = 4
+        else:
+            target_count = 5
+
+        from app.libs.lang_detect import detect_text_language
+        detected = detect_text_language(narration[:2000])
+        is_en = (detected == "en")
+
+        if is_en:
+            system = (
+                "You are an AI director. Given a script, propose a B-roll plan that "
+                "keeps the 8-12 second visual-change cadence. Output STRICT JSON: "
+                "a single array where each item has these fields:\n"
+                "  - type: \"retention\" (first item, position 0, 5s opener) "
+                "or \"illustrative\" (5-7s cutaways)\n"
+                "  - insert_after_char: INTEGER character offset in the concatenated narration (0 to total length)\n"
+                "  - duration_seconds: INTEGER 5-10\n"
+                "  - prompt: concrete scene description for AI image/video gen (avoid faces)\n"
+                f"Total narration length: {total_chars} characters. "
+                f"Estimated video duration: {est_seconds} seconds. "
+                f"Target shot count: {target_count} (1 retention + {target_count-1} illustrative). "
+                "Adjacent illustrative insert_after_char values must differ by no more than 60 chars. "
+                "DO NOT place B-roll inside the final CTA section. "
+                "Output JSON array only — no prose, no code fences."
+            )
+            user = f"Narration:\n{narration}"
+        else:
+            system = (
+                "你是 AI 编导。根据下方口播文案，规划一套 B-roll 分镜，保持 8-12 秒一次视觉变化的节奏。"
+                "输出严格 JSON：一个数组，每项包含：\n"
+                "  - type：首项必须 \"retention\"（位置 0，5 秒开场留人），其余为 \"illustrative\"（5-7 秒插入）\n"
+                "  - insert_after_char：整数字符位（0 到口播总字数之间），"
+                "不得是中文句子或描述性短语\n"
+                "  - duration_seconds：整数 5-10\n"
+                "  - prompt：具体的 AI 可生成画面场景描述（避免人脸）\n"
+                f"口播总字数：{total_chars}。预估视频时长：{est_seconds} 秒。目标分镜数：{target_count}"
+                f"（1 retention + {target_count-1} illustrative）。"
+                "相邻 illustrative 的 insert_after_char 差不得超过 60。"
+                "最后 CTA 段不要放 B-roll。只输出 JSON 数组，不加任何说明或 ``` 代码块。"
+            )
+            user = f"口播全文：\n{narration}"
+
+        adapter = await get_ai_adapter(self.session, scene_key="script_writer")
+        if not isinstance(adapter, OpenAICompatibleAdapter):
+            raise AppError("LLM not configured")
+
+        # Higher temperature so repeated clicks produce varied plans.
+        raw = await adapter._chat(system, user, temperature=1.0)
+        from app.adapters.ai import _extract_thinking
+        _, clean = _extract_thinking(raw)
+        try:
+            parsed = adapter._parse_json_response(clean)
+        except Exception:
+            # Last-ditch: maybe the LLM wrapped in {"broll_plan": [...]}
+            try:
+                obj = json.loads(clean)
+                parsed = obj.get("broll_plan") if isinstance(obj, dict) else obj
+            except Exception as e:
+                raise AppError(f"Could not parse LLM output: {str(e)[:100]}")
+
+        if isinstance(parsed, dict):
+            parsed = parsed.get("broll_plan") or []
+
+        sanitized = _sanitize_broll_plan(parsed, sections, section_ids)
+        if not sanitized:
+            raise AppError("LLM produced no valid B-roll entries")
+
+        sc["broll_plan"] = sanitized
+        # repo.update returns the (flushed, still-in-session) row already
+        # carrying the new structured_content — no need to re-SELECT.
+        updated = await self.repo.update(creation_id, structured_content=sc)
+        if not updated:
+            raise NotFoundError("Creation", str(creation_id))
+        return updated

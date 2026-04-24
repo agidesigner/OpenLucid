@@ -21,6 +21,13 @@ class VideoGenerateRequest(BaseModel):
     subtitle_color: str | None = None   # custom font color override, e.g. "#FFD700"
     subtitle_stroke: str | None = None  # custom stroke color override, e.g. "#000000"
     broll: bool = False  # auto-generate B-roll from visual_direction
+    # Optional override for the B-roll plan. When ``None`` the service uses
+    # the AI-director's plan stored on creation.structured_content.broll_plan.
+    # Set only when the user edited/added B-roll entries in the UI — each
+    # entry matches the schema emitted by script_composer:
+    #   {"type": "retention"|"illustrative", "insert_after_char": int,
+    #    "duration_seconds": int, "prompt": str}
+    broll_plan: list[dict] | None = None
     name: str | None = None  # used by Jogg only
     # Opaque provider-specific hints captured from the avatar/voice list payload
     # (e.g. Chanjing requires `{"figure_type": "sit_body"|...}`).

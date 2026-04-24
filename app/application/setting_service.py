@@ -30,18 +30,12 @@ from app.schemas.setting import (
 )
 
 
-def _mask_key(api_key: str) -> str:
-    if len(api_key) <= 4:
-        return "••••"
-    return "••••••••" + api_key[-4:]
-
-
 def _to_response(config: LLMConfig) -> LLMConfigResponse:
     return LLMConfigResponse(
         id=str(config.id),
         label=config.label,
         provider=config.provider,
-        api_key_masked=_mask_key(config.api_key),
+        api_key=config.api_key,
         base_url=config.base_url,
         model_name=config.model_name,
         is_active=config.is_active,
@@ -150,9 +144,18 @@ async def get_scene_configs(db: AsyncSession, language: str = "zh-CN") -> LLMSce
         return pick_label(MODEL_TYPE_LABELS.get(mt, mt), language)
 
     sections: list[SceneSection] = []
+    # Guard against duplicate scene_keys (would trip Alpine x-for's
+    # :key uniqueness check). Caused a "Duplicate key" warning when
+    # ``asset_tagging`` was registered both as a system scene and an
+    # app scene — kept here even after that fix so a future addition
+    # can't silently re-introduce the same bug.
+    seen_keys: set[str] = set()
 
     # System scenes first
     for scene_key, sys_def in SYSTEM_SCENES.items():
+        if scene_key in seen_keys:
+            continue
+        seen_keys.add(scene_key)
         model_configs = []
         for mt in sys_def["model_types"]:
             row = rows.get((scene_key, mt))
@@ -177,6 +180,9 @@ async def get_scene_configs(db: AsyncSession, language: str = "zh-CN") -> LLMSce
     for app in AppRegistry.list_apps():
         if app.status != "active":
             continue
+        if app.app_id in seen_keys:
+            continue
+        seen_keys.add(app.app_id)
         localized_app = app.localized(app_lang)
         model_configs = []
         for mt in localized_app.required_model_types:

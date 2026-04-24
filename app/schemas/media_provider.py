@@ -48,7 +48,9 @@ class MediaProviderConfigResponse(BaseModel):
     id: str
     provider: str
     label: str
-    credentials_masked: dict[str, str]
+    # Plaintext credentials returned so the edit modal can pre-fill
+    # without a second round-trip. Same rationale as LLMConfigResponse.
+    credentials: dict[str, str]
     defaults: MediaProviderDefaults
     is_active: bool
 

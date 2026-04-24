@@ -104,14 +104,11 @@ class KBQAService:
         ranked = _rank_knowledge(request.question, all_items)
         knowledge_items = ranked[:_MAX_KNOWLEDGE_ITEMS]
 
-        # KB-centric language: override request.language with detected
-        # content language unless the caller explicitly picked in UI.
+        # Presence-of-language rule: explicit API value wins, else KB.
         from app.libs.lang_detect import resolve_output_language
         kb_sample = " ".join((k.get("title") or "") + " " + (k.get("content_raw") or "") for k in knowledge_items)
         request.language = resolve_output_language(
-            request.language, kb_sample,
-            manual_override=getattr(request, "language_override", False),
-            caller="kb_qa",
+            request.language, kb_sample, caller="kb_qa",
         )
 
         type_counts = {}
@@ -124,17 +121,19 @@ class KBQAService:
         style = STYLE_TEMPLATES.get(request.style_id) or STYLE_TEMPLATES[DEFAULT_STYLE_ID]
         logger.info("KB QA: style=%s, lang=%s, question=\"%s\"", request.style_id, request.language, request.question[:80])
 
-        return self.ai, knowledge_items, all_items, style.system_prompt_prefix, context
+        brand_voice = await ctx_service.resolve_brand_voice(request.offer_id)
+        return self.ai, knowledge_items, all_items, style.system_prompt_prefix, context, brand_voice
 
     async def ask(self, request: KBQAAskRequest) -> KBQAAskResponse:
         t0 = time.monotonic()
-        adapter, knowledge_items, all_items, style_prompt, context = await self._prepare(request)
+        adapter, knowledge_items, all_items, style_prompt, context, brand_voice = await self._prepare(request)
 
         result = await adapter.answer_from_knowledge(
             question=request.question,
             knowledge_items=knowledge_items,
             style_prompt=style_prompt,
             language=request.language,
+            brand_voice=brand_voice,
         )
 
         elapsed = time.monotonic() - t0
@@ -166,7 +165,7 @@ class KBQAService:
         from app.adapters.ai import OpenAICompatibleAdapter
 
         t0 = time.monotonic()
-        adapter, knowledge_items, all_items, style_prompt, context = await self._prepare(request)
+        adapter, knowledge_items, all_items, style_prompt, context, brand_voice = await self._prepare(request)
 
         # Non-streaming adapters (StubAIAdapter) fall back to non-stream
         if not isinstance(adapter, OpenAICompatibleAdapter):
@@ -175,11 +174,14 @@ class KBQAService:
                 knowledge_items=knowledge_items,
                 style_prompt=style_prompt,
                 language=request.language,
+                brand_voice=brand_voice,
             )
             yield f"event: result\ndata: {json.dumps(result, ensure_ascii=False)}\n\n"
             return
 
+        from app.adapters.prompt_builder import format_brand_voice_layer
         system = adapter._build_kb_qa_prompt(knowledge_items, style_prompt, language=request.language)
+        system += format_brand_voice_layer(brand_voice, request.language)
 
         # Stream tokens from LLM, detecting <think>...</think> boundaries
         full_output = ""

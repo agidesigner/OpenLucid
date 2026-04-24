@@ -13,9 +13,12 @@ MODEL_TYPE_LABELS: dict[str, tuple[str, str]] = {
 }
 
 # System-level scenes (not tied to any app). label is (zh, en).
+# ``asset_tagging`` is intentionally NOT here — it's registered as an
+# app (see app/apps/definitions/asset_tagging.md), and including it in
+# both places produced duplicate SceneSection entries with the same
+# scene_key in the API response (Alpine x-for duplicate-key warning).
 SYSTEM_SCENES: dict[str, dict] = {
     "knowledge":        {"label": ("知识库建设",   "Knowledge Base"),     "icon": "📚", "model_types": ["text_llm"]},
-    "asset_tagging":    {"label": ("素材打标",     "Asset Tagging"),      "icon": "🏷️", "model_types": ["vision_llm"]},
     "brandkit_extract": {"label": ("品牌规范提取", "Brand Kit Extraction"), "icon": "🎨", "model_types": ["text_llm"]},
 }
 
@@ -117,10 +120,16 @@ class LLMConfigUpdate(BaseModel):
 
 
 class LLMConfigResponse(BaseModel):
+    """Response exposes the plaintext ``api_key`` so the edit form can
+    pre-fill without a second round-trip. Rationale: this is a self-hosted
+    single-user product where DB access already equals full access (see
+    feedback_deployment_discipline memory); hiding the key in the list
+    response while leaving it in the DB adds bugs, not security."""
+
     id: str
     label: str
     provider: str
-    api_key_masked: str
+    api_key: str
     base_url: str
     model_name: str
     is_active: bool

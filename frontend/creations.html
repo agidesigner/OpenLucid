@@ -403,6 +403,9 @@
                       <span class="text-[11px] text-gray-400" x-text="job.provider"></span>
                       <span x-show="job.progress != null" class="text-[11px] text-gray-400" x-text="`${job.progress}%`"></span>
                       <span x-show="job.duration_seconds" class="text-[11px] text-gray-400" x-text="`${job.duration_seconds}s`"></span>
+                      <span x-show="job.created_at" class="text-[11px] text-gray-400"
+                            :title="new Date(job.created_at).toLocaleString()"
+                            x-text="formatRelative(job.created_at)"></span>
                     </div>
                     <p x-show="job.error_message" class="text-[11px] text-red-600 mt-1 break-words" x-text="job.error_message"></p>
                     <div class="flex items-center gap-3 mt-2">
@@ -475,22 +478,11 @@
               <textarea x-model="videoModal.form.script" rows="5"
                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
                         :placeholder="t('vg_script_placeholder')"></textarea>
-              <template x-if="videoModal.creation?.structured_content?.sections">
-                <details class="mt-2">
-                  <summary class="text-[11px] text-gray-400 cursor-pointer hover:text-gray-600 select-none flex items-center gap-1">
-                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                    <span x-text="t('vg_visual_dir_label')"></span>
-                  </summary>
-                  <div class="mt-2 space-y-1.5 pl-1">
-                    <template x-for="[sid, sec] in Object.entries(videoModal.creation.structured_content.sections)" :key="sid">
-                      <div x-show="sec.visual_direction" class="text-[11px] text-gray-400">
-                        <span class="font-medium text-gray-500 uppercase" x-text="sid + ': '"></span>
-                        <span class="italic" x-text="sec.visual_direction"></span>
-                      </div>
-                    </template>
-                  </div>
-                </details>
-              </template>
+              <!-- Visual Direction (per-section) used to live here as a
+                   read-only Phase-1 preview. The video pipeline never read
+                   it — the editable B-roll plan below is the only UI that
+                   actually shapes the generated B-roll. Removed to stop
+                   confusing users who saw two different shot listings. -->
             </div>
 
             <!-- ── Primary: Avatar (the one real decision — highest visual weight) ── -->
@@ -624,16 +616,81 @@
             <div class="space-y-2">
               <!-- B-roll (conditional — only when structured_content has visual_direction) -->
               <template x-if="videoModal.creation?.structured_content?.sections && Object.values(videoModal.creation.structured_content.sections).some(s => s.visual_direction)">
-                <label class="flex items-start gap-2 text-sm text-gray-600 cursor-pointer rounded-lg border border-gray-200 hover:border-gray-300 px-3 py-2.5 transition-colors">
-                  <input type="checkbox" x-model="videoModal.form.broll" class="accent-accent w-4 h-4 mt-0.5">
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-2 flex-wrap">
-                      <span class="font-medium" x-text="t('vg_broll_label')"></span>
-                      <span class="text-[11px] text-gray-400 font-normal" x-text="t('vg_broll_time_suffix')"></span>
+                <div class="space-y-2">
+                  <label class="flex items-start gap-2 text-sm text-gray-600 cursor-pointer rounded-lg border border-gray-200 hover:border-gray-300 px-3 py-2.5 transition-colors">
+                    <input type="checkbox" x-model="videoModal.form.broll" class="accent-accent w-4 h-4 mt-0.5">
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <span class="font-medium" x-text="t('vg_broll_label')"></span>
+                        <span class="text-[11px] text-gray-400 font-normal" x-text="t('vg_broll_time_suffix')"></span>
+                      </div>
+                      <p class="text-[11px] text-gray-400 mt-0.5" x-text="t('vg_broll_desc')"></p>
                     </div>
-                    <p class="text-[11px] text-gray-400 mt-0.5" x-text="t('vg_broll_desc')"></p>
+                  </label>
+
+                  <!-- B-roll editor: shows when the toggle is on -->
+                  <div x-show="videoModal.form.broll" x-cloak
+                       class="ml-7 mr-0 border border-gray-200 rounded-lg bg-gray-50/60 p-3 space-y-3">
+                    <div class="flex items-center justify-between gap-2 flex-wrap">
+                      <div class="text-[11px] text-gray-500">
+                        <span x-text="t('vg_broll_editor_label')"></span>
+                        <span class="text-gray-400">
+                          — <span x-text="brollTotalNarrationChars()"></span>
+                          <span x-text="t('vg_broll_chars')"></span>
+                        </span>
+                      </div>
+                      <div class="flex items-center gap-3">
+                        <button type="button" @click="brollRegeneratePlan()"
+                                :disabled="brollRegenerating"
+                                class="text-[11px] text-gray-500 hover:text-accent font-medium flex items-center gap-1 disabled:opacity-50">
+                          <svg class="w-3 h-3" :class="brollRegenerating ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                          <span x-text="brollRegenerating ? t('vg_broll_regenerating') : t('vg_broll_regenerate')"></span>
+                        </button>
+                        <button type="button" @click="brollAddShot()"
+                                class="text-[11px] text-accent hover:text-accent-hover font-medium flex items-center gap-1">
+                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                          <span x-text="t('vg_broll_add_shot')"></span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <template x-if="(videoModal.form.broll_plan || []).length === 0">
+                      <p class="text-[11px] text-gray-400 italic" x-text="t('vg_broll_empty_hint')"></p>
+                    </template>
+
+                    <template x-for="(shot, idx) in videoModal.form.broll_plan" :key="idx">
+                      <div class="bg-white border border-gray-200 rounded-lg p-2.5 space-y-2">
+                        <div class="flex items-center gap-2 text-[11px]">
+                          <select x-model="shot.type"
+                                  class="border border-gray-200 rounded px-1.5 py-0.5 text-[11px] bg-white">
+                            <option value="retention" x-text="t('vg_broll_type_retention')"></option>
+                            <option value="illustrative" x-text="t('vg_broll_type_illustrative')"></option>
+                          </select>
+                          <span class="text-gray-400" x-text="t('vg_broll_insert_after')"></span>
+                          <input type="number" min="0" :max="brollTotalNarrationChars()"
+                                 x-model.number="shot.insert_after_char"
+                                 class="border border-gray-200 rounded px-1.5 py-0.5 text-[11px] w-16 bg-white">
+                          <span class="text-gray-400" x-text="t('vg_broll_duration')"></span>
+                          <input type="number" min="2" max="15"
+                                 x-model.number="shot.duration_seconds"
+                                 class="border border-gray-200 rounded px-1.5 py-0.5 text-[11px] w-14 bg-white">
+                          <span class="text-gray-400">s</span>
+                          <!-- Preview: the VO keyword this shot will land next to -->
+                          <span class="text-[10px] text-gray-400 truncate flex-1 text-right"
+                                :title="brollContextAt(shot.insert_after_char)"
+                                x-text="brollContextAt(shot.insert_after_char)"></span>
+                          <button type="button" @click="videoModal.form.broll_plan.splice(idx, 1)"
+                                  class="text-gray-300 hover:text-red-500 shrink-0">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                          </button>
+                        </div>
+                        <textarea x-model="shot.prompt" rows="2"
+                                  :placeholder="t('vg_broll_prompt_placeholder')"
+                                  class="w-full text-[12px] border border-gray-200 rounded px-2 py-1.5 leading-snug focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent resize-y bg-white"></textarea>
+                      </div>
+                    </template>
                   </div>
-                </label>
+                </div>
               </template>
               <!-- Caption -->
               <div class="flex items-center gap-2 rounded-lg border border-gray-200 hover:border-gray-300 px-3 py-2.5 transition-colors">
@@ -935,6 +992,8 @@
           // Submission feedback
           flashJobId: '',         // briefly highlight a newly-submitted job
         },
+        // ── B-roll regenerate state ──
+        brollRegenerating: false,
 
         // Video lightbox player
         videoPlayer: { open: false, url: '', poster: '', downloadUrl: '' },
@@ -1306,6 +1365,12 @@
             subtitle_color: '',
             subtitle_stroke: '',
             broll: false,
+            // Deep-clone the AI director's plan so edits here don't mutate
+            // the stored creation.structured_content.broll_plan.
+            broll_plan: (() => {
+              const plan = creation?.structured_content?.broll_plan;
+              return Array.isArray(plan) ? JSON.parse(JSON.stringify(plan)) : [];
+            })(),
             script: this._extractNarration(creation),
           };
 
@@ -1407,9 +1472,145 @@
           setTimeout(() => { if (!this.videoPlayer.open) this.videoPlayer.url = ''; }, 300);
         },
 
+        // ── B-roll editor helpers ─────────────────────────────────────
+        //
+        // The AI director writes ``creation.structured_content.broll_plan``
+        // when generating the script (see script_composer.py). Here we let
+        // users review + tweak that plan before hitting Generate, and add
+        // extra shots guided by the rules the composer itself uses:
+        //   • retention — at char 0, 5s, visually striking opener
+        //   • illustrative — after a concrete noun/beat in the narration,
+        //     5-6s, placed so gaps stay ≤ 8-12s of VO
+        //   • CTA section (last) — skip B-roll, keep avatar face-to-camera
+
+        _brollNarrationText() {
+          // Concatenation order must match the server's rendering so
+          // insert_after_char means the same thing on both sides.
+          const sc = this.videoModal.creation?.structured_content;
+          if (!sc?.sections) return '';
+          const order = sc.section_ids || Object.keys(sc.sections);
+          return order
+            .map(id => (sc.sections[id]?.text || '').trim())
+            .filter(Boolean)
+            .join('');
+        },
+
+        brollTotalNarrationChars() {
+          return this._brollNarrationText().length;
+        },
+
+        brollContextAt(charPos) {
+          // Show a short slice of VO around the insert point so the user
+          // sees which line this shot will cut over. ~20 chars radius.
+          const text = this._brollNarrationText();
+          if (!text) return '';
+          const pos = Math.max(0, Math.min(Number(charPos) || 0, text.length));
+          const start = Math.max(0, pos - 10);
+          const end = Math.min(text.length, pos + 10);
+          const pre = text.slice(start, pos);
+          const post = text.slice(pos, end);
+          return `…${pre}│${post}…`;
+        },
+
+        async brollRegeneratePlan() {
+          // Ask the server to propose a fresh broll_plan for this creation.
+          // Server re-sanitizes + persists, we just repoint the form.
+          if (this.brollRegenerating || !this.videoModal.creation?.id) return;
+          this.brollRegenerating = true;
+          try {
+            const r = await fetch(
+              `/api/v1/creations/${this.videoModal.creation.id}/regenerate-broll-plan`,
+              { method: 'POST' },
+            );
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) {
+              throw new Error(data.detail || data.error || r.statusText);
+            }
+            this.videoModal.form.broll_plan = (data.broll_plan || [])
+              .map(s => ({ ...s }));  // shallow clone per row
+            // Also update the in-memory creation so subsequent re-opens see
+            // the fresh plan without a full reload.
+            if (this.videoModal.creation.structured_content) {
+              this.videoModal.creation.structured_content.broll_plan = data.broll_plan;
+            }
+          } catch (e) {
+            toast.error(e.message || String(e));
+          } finally {
+            this.brollRegenerating = false;
+          }
+        },
+
+        brollAddShot() {
+          // Director heuristic — pick insert_after_char such that the new
+          // shot lands in the largest currently-unpadded gap (keeps the
+          // 8-12s visual-change rhythm the composer aims for). Ties break
+          // toward the earlier gap so openings stay punchy.
+          const plan = this.videoModal.form.broll_plan || [];
+          const total = this.brollTotalNarrationChars();
+          if (!total) {
+            // No narration yet — add an empty placeholder at 0
+            plan.push({ type: 'illustrative', insert_after_char: 0, duration_seconds: 5, prompt: '' });
+            this.videoModal.form.broll_plan = plan;
+            return;
+          }
+
+          // Reserve the tail (last ~30 chars = CTA) — director rule: no
+          // B-roll on CTA. Clamp search range to [0, total - 30].
+          const searchEnd = Math.max(0, total - 30);
+
+          // Collect existing positions (clamped) plus boundaries [0, searchEnd].
+          const anchors = [0, searchEnd];
+          for (const s of plan) {
+            const p = Number(s.insert_after_char);
+            if (!Number.isFinite(p)) continue;
+            if (p >= 0 && p <= searchEnd) anchors.push(p);
+          }
+          anchors.sort((a, b) => a - b);
+          // Dedup
+          const uniq = [...new Set(anchors)];
+
+          // Largest gap between consecutive anchors — midpoint wins.
+          let bestSpan = -1, bestMid = Math.floor(searchEnd / 2);
+          for (let i = 0; i < uniq.length - 1; i++) {
+            const span = uniq[i + 1] - uniq[i];
+            if (span > bestSpan) {
+              bestSpan = span;
+              bestMid = Math.round((uniq[i] + uniq[i + 1]) / 2);
+            }
+          }
+          // If everything is crowded (no meaningful gap), default to
+          // section-boundary — first uncovered section beginning.
+          if (bestSpan < 30) {
+            const sc = this.videoModal.creation?.structured_content;
+            const order = (sc?.section_ids || Object.keys(sc?.sections || {}));
+            let cursor = 0;
+            for (const id of order) {
+              const text = (sc?.sections?.[id]?.text || '').trim();
+              const boundary = cursor;
+              cursor += text.length;
+              const taken = plan.some(s => Math.abs((s.insert_after_char || 0) - boundary) < 5);
+              if (!taken && boundary <= searchEnd) { bestMid = boundary; break; }
+            }
+          }
+
+          plan.push({
+            type: plan.length === 0 ? 'retention' : 'illustrative',
+            insert_after_char: plan.length === 0 ? 0 : bestMid,
+            duration_seconds: plan.length === 0 ? 5 : 6,
+            prompt: '',
+          });
+          // Re-sort so the UI reads in narration order.
+          plan.sort((a, b) => (a.insert_after_char || 0) - (b.insert_after_char || 0));
+          this.videoModal.form.broll_plan = plan;
+        },
+
         _extractNarration(creation) {
           // Extract TTS-ready narration from structured_content when available.
           // Uses section_ids for correct order (JSONB doesn't preserve key order).
+          // Join with a single newline: Jogg's TTS turns ``\n\n`` into a ~3.5s
+          // paragraph pause (audible dead air at hook→body transitions), while
+          // ``\n`` produces a normal sentence-break pause (~0.5-1s). Sections
+          // already end in punctuation so no speech-flow information is lost.
           const sc = creation.structured_content;
           if (sc && sc.sections && typeof sc.sections === 'object') {
             const order = sc.section_ids || Object.keys(sc.sections);
@@ -1418,7 +1619,7 @@
               .filter(Boolean)
               .map(s => (s.text || '').trim())
               .filter(Boolean);
-            if (lines.length) return lines.join('\n\n');
+            if (lines.length) return lines.join('\n');
           }
           return creation.content || '';
         },
@@ -1624,6 +1825,11 @@
               subtitle_color: m.form.subtitle_color || undefined,
               subtitle_stroke: m.form.subtitle_stroke || undefined,
               broll: m.form.broll || false,
+              // Send the edited plan when broll is enabled; service falls
+              // back to creation.structured_content.broll_plan otherwise.
+              ...(m.form.broll && Array.isArray(m.form.broll_plan) && m.form.broll_plan.length
+                ? { broll_plan: m.form.broll_plan }
+                : {}),
               name: this.videoModal.creation?.title || null,
               provider_extras: (avatar && avatar.extras) || {},
             };

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import NotFoundError
 from app.infrastructure.asset_repo import AssetRepository
+from app.infrastructure.brandkit_repo import BrandKitRepository
 from app.infrastructure.knowledge_repo import KnowledgeItemRepository
 from app.infrastructure.merchant_repo import MerchantRepository
 from app.infrastructure.offer_repo import OfferRepository
@@ -26,6 +27,24 @@ class ContextService:
         self.offer_repo = OfferRepository(session)
         self.knowledge_repo = KnowledgeItemRepository(session)
         self.asset_repo = AssetRepository(session)
+        self.brandkit_repo = BrandKitRepository(session)
+
+    async def resolve_brand_voice(self, offer_id: uuid.UUID) -> str | None:
+        """Look up the brand_voice string that should overlay content generation
+        for this offer. Prefers the offer-scoped brandkit; falls back to the
+        merchant-scoped kit. Returns ``None`` when no kit has one — callers
+        (e.g. script_composer) omit the BRAND layer entirely in that case.
+        """
+        offer = await self.offer_repo.get_by_id(offer_id)
+        if not offer:
+            return None
+        offer_kit = await self.brandkit_repo.get_by_scope("offer", offer_id)
+        if offer_kit and (offer_kit.brand_voice or "").strip():
+            return offer_kit.brand_voice
+        merchant_kit = await self.brandkit_repo.get_by_scope("merchant", offer.merchant_id)
+        if merchant_kit and (merchant_kit.brand_voice or "").strip():
+            return merchant_kit.brand_voice
+        return None
 
     async def get_offer_context(self, offer_id: uuid.UUID) -> OfferContextSummary:
         # Load offer + merchant

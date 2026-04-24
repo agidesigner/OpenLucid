@@ -132,9 +132,14 @@ class TestHtmlValidatorsStripped:
                 )
             return response
 
+        # Resolve the frontend path relative to this file so the test works
+        # both on the host and inside the Docker container (`/app/frontend/`).
+        from pathlib import Path
+        _INDEX = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
+
         @app.get("/html")
         async def _h():
-            return FileResponse("/Users/ajin/aitools/opendirector/frontend/index.html")
+            return FileResponse(str(_INDEX))
 
         return TestClient(app)
 

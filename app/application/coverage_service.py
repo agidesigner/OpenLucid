@@ -178,23 +178,29 @@ class CoverageService:
         asset_data = {r[0]: r[1] for r in asset_rows}
 
         # 5. Merchant-level BrandKit (scope_type='merchant')
+        # Scoring rubric for brandkit (max 15 points, unchanged):
+        #   +8 — kit exists
+        #   +4 — brand_voice text OR any color/font defined (textual or visual spec)
+        #   +3 — at least one asset link (reference images / logo)
         bk_row = (await session.execute(text(
-            "SELECT COUNT(DISTINCT bk.id), "
-            "BOOL_OR(bk.style_profile_json IS NOT NULL "
-            "  OR bk.product_visual_profile_json IS NOT NULL "
-            "  OR bk.persona_profile_json IS NOT NULL), "
-            "COUNT(DISTINCT bal.id) "
+            "SELECT COUNT(DISTINCT bk.id) AS kit_count, "
+            "BOOL_OR(NULLIF(TRIM(bk.brand_voice), '') IS NOT NULL) AS has_voice, "
+            "COUNT(DISTINCT bc.id) AS color_count, "
+            "COUNT(DISTINCT bf.id) AS font_count, "
+            "COUNT(DISTINCT bal.id) AS asset_count "
             "FROM brandkits bk "
             "LEFT JOIN brandkit_asset_links bal ON bal.brandkit_id = bk.id "
+            "LEFT JOIN brandkit_colors bc ON bc.brandkit_id = bk.id "
+            "LEFT JOIN brandkit_fonts bf ON bf.brandkit_id = bk.id "
             "WHERE bk.scope_type = 'merchant' AND bk.scope_id = :mid"
         ), {"mid": merchant_id})).fetchone()
 
         brandkit_score = 0
         if bk_row and bk_row[0] > 0:
             brandkit_score += 8
-            if bk_row[1]:
+            if bk_row[1] or bk_row[2] > 0 or bk_row[3] > 0:  # has_voice OR colors OR fonts
                 brandkit_score += 4
-            if bk_row[2] > 0:
+            if bk_row[4] > 0:  # asset_count
                 brandkit_score += 3
 
         # Compute per-offer scores (max 85)

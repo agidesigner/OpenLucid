@@ -28,19 +28,17 @@
   <script src="/js/feedback.js"></script>
   <script src="/js/shared.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <!-- Curated Google Fonts for the brand-kit font picker. Loaded upfront so
+       each option in the dropdown renders in its own typeface. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alice&family=Playfair+Display:wght@400;600&family=Libre+Baskerville&family=Cormorant+Garamond:wght@400;600&family=Prata&family=DM+Serif+Display&family=Bodoni+Moda:wght@400;600&family=Merriweather:wght@400;700&family=PT+Serif&family=Roboto+Slab:wght@400;600&family=Inter:wght@400;600&family=Poppins:wght@400;600&family=Montserrat:wght@400;600&family=Oswald:wght@400;600&family=Bebas+Neue&family=Lato:wght@400;700&family=Open+Sans:wght@400;600&family=IBM+Plex+Sans:wght@400;600&family=Noto+Sans+SC:wght@400;700&family=Noto+Serif+SC:wght@400;700&family=ZCOOL+XiaoWei&display=swap" rel="stylesheet">
   <style>
     [x-cloak]{display:none!important}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif}
     .sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;color:#A0A0B0;font-size:14px;cursor:pointer;transition:all .15s}
     .sidebar-item:hover{background:#2A2A3C;color:#E0E0EE}
     .sidebar-item.active{background:#2D2D40;color:#fff}
-    .tab-btn{padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;color:#6B7280;transition:all .15s}
-    .tab-btn:hover{color:#374151;background:#F3F4F6}
-    .tab-btn.active{color:#155EEF;background:#EFF4FF}
-    .field-tag{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px;border-radius:9999px;font-weight:500}
-    .field-tag.inherited{background:#F3F4F6;color:#9CA3AF}
-    .field-tag.overridden{background:#EFF4FF;color:#155EEF}
-    textarea.profile-editor{font-size:13px;line-height:1.6;resize:vertical}
   </style>
 </head>
 <body class="bg-gray-50 h-screen flex overflow-hidden" x-data="brandkitApp()" x-init="init()">
@@ -78,405 +76,285 @@
   <div class="flex-1 flex flex-col overflow-hidden">
     <!-- Header -->
     <header class="h-14 bg-white border-b flex items-center px-6 shrink-0 gap-3">
-      <a href="/brandkit-list.html" class="text-sm text-gray-400 hover:text-accent" x-text="t('breadcrumb')"></a>
+      <a href="/brandkit-list.html" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      </a>
+      <span class="text-sm text-gray-400" x-text="t('breadcrumb')"></span>
       <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-      <span class="text-sm font-medium text-gray-800" x-text="parentName || '...'"></span>
+      <h1 class="text-sm font-semibold text-gray-800" x-text="kit?.name || t('page_title')"></h1>
+      <span x-show="kit" class="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500"
+            x-text="kit?.scope_type === 'merchant' ? t('scope_merchant') : t('scope_offer')"></span>
       <div class="flex-1"></div>
-
-      <!-- Delete -->
-      <div class="relative" x-data="{ open: false }" @click.outside="open = false">
-        <button @click="open = !open" class="h-[33px] w-[33px] flex items-center justify-center border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-50 transition-colors">
-          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
-        </button>
-        <div x-show="open" x-cloak class="absolute right-0 top-9 w-36 bg-white border border-gray-100 rounded-xl shadow-lg z-50 py-1">
-          <button @click="open = false; deleteKit()"
-                  class="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-            <span x-text="t('btn_delete')"></span>
-          </button>
-        </div>
-      </div>
-
-      <div class="flex items-center gap-3">
-        <a href="/setting.html?section=mcp" class="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 border border-gray-200 hover:border-gray-300 px-2.5 py-1.5 rounded-lg transition-colors">
-
-          <span class="w-1.5 h-1.5 bg-green-400 rounded-full"></span>
-          MCP
-        </a>
-        <div id="avatar-mount"></div>
-
-      </div>
+      <div id="avatar-mount"></div>
     </header>
 
     <main class="flex-1 overflow-y-auto">
-      <div x-show="loading" class="text-center py-12 text-gray-400 text-sm" x-text="t('loading')"></div>
+      <!-- x-if (not x-show) so kit.foo isn't evaluated while kit is null —
+           Alpine reads expressions inside x-show even when hidden, which
+           caused "Cannot read properties of null (reading 'brand_voice')". -->
+      <template x-if="kit">
+      <div class="max-w-4xl mx-auto px-6 py-8 space-y-10" x-cloak>
 
-      <div x-show="!loading && kit.id">
-        <!-- Kit Info — name/description are read-only, derived from the scope parent
-             (merchant.name or offer.name). To rename, user goes to the parent entity. -->
-        <div class="px-6 py-5 bg-white border-b">
-          <!-- Logo tile — dual state:
-               Empty  = dashed-border drop zone with image icon + persistent "+" badge
-                        (clearly a place to add something, not a decorative icon).
-               Filled = solid tile with the uploaded logo as the brand's visual mark.
-               Stored as a role=logo BrandKitAssetLink for downstream AI to consume. -->
-          <div class="flex items-center gap-3">
-            <label class="relative w-10 h-10 rounded-xl flex items-center justify-center shrink-0 cursor-pointer overflow-hidden group transition-colors"
-                   :class="logoThumbUrl
-                            ? 'bg-white border border-gray-200 hover:border-accent'
-                            : 'bg-gray-50 border-2 border-dashed border-gray-300 hover:border-accent hover:bg-accent/5'"
-                   :title="t('brandkit_logo_tooltip')">
-              <!-- Filled state: actual logo -->
-              <img x-show="logoThumbUrl" :src="logoThumbUrl" alt="logo"
-                   class="absolute inset-0 w-full h-full object-contain p-0.5">
-              <!-- Empty state: generic "image" icon, muted — signals "this is a slot for an image" -->
-              <svg x-show="!logoThumbUrl && uploadingRole !== 'logo'"
-                   class="w-4 h-4 text-gray-400 group-hover:text-accent transition-colors"
-                   fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-              </svg>
-              <!-- Persistent "+" badge in the corner — empty state only, always visible -->
-              <span x-show="!logoThumbUrl && uploadingRole !== 'logo'"
-                    class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-accent text-white flex items-center justify-center shadow-sm ring-2 ring-white">
-                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 4v16m8-8H4"/></svg>
-              </span>
-              <!-- Filled state hover: pencil overlay, replacing the logo briefly -->
-              <div x-show="logoThumbUrl && uploadingRole !== 'logo'"
-                   class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+        <!-- Brand Voice (OpenLucid-specific, top) -->
+        <section>
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <h2 class="text-base font-semibold text-gray-800" x-text="t('brand_voice_title')"></h2>
+              <button @click="aiFillOpen = true"
+                      class="ai-cta text-xs bg-gradient-to-r from-purple-600 to-accent text-white px-3 py-1 rounded-md font-medium flex items-center gap-1">
+                <svg class="w-3 h-3 ai-spark" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l1.8 5.5L19 9l-5.2 1.5L12 16l-1.8-5.5L5 9l5.2-1.5z"/><path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8z"/></svg>
+                <span x-text="t('brandkit_ai_fill')"></span>
+              </button>
+            </div>
+            <span class="text-xs text-gray-400" x-text="t('brand_voice_hint')"></span>
+          </div>
+          <textarea
+            x-model="kit.brand_voice"
+            @blur="saveVoice()"
+            rows="6"
+            :placeholder="t('brand_voice_placeholder')"
+            class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 leading-relaxed focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent resize-y"></textarea>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <template x-for="preset in voicePresets" :key="preset.key">
+              <button @click="applyVoicePreset(preset)"
+                      class="text-[11px] text-gray-500 bg-gray-50 hover:bg-gray-100 hover:text-gray-700 px-2.5 py-1 rounded-md transition-colors"
+                      x-text="preset.label"></button>
+            </template>
+          </div>
+        </section>
+
+        <!-- AI Quick Fill modal -->
+        <div x-show="aiFillOpen" x-cloak
+             @click.self="closeAiFill()"
+             class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+          <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" @click.stop>
+            <div class="px-5 py-4 border-b flex items-center justify-between shrink-0">
+              <h3 class="font-semibold text-gray-800" x-text="t('brandkit_ai_fill_title')"></h3>
+              <button @click="closeAiFill()" class="text-gray-400 hover:text-gray-600">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="p-5 overflow-y-auto flex-1 space-y-4">
+              <p class="text-sm text-gray-500" x-text="t('brandkit_ai_fill_hint')"></p>
+
+              <!-- URL input -->
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1.5" x-text="t('brandkit_ai_fill_url_label')"></label>
+                <input x-model="aiFillUrl"
+                       type="url"
+                       :placeholder="t('brandkit_ai_fill_url_placeholder')"
+                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
               </div>
-              <!-- Uploading spinner -->
-              <svg x-show="uploadingRole === 'logo'" class="w-4 h-4 text-accent animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
-              <input type="file" class="hidden" accept="image/*"
-                     @change="uploadForRole($event, 'logo')">
+              <div class="text-center text-xs text-gray-400" x-text="t('brandkit_ai_fill_or')"></div>
+              <!-- File upload -->
+              <label class="block border-2 border-dashed border-gray-200 rounded-xl py-8 text-center cursor-pointer hover:border-accent hover:text-accent transition-colors">
+                <svg class="w-6 h-6 mx-auto mb-1.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                <div class="text-sm text-gray-500" x-text="aiFillFile ? aiFillFile.name : t('brandkit_ai_fill_file_hint')"></div>
+                <input type="file"
+                       accept=".pdf,.pptx,.ppt,.docx,.doc,.xlsx,.xls,.txt,.csv"
+                       class="hidden"
+                       @change="aiFillFile = $event.target.files[0]">
+              </label>
+
+              <!-- Suggestion preview -->
+              <template x-if="aiFillResult">
+                <div class="bg-gray-50 rounded-xl border p-4 space-y-2">
+                  <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide" x-text="t('brandkit_ai_fill_result')"></div>
+                  <textarea x-model="aiFillResult"
+                            rows="8"
+                            class="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 leading-relaxed focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent resize-y"></textarea>
+                </div>
+              </template>
+
+              <!-- Error -->
+              <template x-if="aiFillError">
+                <div class="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-600" x-text="aiFillError"></div>
+              </template>
+            </div>
+            <div class="px-5 py-3 border-t flex items-center justify-end gap-2 shrink-0">
+              <button @click="closeAiFill()"
+                      class="px-4 py-2 text-sm text-gray-500 hover:bg-gray-50 rounded-lg"
+                      x-text="t('cancel')"></button>
+              <button x-show="!aiFillResult"
+                      @click="runAiFill()"
+                      :disabled="aiFillLoading || (!aiFillUrl && !aiFillFile)"
+                      class="ai-cta bg-gradient-to-r from-purple-600 to-accent text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40 flex items-center gap-2">
+                <svg x-show="aiFillLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                <span x-text="aiFillLoading ? t('brandkit_ai_fill_running') : t('brandkit_ai_fill_run')"></span>
+              </button>
+              <button x-show="aiFillResult"
+                      @click="applyAiFill()"
+                      class="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium"
+                      x-text="t('brandkit_ai_fill_apply')"></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Logos — one Primary hero + alternate thumbnails -->
+        <section>
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-base font-semibold text-gray-800" x-text="t('logos')"></h2>
+          </div>
+
+          <!-- Primary Logo (hero card) -->
+          <template x-if="primaryLogo">
+            <div class="group relative bg-gray-50 border rounded-xl p-5 flex items-center gap-5 mb-4">
+              <div class="w-20 h-20 bg-white rounded-lg border flex items-center justify-center overflow-hidden shrink-0">
+                <img :src="`/api/v1/assets/${primaryLogo.asset.id}/file`" class="w-full h-full object-contain p-2" :alt="primaryLogo.asset.file_name">
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="text-base font-semibold text-gray-800" x-text="t('primary_logo')"></div>
+                <div class="text-sm text-gray-400 truncate" x-text="primaryLogo.asset.file_name"></div>
+              </div>
+              <button @click="removeLink(primaryLogo.id)"
+                      class="opacity-0 group-hover:opacity-100 bg-white hover:bg-red-50 hover:text-red-500 border border-gray-200 rounded-md p-1.5 transition-all">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+          </template>
+
+          <!-- No logo yet → drop target -->
+          <template x-if="!primaryLogo">
+            <label class="block bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl py-10 text-center text-sm text-gray-400 cursor-pointer hover:border-accent hover:text-accent transition-colors mb-4">
+              <svg class="w-5 h-5 mx-auto mb-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+              <span x-text="t('drop_logo')"></span>
+              <input type="file" accept="image/*" class="hidden" @change="uploadAsset($event, 'logo')">
             </label>
-            <div class="flex-1 min-w-0">
-              <!-- Parent name — the single editable rename entry point. PATCHes the
-                   merchant/offer itself (brandkit has no editable name of its own). -->
-              <input type="text" x-model="parentNameDraft"
-                     @blur="saveParentName()"
-                     @keydown.enter="$el.blur()"
-                     :placeholder="t('loading')"
-                     class="text-lg font-semibold text-gray-800 bg-transparent border border-transparent hover:border-gray-200 focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none rounded px-2 -ml-2 py-0.5 w-full transition-colors">
-              <div class="flex items-center gap-2 mt-1 ml-0.5">
-                <span class="text-xs text-gray-400" x-text="kit.scope_type === 'merchant' ? t('scope_merchant') : t('scope_offer')"></span>
-                <span x-show="parentDescription" class="text-xs text-gray-400">·</span>
-                <span class="text-xs text-gray-500 truncate" x-text="parentDescription"></span>
-              </div>
-            </div>
-          </div>
-        </div>
+          </template>
 
-        <!-- AI Extract Panel -->
-        <div class="px-6 py-4 bg-white border-b">
-          <button @click="aiExtract.open = !aiExtract.open"
-                  class="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-accent transition-colors">
-            <svg class="w-4 h-4 transition-transform" :class="aiExtract.open && 'rotate-90'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-            <span class="text-base" x-text="t('ai_extract')"></span>
-            <span class="text-xs text-gray-400" x-text="t('ai_extract_hint')"></span>
-          </button>
-
-          <div x-show="aiExtract.open" x-cloak class="mt-3 space-y-3">
-            <div class="flex gap-3">
-              <input type="url" x-model="aiExtract.url" :placeholder="t('url_placeholder')"
-                     class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none">
-              <label class="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-500 cursor-pointer hover:bg-gray-50 transition-colors shrink-0">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
-                <span x-text="aiExtract.file ? aiExtract.file.name : t('upload_doc')"></span>
-                <input type="file" class="hidden" accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.txt" @change="aiExtract.file = $event.target.files[0]">
-              </label>
-            </div>
-            <div class="flex items-center gap-3">
-              <button @click="runAiExtract()" :disabled="aiExtract.loading || (!aiExtract.url && !aiExtract.file)"
-                      class="px-4 py-2 bg-accent text-white text-sm font-medium rounded-lg hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2">
-                <template x-if="aiExtract.loading">
-                  <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                </template>
-                <span x-text="aiExtract.loading ? t('ai_analyzing') : t('start_extract')"></span>
-              </button>
-              <template x-if="aiExtract.error === 'NO_LLM_CONFIGURED'">
-                <span class="text-xs text-red-500" x-text="t('no_llm_hint')"></span>
-              </template>
-              <span x-show="aiExtract.error && aiExtract.error !== 'NO_LLM_CONFIGURED'" class="text-xs text-red-500" x-text="aiExtract.error"></span>
-            </div>
-
-            <!-- Results -->
-            <div x-show="aiExtract.results" x-cloak class="border border-gray-200 rounded-xl overflow-hidden">
-              <div class="bg-gray-50 px-4 py-2.5 border-b flex items-center justify-between">
-                <span class="text-sm font-medium text-gray-700" x-text="t('extract_results')"></span>
-                <button @click="applyAllExtracted()" class="text-xs bg-accent text-white px-3 py-1.5 rounded-lg hover:bg-accent-hover transition-colors" x-text="t('apply_all')">
-
+          <!-- Alternate logos — thumbnail grid with upload-more slot -->
+          <div class="grid grid-cols-6 gap-3" x-show="primaryLogo">
+            <template x-for="link in alternateLogos" :key="link.id">
+              <div class="group relative">
+                <div class="aspect-square bg-gray-50 border rounded-lg overflow-hidden cursor-pointer hover:border-accent transition-colors"
+                     @click="setPrimaryLogo(link.id)"
+                     :title="t('click_set_primary')">
+                  <img :src="`/api/v1/assets/${link.asset.id}/file`" class="w-full h-full object-contain p-2" :alt="link.asset.file_name">
+                </div>
+                <div class="mt-1.5 text-[11px] text-gray-500 truncate" x-text="link.asset.file_name"></div>
+                <button @click="removeLink(link.id)"
+                        class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 bg-white hover:bg-red-50 hover:text-red-500 border rounded-full p-1 transition-all">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
               </div>
-              <div class="divide-y">
-                <template x-for="f in profileFieldList" :key="f.key">
-                  <div class="px-4 py-3 flex items-start gap-3" :class="!aiExtract.results?.[f.key] && 'opacity-40'">
-                    <div class="flex-1 min-w-0">
-                      <div class="text-sm font-medium text-gray-700" x-text="f.label"></div>
-                      <template x-if="aiExtract.results?.[f.key]">
-                        <pre class="text-xs text-gray-500 mt-1 whitespace-pre-wrap break-all max-h-24 overflow-auto" x-text="JSON.stringify(aiExtract.results[f.key], null, 2)"></pre>
-                      </template>
-                      <template x-if="!aiExtract.results?.[f.key]">
-                        <span class="text-xs text-gray-400 mt-1" x-text="t('not_extracted')"></span>
-                      </template>
-                    </div>
-                    <button @click="applyExtractedField(f.key)" :disabled="!aiExtract.results?.[f.key]"
-                            class="shrink-0 text-xs text-accent hover:text-accent-hover disabled:text-gray-300 disabled:cursor-not-allowed font-medium mt-0.5"
-                            x-text="t('apply')">
-                    </button>
-                  </div>
-                </template>
-              </div>
-            </div>
+            </template>
+            <label class="aspect-square border-2 border-dashed border-gray-200 rounded-lg flex items-center justify-center cursor-pointer hover:border-accent hover:text-accent text-gray-300 transition-colors"
+                   :title="t('add_logo')">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              <input type="file" accept="image/*" class="hidden" @change="uploadAsset($event, 'logo')">
+            </label>
           </div>
-        </div>
+        </section>
 
-        <!-- Tabs — 2 tabs reflect the "minimum brandkit = 3 things" model:
-             Identity  = Essence (Style Profile) + Voice (Persona) as primary,
-                         other fields folded into "More details (optional)"
-             References = Assets (media — the third "thing": 3 reference images) -->
-        <div class="px-6 py-3 bg-white border-b flex items-center gap-2">
-          <button @click="tab='identity'" :class="tab==='identity' && 'active'" class="tab-btn" x-text="t('tab_identity')"></button>
-          <button @click="tab='assets'; fetchAssetLinks()" :class="tab==='assets' && 'active'" class="tab-btn" x-text="t('tab_references')"></button>
-        </div>
-
-        <div class="p-6">
-          <!-- Identity Tab: primary (Essence + Voice) + collapsible More details. -->
-          <div x-show="tab==='identity'" x-data="{ moreOpen: false }" class="space-y-5">
-            <!-- Primary hint -->
-            <p class="text-xs text-gray-500 -mt-2" x-text="t('brandkit_primary_hint')"></p>
-
-            <!-- PRIMARY · Style Profile (as brand essence) -->
-            <div class="bg-white rounded-xl border p-5">
-              <div class="flex items-center gap-2 mb-3">
-                <h3 class="font-semibold text-gray-800" x-text="t('style_profile')"></h3>
-                <template x-if="isInherited('style_profile_json')">
-                  <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
-                </template>
-                <template x-if="isOverridden('style_profile_json')">
-                  <span class="field-tag overridden" x-text="t('overridden')"></span>
-                </template>
-                <div class="flex-1"></div>
-                <!-- Fill-from-Offer: scaffold from parent offer's name + selling points + audience + scenarios.
-                     Only shown for offer-scoped brandkits. Pure frontend stitching — no AI call. -->
-                <button x-show="kit.scope_type === 'offer'"
-                        @click="fillEssenceFromOffer()"
-                        :disabled="fillingEssence"
-                        class="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:text-accent-hover border border-accent/30 hover:bg-accent/5 rounded-md px-2 py-1 transition-colors disabled:opacity-50">
-                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                  <span x-text="t('brandkit_fill_from_offer')"></span>
+        <!-- Colors -->
+        <section>
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-base font-semibold text-gray-800" x-text="t('colors')"></h2>
+            <label class="text-xs text-accent hover:text-accent-hover font-medium flex items-center gap-1 cursor-pointer">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              <span x-text="t('add_color')"></span>
+              <input type="color" class="sr-only" value="#155EEF"
+                     @change="addCustomColor($event.target.value); $event.target.value = '#155EEF'">
+            </label>
+          </div>
+          <!-- Named color slots -->
+          <div class="grid grid-cols-2 gap-3">
+            <template x-for="role in ['primary', 'secondary', 'tertiary', 'accent']" :key="role">
+              <div class="bg-white border rounded-xl p-4 flex items-center gap-3">
+                <label class="w-10 h-10 rounded-full border shrink-0 cursor-pointer"
+                       :style="'background:' + (getNamedColorHex(role) || '#F3F4F6')">
+                  <input type="color"
+                         class="opacity-0 w-10 h-10 cursor-pointer"
+                         :value="getNamedColorHex(role) || '#000000'"
+                         @change="setNamedColor(role, $event.target.value)">
+                </label>
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-semibold text-gray-800 capitalize" x-text="role"></div>
+                  <div class="text-xs text-gray-400 font-mono uppercase" x-text="getNamedColorHex(role) || t('not_set')"></div>
+                </div>
+                <button x-show="getNamedColorHex(role)"
+                        @click="clearNamedColor(role)"
+                        class="text-gray-300 hover:text-red-400 p-1">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
               </div>
-              <p class="text-xs text-gray-400 mb-3" x-text="t('style_profile_hint')"></p>
-              <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[200px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
-                        x-model="jsonFields.style_profile_json"
-                        @blur="saveTextField('style_profile_json')"
-                        :placeholder="t('style_profile_placeholder')"></textarea>
-            </div>
-
-            <!-- PRIMARY · Persona Profile (as brand voice) -->
-            <div class="bg-white rounded-xl border p-5">
-              <div class="flex items-center gap-2 mb-3">
-                <h3 class="font-semibold text-gray-800" x-text="t('persona')"></h3>
-                <template x-if="isInherited('persona_profile_json')">
-                  <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
-                </template>
-                <template x-if="isOverridden('persona_profile_json')">
-                  <span class="field-tag overridden" x-text="t('overridden')"></span>
-                </template>
+            </template>
+          </div>
+          <!-- Custom palette -->
+          <div class="mt-4 flex flex-wrap gap-3" x-show="customColors.length > 0">
+            <template x-for="c in customColors" :key="c.id">
+              <div class="flex flex-col items-center gap-1 group relative">
+                <div class="w-12 h-12 rounded-full border shrink-0" :style="'background:' + c.hex"></div>
+                <span class="text-[10px] text-gray-400 font-mono uppercase" x-text="c.hex"></span>
+                <button @click="removeColor(c.id)"
+                        class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 bg-white hover:bg-red-50 hover:text-red-500 border rounded-full p-0.5 transition-all">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
               </div>
-              <p class="text-xs text-gray-400 mb-2" x-text="t('persona_hint')"></p>
-              <!-- Preset chips — click to scaffold the textarea with a named voice template.
-                   Addresses "user doesn't know how to describe brand voice" by offering starting
-                   points. User is expected to edit after picking. -->
-              <div class="flex flex-wrap gap-1.5 mb-3">
-                <span class="text-[11px] text-gray-400 mr-1 self-center" x-text="t('brandkit_voice_presets') + ':'"></span>
-                <template x-for="p in voicePresets" :key="p.key">
-                  <button type="button" @click="applyVoicePreset(p.key)"
-                          class="od-chip od-chip-info hover:brightness-95 cursor-pointer transition-all"
-                          x-text="p.label"></button>
-                </template>
+            </template>
+          </div>
+        </section>
+
+        <!-- Fonts -->
+        <section>
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-base font-semibold text-gray-800" x-text="t('fonts')"></h2>
+          </div>
+          <div class="space-y-3">
+            <template x-for="role in ['title', 'body']" :key="role">
+              <div class="relative bg-white border rounded-xl p-4 flex items-center gap-3 cursor-pointer hover:border-accent transition-colors"
+                   @click="openPicker = openPicker === role ? null : role">
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-semibold text-gray-800" x-text="role === 'title' ? t('font_title') : t('font_body')"></div>
+                  <div class="mt-0.5 text-sm text-gray-500 truncate"
+                       x-text="getNamedFontName(role) || t('font_not_set')"></div>
+                </div>
+                <div class="w-16 h-16 bg-gray-50 rounded-lg flex items-center justify-center text-gray-700 text-2xl shrink-0"
+                     :style="getNamedFontName(role) ? `font-family: &quot;${getNamedFontName(role)}&quot;, sans-serif` : ''">
+                  Aa
+                </div>
+                <svg class="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
               </div>
-              <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
-                        x-model="jsonFields.persona_profile_json"
-                        @blur="saveTextField('persona_profile_json')"
-                        :placeholder="t('persona_placeholder')"></textarea>
-            </div>
+            </template>
+          </div>
 
-            <!-- SECONDARY · collapsible "More details" — the other 5 fields. -->
-            <div class="border-t border-gray-100 pt-4">
-              <button type="button" @click="moreOpen = !moreOpen"
-                      class="w-full flex items-center gap-2 text-left text-gray-500 hover:text-gray-700 transition-colors">
-                <svg class="w-4 h-4 transition-transform" :class="moreOpen && 'rotate-90'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                <span class="text-sm font-medium" x-text="t('brandkit_more_details')"></span>
-                <span class="text-[11px] text-gray-400">(5)</span>
-              </button>
-              <p x-show="moreOpen" x-cloak class="text-[11px] text-gray-400 mt-2 mb-4 ml-6" x-text="t('brandkit_more_details_hint')"></p>
-
-              <div x-show="moreOpen" x-cloak x-transition.opacity class="space-y-5 mt-3">
-                <!-- Product Visual -->
-                <div class="bg-white rounded-xl border p-5">
-                  <div class="flex items-center gap-2 mb-3">
-                    <h3 class="font-semibold text-gray-800" x-text="t('product_visual')"></h3>
-                    <template x-if="isInherited('product_visual_profile_json')">
-                      <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
-                    </template>
-                    <template x-if="isOverridden('product_visual_profile_json')">
-                      <span class="field-tag overridden" x-text="t('overridden')"></span>
-                    </template>
-                  </div>
-                  <p class="text-xs text-gray-400 mb-3" x-text="t('product_visual_hint')"></p>
-                  <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
-                            x-model="jsonFields.product_visual_profile_json"
-                            @blur="saveTextField('product_visual_profile_json')"
-                            :placeholder="t('product_visual_placeholder')"></textarea>
-                </div>
-                <!-- Service Scene -->
-                <div class="bg-white rounded-xl border p-5">
-                  <div class="flex items-center gap-2 mb-3">
-                    <h3 class="font-semibold text-gray-800" x-text="t('service_scene')"></h3>
-                    <template x-if="isInherited('service_scene_profile_json')">
-                      <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
-                    </template>
-                    <template x-if="isOverridden('service_scene_profile_json')">
-                      <span class="field-tag overridden" x-text="t('overridden')"></span>
-                    </template>
-                  </div>
-                  <p class="text-xs text-gray-400 mb-3" x-text="t('service_scene_hint')"></p>
-                  <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
-                            x-model="jsonFields.service_scene_profile_json"
-                            @blur="saveTextField('service_scene_profile_json')"
-                            :placeholder="t('service_scene_placeholder')"></textarea>
-                </div>
-                <!-- Visual Do -->
-                <div class="bg-white rounded-xl border p-5">
-                  <div class="flex items-center gap-2 mb-3">
-                    <h3 class="font-semibold text-gray-800 text-green-600" x-text="t('visual_do')"></h3>
-                    <template x-if="isInherited('visual_do_json')">
-                      <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
-                    </template>
-                    <template x-if="isOverridden('visual_do_json')">
-                      <span class="field-tag overridden" x-text="t('overridden')"></span>
-                    </template>
-                  </div>
-                  <p class="text-xs text-gray-400 mb-3" x-text="t('visual_do_hint')"></p>
-                  <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
-                            x-model="jsonFields.visual_do_json"
-                            @blur="saveTextField('visual_do_json')"
-                            :placeholder="t('visual_do_placeholder')"></textarea>
-                </div>
-                <!-- Visual Don't -->
-                <div class="bg-white rounded-xl border p-5">
-                  <div class="flex items-center gap-2 mb-3">
-                    <h3 class="font-semibold text-gray-800 text-red-500" x-text="t('visual_dont')"></h3>
-                    <template x-if="isInherited('visual_dont_json')">
-                      <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
-                    </template>
-                    <template x-if="isOverridden('visual_dont_json')">
-                      <span class="field-tag overridden" x-text="t('overridden')"></span>
-                    </template>
-                  </div>
-                  <p class="text-xs text-gray-400 mb-3" x-text="t('visual_dont_hint')"></p>
-                  <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[160px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
-                            x-model="jsonFields.visual_dont_json"
-                            @blur="saveTextField('visual_dont_json')"
-                            :placeholder="t('visual_dont_placeholder')"></textarea>
-                </div>
-                <!-- Reference Prompt -->
-                <div class="bg-white rounded-xl border p-5">
-                  <div class="flex items-center gap-2 mb-3">
-                    <h3 class="font-semibold text-gray-800" x-text="t('reference_prompt')"></h3>
-                    <template x-if="isInherited('reference_prompt_json')">
-                      <span class="field-tag inherited" x-text="t('inherited_from_company')"></span>
-                    </template>
-                    <template x-if="isOverridden('reference_prompt_json')">
-                      <span class="field-tag overridden" x-text="t('overridden')"></span>
-                    </template>
-                  </div>
-                  <p class="text-xs text-gray-400 mb-3" x-text="t('reference_prompt_hint')"></p>
-                  <textarea class="profile-editor w-full border border-gray-200 rounded-lg p-3 min-h-[200px] focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none"
-                            x-model="jsonFields.reference_prompt_json"
-                            @blur="saveTextField('reference_prompt_json')"
-                            :placeholder="t('reference_prompt_placeholder')"></textarea>
-                </div>
+          <!-- Font picker popup -->
+          <div x-show="openPicker" x-cloak
+               @click.self="openPicker = null"
+               class="fixed inset-0 z-50 bg-black/30 flex items-center justify-center">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[70vh] flex flex-col overflow-hidden" @click.stop>
+              <div class="px-5 py-3 border-b flex items-center justify-between shrink-0">
+                <h3 class="font-semibold text-gray-800"
+                    x-text="openPicker === 'title' ? t('pick_title_font') : t('pick_body_font')"></h3>
+                <button @click="openPicker = null" class="text-gray-400 hover:text-gray-600">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+              </div>
+              <div class="overflow-y-auto flex-1">
+                <button @click="setNamedFont(openPicker, ''); openPicker = null"
+                        class="w-full px-5 py-3 text-left text-sm text-gray-400 italic border-b hover:bg-gray-50"
+                        x-text="t('font_clear')"></button>
+                <template x-for="font in fontOptions" :key="font">
+                  <button @click="setNamedFont(openPicker, font); openPicker = null"
+                          class="w-full px-5 py-4 text-left hover:bg-gray-50 border-b border-gray-50 flex items-center justify-between gap-4"
+                          :class="getNamedFontName(openPicker) === font ? 'bg-accent-light' : ''">
+                    <span class="text-lg text-gray-800" :style="`font-family: &quot;${font}&quot;, sans-serif`" x-text="font"></span>
+                    <span class="text-2xl text-gray-500 shrink-0" :style="`font-family: &quot;${font}&quot;, sans-serif`">Aa</span>
+                  </button>
+                </template>
               </div>
             </div>
           </div>
+        </section>
 
-          <!-- Assets Tab -->
-          <div x-show="tab==='assets'">
-            <!-- 分类卡片网格 -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <template x-for="cat in assetCategories" :key="cat.role">
-                <div class="bg-white rounded-xl border p-5">
-                  <div class="flex items-center gap-2 mb-3">
-                    <span class="text-lg" x-text="cat.icon"></span>
-                    <h3 class="font-semibold text-gray-800" x-text="cat.label"></h3>
-                  </div>
-                  <p class="text-xs text-gray-400 mb-3" x-text="cat.hint"></p>
+        <!-- Danger -->
+        <section class="pt-4 border-t border-gray-100">
+          <button @click="deleteKit()"
+                  class="text-xs text-red-500 hover:text-red-700" x-text="t('delete_kit')"></button>
+        </section>
 
-                  <!-- 已上传缩略图网格 -->
-                  <div class="flex flex-wrap gap-2 mb-3" x-show="linksForRole(cat.role).length > 0">
-                    <template x-for="link in linksForRole(cat.role)" :key="link.id">
-                      <div class="relative group w-20 h-20 rounded-lg overflow-hidden border border-gray-100">
-                        <template x-if="linkThumb(link)">
-                          <img :src="linkThumb(link)" class="w-full h-full object-cover">
-                        </template>
-                        <template x-if="!linkThumb(link)">
-                          <div class="w-full h-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs"
-                               x-text="link.asset?.file_name?.slice(0,6) || '?'"></div>
-                        </template>
-                        <button @click="deleteLink(link.id)"
-                                class="absolute top-0 right-0 w-5 h-5 bg-black/60 text-white text-xs rounded-bl-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
-                      </div>
-                    </template>
-                  </div>
-
-                  <!-- 上传区 -->
-                  <label class="flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-lg py-4 cursor-pointer hover:border-accent/40 hover:bg-accent/5 transition-colors"
-                         :class="uploadingRole === cat.role && 'opacity-50 pointer-events-none'">
-                    <svg class="w-5 h-5 text-gray-300 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                    <span class="text-xs text-gray-400" x-text="uploadingRole === cat.role ? t('uploading') : t('click_upload')"></span>
-                    <input type="file" class="hidden" accept="image/*,video/*" @change="uploadForRole($event, cat.role)">
-                  </label>
-                </div>
-              </template>
-            </div>
-
-            <!-- 其他参考（兜底） -->
-            <div class="mt-5 bg-white rounded-xl border p-5">
-              <h3 class="font-semibold text-gray-800 mb-3" x-text="t('other_reference')"></h3>
-              <div class="flex flex-wrap gap-2 mb-3" x-show="linksForRole('reference_image').concat(linksForRole('reference_video')).length > 0">
-                <template x-for="link in linksForRole('reference_image').concat(linksForRole('reference_video'))" :key="link.id">
-                  <div class="relative group w-20 h-20 rounded-lg overflow-hidden border border-gray-100">
-                    <template x-if="linkThumb(link)">
-                      <img :src="linkThumb(link)" class="w-full h-full object-cover">
-                    </template>
-                    <template x-if="!linkThumb(link)">
-                      <div class="w-full h-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs"
-                           x-text="link.asset?.file_name?.slice(0,6) || '?'"></div>
-                    </template>
-                    <button @click="deleteLink(link.id)"
-                            class="absolute top-0 right-0 w-5 h-5 bg-black/60 text-white text-xs rounded-bl-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
-                  </div>
-                </template>
-              </div>
-              <label class="flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-lg py-4 cursor-pointer hover:border-accent/40 hover:bg-accent/5 transition-colors"
-                     :class="uploadingRole === 'reference_image' && 'opacity-50 pointer-events-none'">
-                <svg class="w-5 h-5 text-gray-300 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                <span class="text-xs text-gray-400" x-text="uploadingRole === 'reference_image' ? t('uploading') : t('click_upload')"></span>
-                <input type="file" class="hidden" accept="image/*,video/*" @change="uploadForRole($event, $event.target.files[0]?.type?.startsWith('video') ? 'reference_video' : 'reference_image')">
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <!-- Save indicator -->
-        <div x-show="saving" x-cloak class="fixed bottom-6 right-6 bg-gray-800 text-white text-sm px-4 py-2 rounded-lg shadow-lg" x-text="t('saving')">
-        </div>
-        <div x-show="saved" x-cloak class="fixed bottom-6 right-6 bg-green-600 text-white text-sm px-4 py-2 rounded-lg shadow-lg" x-text="t('saved')">
-        </div>
       </div>
+      </template>
     </main>
   </div>
 
@@ -484,209 +362,35 @@
     const API = '/api/v1';
 
     function brandkitApp() {
+      const params = new URLSearchParams(location.search);
       return {
-        kitId: new URLSearchParams(location.search).get('id'),
-        kit: {},
-        parent: null,          // merchant or offer the kit is scoped to
-        parentLoading: false,
-        parentNameDraft: '',   // editable buffer for the parent's display name
-        parentSaving: false,
-        tab: 'identity',
-        loading: true,
-        saving: false,
-        saved: false,
-        fillingEssence: false,
-        inheritedFields: [],
-        overriddenFields: [],
-
-        aiExtract: { open: false, url: '', file: null, loading: false, results: null, error: '' },
-
-        profileFieldList: [
-          { key: 'style_profile_json', label: t('style_profile') },
-          { key: 'product_visual_profile_json', label: t('product_visual') },
-          { key: 'service_scene_profile_json', label: t('service_scene') },
-          { key: 'persona_profile_json', label: t('persona') },
-          { key: 'visual_do_json', label: t('visual_do') },
-          { key: 'visual_dont_json', label: t('visual_dont') },
-          { key: 'reference_prompt_json', label: t('reference_prompt') },
-        ],
-
-        jsonFields: {
-          style_profile_json: '',
-          product_visual_profile_json: '',
-          service_scene_profile_json: '',
-          persona_profile_json: '',
-          visual_do_json: '',
-          visual_dont_json: '',
-          reference_prompt_json: '',
-        },
-
-        // Asset links
+        kit: null,
+        colors: [],
+        fonts: [],
         assetLinks: [],
-        uploadingRole: null,
 
-        assetCategories: [
-          { role: 'product_reference', label: t('cat_product'), icon: '📦', hint: t('cat_product_hint') },
-          { role: 'scene_reference', label: t('cat_scene'), icon: '🏠', hint: t('cat_scene_hint') },
-          { role: 'persona_reference', label: t('cat_persona'), icon: '👤', hint: t('cat_persona_hint') },
-          { role: 'style_reference', label: t('cat_style'), icon: '🎨', hint: t('cat_style_hint') },
-          { role: 'negative_reference', label: t('cat_negative'), icon: '🚫', hint: t('cat_negative_hint') },
+        // Font picker state — null when closed, 'title' / 'body' when open for that role
+        openPicker: null,
+
+        // AI Quick Fill state
+        aiFillOpen: false,
+        aiFillUrl: '',
+        aiFillFile: null,
+        aiFillLoading: false,
+        aiFillResult: null,
+        aiFillError: null,
+        // Curated list of web fonts. Must match the family names preloaded
+        // in the <head> Google Fonts URL. Order is intentional (display
+        // fonts first, then editorial serif, then modern sans, then CJK).
+        fontOptions: [
+          'Alice', 'Playfair Display', 'DM Serif Display', 'Bodoni Moda',
+          'Libre Baskerville', 'Cormorant Garamond', 'Prata',
+          'Merriweather', 'PT Serif', 'Roboto Slab',
+          'Inter', 'Poppins', 'Montserrat', 'Oswald', 'Bebas Neue',
+          'Lato', 'Open Sans', 'IBM Plex Sans',
+          'Noto Sans SC', 'Noto Serif SC', 'ZCOOL XiaoWei',
         ],
 
-        roleLabels: {
-          reference_image: t('other_reference'), reference_video: t('other_reference'),
-          product_reference: t('cat_product'), scene_reference: t('cat_scene'),
-          persona_reference: t('cat_persona'), style_reference: t('cat_style'),
-          negative_reference: t('cat_negative'),
-        },
-
-        async init() {
-          const res = await fetch(`${API}/brandkits/${this.kitId}/merged`);
-          if (!res.ok) { location.href = '/brandkit-list.html'; return; }
-          const data = await res.json();
-          this.kit = data;
-          this.inheritedFields = data.inherited_fields || [];
-          this.overriddenFields = data.overridden_fields || [];
-
-          // Fetch the scope parent (merchant or offer) so we can display its name
-          // as the kit's display identity. brandkit.name/description are no longer
-          // user-editable — they're derived from the parent entity.
-          await this.loadParent();
-
-          // Pre-fetch asset links so the header logo tile shows the current logo
-          // on page load (not just after opening the Assets tab).
-          await this.fetchAssetLinks();
-
-          // Initialize text fields (plain text or JSON stringified for legacy data)
-          const fields = ['style_profile_json','product_visual_profile_json','service_scene_profile_json',
-                          'persona_profile_json','visual_do_json','visual_dont_json','reference_prompt_json'];
-          for (const f of fields) {
-            const v = data[f];
-            if (!v) this.jsonFields[f] = '';
-            else if (typeof v === 'string') this.jsonFields[f] = v;
-            else this.jsonFields[f] = JSON.stringify(v, null, 2);
-          }
-
-          document.title = t('page_title') + ' - OpenLucid';
-          this.loading = false;
-        },
-
-        // Fetch the scope parent for display. Silent failure — parentName falls back to
-        // whatever the legacy kit.name holds so existing rows still render something.
-        async loadParent() {
-          if (!this.kit?.scope_type || !this.kit?.scope_id) return;
-          this.parentLoading = true;
-          try {
-            const url = this.kit.scope_type === 'merchant'
-              ? `${API}/merchants/${this.kit.scope_id}`
-              : `${API}/offers/${this.kit.scope_id}`;
-            const r = await fetch(url);
-            if (r.ok) {
-              this.parent = await r.json();
-              this.parentNameDraft = this.parent?.name || '';
-            }
-          } catch {}
-          this.parentLoading = false;
-        },
-
-        get parentName() {
-          return this.parent?.name || this.kit?.name || '';
-        },
-        get parentDescription() {
-          return this.parent?.description || this.kit?.description || '';
-        },
-        // The single LOGO asset linked to this brandkit (first one if multiple).
-        // The header icon tile doubles as the logo upload zone — if a logo
-        // exists, it renders as the tile background; otherwise the tile is an
-        // empty drop target that opens a file picker on click.
-        get logoLink() {
-          return this.assetLinks.find(l => l.role === 'logo') || null;
-        },
-        get logoThumbUrl() {
-          return this.logoLink ? this.linkThumb(this.logoLink) : null;
-        },
-
-        // Rename the parent entity (merchant or offer) — PATCH the parent itself, not the
-        // brandkit. BrandKit has no editable name anymore; this is the single place to
-        // rename the brand (and the workspace switcher in index.html shows the result).
-        async saveParentName() {
-          const v = (this.parentNameDraft || '').trim();
-          if (!v || !this.kit?.scope_type || !this.kit?.scope_id) return;
-          if (this.parent?.name === v) return;  // no change
-          this.parentSaving = true;
-          try {
-            const url = this.kit.scope_type === 'merchant'
-              ? `${API}/merchants/${this.kit.scope_id}`
-              : `${API}/offers/${this.kit.scope_id}`;
-            const r = await fetch(url, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name: v }),
-            });
-            if (r.ok) {
-              this.parent = await r.json();
-              this.parentNameDraft = this.parent.name || '';
-              this.showSaved();
-            } else {
-              toast.error(t('save_failed'));
-              this.parentNameDraft = this.parent?.name || '';  // revert buffer
-            }
-          } catch {
-            toast.error(t('save_failed'));
-            this.parentNameDraft = this.parent?.name || '';
-          }
-          this.parentSaving = false;
-        },
-
-        isInherited(field) {
-          return this.kit?.scope_type === 'offer' && this.inheritedFields.includes(field);
-        },
-        isOverridden(field) {
-          return this.kit?.scope_type === 'offer' && this.overriddenFields.includes(field);
-        },
-
-        async saveField(field, value) {
-          this.saving = true;
-          try {
-            const body = {};
-            body[field] = value;
-            await fetch(`${API}/brandkits/${this.kitId}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body),
-            });
-            this.showSaved();
-          } catch {}
-          this.saving = false;
-        },
-
-        async saveTextField(field) {
-          const text = this.jsonFields[field];
-          const value = text && text.trim() ? text.trim() : null;
-          this.saving = true;
-          try {
-            const body = {};
-            body[field] = value;
-            const res = await fetch(`${API}/brandkits/${this.kitId}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body),
-            });
-            if (res.ok) {
-              this.kit[field] = value;
-              this.showSaved();
-            }
-          } catch {}
-          this.saving = false;
-        },
-
-        showSaved() {
-          this.saved = true;
-          setTimeout(() => this.saved = false, 1500);
-        },
-
-        // Voice presets — fast-start templates for the Persona textarea. Keyed by preset id;
-        // labels and bodies both live in i18n so they localize with the UI.
         get voicePresets() {
           return [
             { key: 'casual',    label: t('brandkit_voice_preset_casual'),    tpl: t('brandkit_voice_tpl_casual') },
@@ -697,166 +401,256 @@
           ];
         },
 
-        applyVoicePreset(key) {
-          const preset = this.voicePresets.find(p => p.key === key);
-          if (!preset) return;
-          const existing = (this.jsonFields.persona_profile_json || '').trim();
-          if (existing && !confirm(t('brandkit_fill_confirm'))) return;
-          this.jsonFields.persona_profile_json = preset.tpl;
-          this.saveTextField('persona_profile_json');
+        get logoLinks() {
+          // priority asc, then most recent first — primary = priority 0
+          return this.assetLinks
+            .filter(l => l.role === 'logo')
+            .sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999) ||
+                             new Date(b.created_at) - new Date(a.created_at));
         },
 
-        // Scaffold Style Profile from the parent offer's name + selling points + audience +
-        // scenarios. Pure frontend stitching — not an AI call. If the field already has
-        // content, we confirm before overwriting. Silent no-op for merchant-scoped kits.
-        async fillEssenceFromOffer() {
-          if (this.kit.scope_type !== 'offer' || !this.kit.scope_id || this.fillingEssence) return;
-          const existing = (this.jsonFields.style_profile_json || '').trim();
-          if (existing && !confirm(t('brandkit_fill_confirm'))) return;
-
-          this.fillingEssence = true;
-          try {
-            const res = await fetch(`${API}/offers/${this.kit.scope_id}`);
-            if (!res.ok) { toast.error(t('brandkit_fill_no_data')); return; }
-            const offer = await res.json();
-            const sp = (offer.core_selling_points_json?.points || []).filter(Boolean);
-            const aud = (offer.target_audience_json?.items || []).filter(Boolean);
-            const scn = (offer.target_scenarios_json?.items || []).filter(Boolean);
-            if (!offer.description && !sp.length && !aud.length && !scn.length) {
-              toast.error(t('brandkit_fill_no_data'));
-              return;
-            }
-            const sep = (window._odLang === 'zh') ? '、' : ', ';
-            const lines = [`${t('brandkit_fill_tpl_brand')}: ${offer.name || ''}`.trim()];
-            if (sp.length)  lines.push(`${t('brandkit_fill_tpl_sp')}: ${sp.join(sep)}`);
-            if (aud.length) lines.push(`${t('brandkit_fill_tpl_audience')}: ${aud.join(sep)}`);
-            if (scn.length) lines.push(`${t('brandkit_fill_tpl_scenario')}: ${scn.join(sep)}`);
-            if (offer.description) lines.push('', offer.description.trim());
-            this.jsonFields.style_profile_json = lines.join('\n');
-            await this.saveTextField('style_profile_json');
-            toast.success(t('brandkit_fill_filled'));
-          } catch (e) {
-            toast.error(e.message || String(e));
-          } finally {
-            this.fillingEssence = false;
-          }
+        get primaryLogo() {
+          const logos = this.logoLinks;
+          return logos.length > 0 ? logos[0] : null;
         },
 
-        async fetchAssetLinks() {
-          const res = await fetch(`${API}/brandkits/${this.kitId}/asset-links?page_size=100`);
+        get alternateLogos() {
+          return this.logoLinks.slice(1);
+        },
+
+        get customColors() {
+          return this.colors.filter(c => c.role === 'custom');
+        },
+
+        async init() {
+          const kitId = params.get('id');
+          if (!kitId) { toast.error('Missing brandkit id'); return; }
+          await Promise.all([
+            this.loadKit(kitId),
+            this.loadColors(kitId),
+            this.loadFonts(kitId),
+            this.loadAssets(kitId),
+          ]);
+        },
+
+        async loadKit(id) {
+          const res = await fetch(`${API}/brandkits/${id}`);
+          if (res.ok) this.kit = await res.json();
+        },
+
+        async loadColors(id) {
+          const res = await fetch(`${API}/brandkits/${id}/colors`);
+          if (res.ok) this.colors = await res.json();
+        },
+
+        async loadFonts(id) {
+          const res = await fetch(`${API}/brandkits/${id}/fonts`);
+          if (res.ok) this.fonts = await res.json();
+        },
+
+        async loadAssets(id) {
+          const res = await fetch(`${API}/brandkits/${id}/asset-links?page_size=100`);
           if (res.ok) {
             const data = await res.json();
             this.assetLinks = data.items || [];
           }
         },
 
-        linksForRole(role) {
-          return this.assetLinks.filter(l => l.role === role);
+        async saveVoice() {
+          if (!this.kit) return;
+          await fetch(`${API}/brandkits/${this.kit.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ brand_voice: this.kit.brand_voice || '' }),
+          });
         },
 
-        linkThumb(link) {
-          if (!link.asset) return null;
-          if (link.asset.storage_uri) return `${API}/assets/${link.asset.id}/file`;
-          return null;
+        applyVoicePreset(preset) {
+          const existing = (this.kit?.brand_voice || '').trim();
+          if (existing && !confirm(t('brandkit_fill_confirm'))) return;
+          this.kit.brand_voice = preset.tpl;
+          this.saveVoice();
         },
 
-        async uploadForRole(event, role) {
-          const file = event.target.files[0];
-          if (!file) return;
-          this.uploadingRole = role;
-          // Singleton roles (logo) should replace, not accumulate. Capture the
-          // existing links to delete after the new one is successfully linked —
-          // delete-on-success keeps the old logo visible if the upload fails.
-          const singletonRoles = new Set(['logo']);
-          const staleLinks = singletonRoles.has(role)
-            ? this.assetLinks.filter(l => l.role === role)
-            : [];
+        // ── AI Quick Fill ─────────────────────────────────────
+
+        closeAiFill() {
+          this.aiFillOpen = false;
+          this.aiFillUrl = '';
+          this.aiFillFile = null;
+          this.aiFillResult = null;
+          this.aiFillError = null;
+          this.aiFillLoading = false;
+        },
+
+        async runAiFill() {
+          if (this.aiFillLoading) return;
+          this.aiFillLoading = true;
+          this.aiFillError = null;
+          const form = new FormData();
+          if (this.aiFillFile) form.append('file', this.aiFillFile);
+          if (this.aiFillUrl) form.append('url', this.aiFillUrl);
           try {
-            // 1. Upload file
-            const fd = new FormData();
-            fd.append('file', file);
-            fd.append('scope_type', this.kit.scope_type);
-            fd.append('scope_id', this.kit.scope_id);
-            fd.append('asset_type', file.type.startsWith('video') ? 'video' : 'image');
-            const uploadRes = await fetch(`${API}/assets/upload`, { method: 'POST', body: fd });
-            if (!uploadRes.ok) { toast.error(t('save_failed')); return; }
-            const asset = await uploadRes.json();
+            const res = await fetch(`${API}/brandkits/${this.kit.id}/suggest-voice`, {
+              method: 'POST', body: form,
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              this.aiFillError = data.error || data.detail || t('upload_failed');
+            } else {
+              this.aiFillResult = data.brand_voice || '';
+            }
+          } catch (e) {
+            this.aiFillError = e.message || t('upload_failed');
+          } finally {
+            this.aiFillLoading = false;
+          }
+        },
 
-            // 2. Link to brandkit
-            const linkRes = await fetch(`${API}/brandkits/${this.kitId}/asset-links`, {
+        applyAiFill() {
+          const existing = (this.kit?.brand_voice || '').trim();
+          if (existing && !confirm(t('brandkit_fill_confirm'))) return;
+          this.kit.brand_voice = this.aiFillResult;
+          this.saveVoice();
+          this.closeAiFill();
+        },
+
+        // ── Colors ─────────────────────────────────────────────
+
+        getNamedColorHex(role) {
+          const c = this.colors.find(c => c.role === role);
+          return c?.hex;
+        },
+
+        async setNamedColor(role, hex) {
+          hex = hex.toUpperCase();
+          const existing = this.colors.find(c => c.role === role);
+          if (existing) {
+            const res = await fetch(`${API}/brandkits/${this.kit.id}/colors/${existing.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ hex }),
+            });
+            if (res.ok) {
+              const updated = await res.json();
+              Object.assign(existing, updated);
+            }
+          } else {
+            const res = await fetch(`${API}/brandkits/${this.kit.id}/colors`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ asset_id: asset.id, role, priority: 0 }),
+              body: JSON.stringify({ role, hex, priority: 0 }),
             });
-            if (!linkRes.ok) { toast.error(t('save_failed')); return; }
+            if (res.ok) this.colors.push(await res.json());
+          }
+        },
 
-            // 3. Clean up stale singleton links (e.g. the previous logo).
-            for (const stale of staleLinks) {
-              await fetch(`${API}/brandkits/${this.kitId}/asset-links/${stale.id}`, { method: 'DELETE' });
+        async clearNamedColor(role) {
+          const existing = this.colors.find(c => c.role === role);
+          if (!existing) return;
+          await fetch(`${API}/brandkits/${this.kit.id}/colors/${existing.id}`, { method: 'DELETE' });
+          this.colors = this.colors.filter(c => c.id !== existing.id);
+        },
+
+        async addCustomColor(hex) {
+          if (!hex || !/^#[0-9A-Fa-f]{3,8}$/.test(hex)) return;
+          const res = await fetch(`${API}/brandkits/${this.kit.id}/colors`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: 'custom', hex: hex.toUpperCase(), priority: this.colors.length }),
+          });
+          if (res.ok) this.colors.push(await res.json());
+        },
+
+        async removeColor(id) {
+          await fetch(`${API}/brandkits/${this.kit.id}/colors/${id}`, { method: 'DELETE' });
+          this.colors = this.colors.filter(c => c.id !== id);
+        },
+
+        // ── Fonts ──────────────────────────────────────────────
+
+        getNamedFontName(role) {
+          const f = this.fonts.find(f => f.role === role);
+          return f?.font_name;
+        },
+
+        async setNamedFont(role, name) {
+          name = (name || '').trim();
+          const existing = this.fonts.find(f => f.role === role);
+          if (!name) {
+            if (existing) {
+              await fetch(`${API}/brandkits/${this.kit.id}/fonts/${existing.id}`, { method: 'DELETE' });
+              this.fonts = this.fonts.filter(f => f.id !== existing.id);
             }
+            return;
+          }
+          if (existing) {
+            if (existing.font_name === name) return;
+            const res = await fetch(`${API}/brandkits/${this.kit.id}/fonts/${existing.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ font_name: name }),
+            });
+            if (res.ok) Object.assign(existing, await res.json());
+          } else {
+            const res = await fetch(`${API}/brandkits/${this.kit.id}/fonts`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ role, font_name: name, priority: 0 }),
+            });
+            if (res.ok) this.fonts.push(await res.json());
+          }
+        },
 
-            // 4. Refresh
-            await this.fetchAssetLinks();
-          } catch { toast.error(t('save_failed')); }
-          this.uploadingRole = null;
+        // ── Assets ─────────────────────────────────────────────
+
+        async uploadAsset(event, role) {
+          const file = event.target.files?.[0];
+          if (!file) return;
+          const assetType = (file.type || '').startsWith('video/') ? 'video' : 'image';
+          const form = new FormData();
+          form.append('file', file);
+          form.append('scope_type', this.kit.scope_type);
+          form.append('scope_id', this.kit.scope_id);
+          form.append('asset_type', assetType);
+          const up = await fetch(`${API}/assets/upload`, { method: 'POST', body: form });
+          if (!up.ok) {
+            const err = await up.json().catch(() => ({}));
+            toast.error(t('upload_failed') + (err.detail ? `: ${typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail)}` : ''));
+            event.target.value = '';
+            return;
+          }
+          const asset = await up.json();
+          const link = await fetch(`${API}/brandkits/${this.kit.id}/asset-links`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ asset_id: asset.id, role }),
+          });
+          if (link.ok) {
+            this.assetLinks.push(await link.json());
+            await this.loadAssets(this.kit.id);  // refresh so asset.url is populated
+          }
           event.target.value = '';
         },
 
-        async deleteLink(linkId) {
+        async setPrimaryLogo(linkId) {
+          const res = await fetch(`${API}/brandkits/${this.kit.id}/asset-links/${linkId}/set-primary`,
+                                  { method: 'POST' });
+          if (res.ok) {
+            await this.loadAssets(this.kit.id);
+          }
+        },
+
+        async removeLink(linkId) {
           if (!confirm(t('confirm_remove_link'))) return;
-          const res = await fetch(`${API}/brandkits/${this.kitId}/asset-links/${linkId}`, { method: 'DELETE' });
-          if (res.ok) await this.fetchAssetLinks();
-        },
-
-        async runAiExtract() {
-          this.aiExtract.loading = true;
-          this.aiExtract.error = '';
-          this.aiExtract.results = null;
-          try {
-            const fd = new FormData();
-            if (this.aiExtract.file) {
-              fd.append('file', this.aiExtract.file);
-            }
-            if (this.aiExtract.url) {
-              fd.append('url', this.aiExtract.url);
-            }
-            const res = await fetch(`${API}/brandkits/${this.kitId}/extract-profile`, {
-              method: 'POST',
-              body: fd,
-            });
-            const data = await res.json();
-            if (data.error) {
-              this.aiExtract.error = data.error;
-            } else {
-              this.aiExtract.results = data;
-            }
-          } catch (e) {
-            this.aiExtract.error = t('network_error');
-          }
-          this.aiExtract.loading = false;
-        },
-
-        applyExtractedField(fieldKey) {
-          const value = this.aiExtract.results?.[fieldKey];
-          if (!value) return;
-          this.jsonFields[fieldKey] = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-          this.saveTextField(fieldKey);
-        },
-
-        applyAllExtracted() {
-          if (!this.aiExtract.results) return;
-          for (const f of this.profileFieldList) {
-            if (this.aiExtract.results[f.key]) {
-              this.applyExtractedField(f.key);
-            }
-          }
+          await fetch(`${API}/brandkits/${this.kit.id}/asset-links/${linkId}`, { method: 'DELETE' });
+          this.assetLinks = this.assetLinks.filter(l => l.id !== linkId);
         },
 
         async deleteKit() {
           if (!confirm(t('confirm_delete_kit'))) return;
-          const res = await fetch(`${API}/brandkits/${this.kitId}`, { method: 'DELETE' });
-          if (res.ok) location.href = '/brandkit-list.html';
-          else toast.error(t('delete_failed'));
+          await fetch(`${API}/brandkits/${this.kit.id}`, { method: 'DELETE' });
+          location.href = '/brandkit-list.html';
         },
       };
     }

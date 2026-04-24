@@ -8,10 +8,9 @@ from pydantic import BaseModel, Field
 class TopicPlanGenerateRequest(BaseModel):
     offer_id: uuid.UUID
     channel: str | None = None
-    language: str = "zh-CN"
-    # When False (default), the service overrides ``language`` with the
-    # KB's detected content language so planning output matches the KB.
-    language_override: bool = False
+    # Explicit output language — ``None`` means "follow KB detection".
+    # Any string ('zh-CN' / 'en') overrides detection.
+    language: str | None = None
     count: int = Field(5, ge=1, le=20)
     strategy_unit_id: uuid.UUID | None = None
     config_id: str | None = None

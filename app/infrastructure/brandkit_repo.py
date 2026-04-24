@@ -114,7 +114,7 @@ class BrandKitAssetLinkRepository:
         )
         total = (await self.session.execute(count_q)).scalar_one()
         stmt = base.order_by(
-            BrandKitAssetLink.priority.desc(),
+            BrandKitAssetLink.priority.asc(),
             BrandKitAssetLink.created_at.desc(),
         ).offset(offset).limit(limit)
         result = await self.session.execute(stmt)

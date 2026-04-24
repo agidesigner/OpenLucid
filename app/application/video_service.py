@@ -98,6 +98,49 @@ async def create_video_job(
     if not provider_config:
         raise NotFoundError("MediaProviderConfig", data.provider_config_id)
 
+    # Brandkit-driven subtitle-color defaults. When the user hasn't picked
+    # an explicit override, the brandkit's primary / secondary colors stand
+    # in for preset defaults — this way video subtitles visually match the
+    # brand without forcing the user to re-enter hex on every generation.
+    # Explicit user choice (non-null ``data.subtitle_color`` / ``stroke``)
+    # always wins; only the unset case gets filled.
+    effective_subtitle_color = data.subtitle_color
+    effective_subtitle_stroke = data.subtitle_stroke
+    if effective_subtitle_color is None or effective_subtitle_stroke is None:
+        from app.models.brandkit import BrandKit, BrandKitColor
+        try:
+            kit = (await db.execute(
+                select(BrandKit).where(
+                    BrandKit.scope_type == "offer",
+                    BrandKit.scope_id == creation.offer_id,
+                ).order_by(BrandKit.updated_at.desc()).limit(1)
+            )).scalars().first()
+            if kit is None and creation.merchant_id:
+                kit = (await db.execute(
+                    select(BrandKit).where(
+                        BrandKit.scope_type == "merchant",
+                        BrandKit.scope_id == creation.merchant_id,
+                    ).order_by(BrandKit.updated_at.desc()).limit(1)
+                )).scalars().first()
+            if kit is not None:
+                colors = (await db.execute(
+                    select(BrandKitColor)
+                    .where(BrandKitColor.brandkit_id == kit.id)
+                    .order_by(BrandKitColor.priority)
+                )).scalars().all()
+                by_role = {c.role: c.hex for c in colors}
+                if effective_subtitle_color is None and by_role.get("primary"):
+                    effective_subtitle_color = by_role["primary"]
+                if effective_subtitle_stroke is None and by_role.get("secondary"):
+                    effective_subtitle_stroke = by_role["secondary"]
+                if effective_subtitle_color or effective_subtitle_stroke:
+                    logger.info(
+                        "Subtitle color defaults pulled from brandkit: fill=%s stroke=%s",
+                        effective_subtitle_color, effective_subtitle_stroke,
+                    )
+        except Exception as e:
+            logger.warning("Brandkit color lookup failed (using style-preset defaults): %s", e)
+
     # 3. Build the params we'll send (and store on the row for debug)
     params: dict = {
         "avatar_id": data.avatar_id,
@@ -105,6 +148,14 @@ async def create_video_job(
         "script": data.script,
         "aspect_ratio": data.aspect_ratio,
         "caption": data.caption,
+        # Persist the user-picked subtitle style so the B-roll compositor
+        # (which runs later, after polling) can reproduce the same
+        # typography as the avatar provider burns in. Previously the
+        # compositor defaulted to hardcoded white/black/36px, producing
+        # subtitles that looked nothing like the avatar's chosen style.
+        "subtitle_style": data.subtitle_style,
+        "subtitle_color": effective_subtitle_color,
+        "subtitle_stroke": effective_subtitle_stroke,
         "broll": data.broll,
         "name": data.name,
         "provider_extras": data.provider_extras or {},
@@ -126,6 +177,8 @@ async def create_video_job(
     video_provider = get_video_provider(
         provider_config.provider, provider_config.credentials or {}
     )
+    # Use the brandkit-resolved colors (not raw ``data``) so the avatar
+    # provider burns subtitles in the same palette the compositor will use.
     create_req = CreateVideoRequest(
         avatar_id=data.avatar_id,
         voice_id=data.voice_id,
@@ -133,8 +186,8 @@ async def create_video_job(
         aspect_ratio=data.aspect_ratio,
         caption=data.caption,
         subtitle_style=data.subtitle_style,
-        subtitle_color=data.subtitle_color,
-        subtitle_stroke=data.subtitle_stroke,
+        subtitle_color=effective_subtitle_color,
+        subtitle_stroke=effective_subtitle_stroke,
         name=data.name,
         provider_extras=data.provider_extras or {},
     )
@@ -164,7 +217,51 @@ async def create_video_job(
     #    Jogg for the talking-avatar track and Chanjing/Veo for the B-roll clips.
     if data.broll and creation.structured_content:
         sc = creation.structured_content
-        broll_plan = sc.get("broll_plan") or []
+        # Prefer the caller's overridden plan — the UI lets users edit
+        # prompts and add shots before hitting Generate. Fall back to the
+        # AI-director's stored plan when the caller didn't override.
+        broll_plan = data.broll_plan if data.broll_plan is not None else (sc.get("broll_plan") or [])
+
+        # Defensive coerce: the LLM sometimes writes a Chinese sentence
+        # (the narration excerpt it wants to cut over) into
+        # ``insert_after_char`` instead of an integer offset. The
+        # compositor would then collapse all offending shots to 0.0s and
+        # drop them as duplicates — B-roll silently disappears. When we
+        # see a non-int, try to locate that string inside the concatenated
+        # narration and use the matched char offset. If still unresolvable,
+        # drop that entry with a warning rather than let it mask-out at 0.
+        sections_for_coerce = sc.get("sections") or {}
+        section_order_for_coerce = sc.get("section_ids") or list(sections_for_coerce.keys())
+        full_narration = "".join(
+            (sections_for_coerce.get(sid) or {}).get("text", "")
+            for sid in section_order_for_coerce
+        )
+        coerced_plan: list[dict] = []
+        for idx, entry in enumerate(broll_plan):
+            pos = entry.get("insert_after_char", 0)
+            if isinstance(pos, int):
+                coerced_plan.append(entry)
+                continue
+            if isinstance(pos, str) and pos.strip() and full_narration:
+                # Match against the narration. LLM often writes the full
+                # sentence it wants the cut to land after, so we locate
+                # the substring and use the end of the match.
+                needle = pos.strip()
+                match_idx = full_narration.find(needle)
+                if match_idx >= 0:
+                    fixed = {**entry, "insert_after_char": match_idx + len(needle)}
+                    coerced_plan.append(fixed)
+                    logger.info(
+                        "B-roll #%d: coerced string insert_after_char to %d (matched narration)",
+                        idx, fixed["insert_after_char"],
+                    )
+                    continue
+            # Unresolvable — skip rather than collapse to 0.
+            logger.warning(
+                "B-roll #%d dropped: insert_after_char=%r is not an int and doesn't match narration",
+                idx, pos,
+            )
+        broll_plan = coerced_plan
         section_order = sc.get("section_ids")
         if not section_order:
             _STRUCTURE_ORDERS = {
@@ -219,38 +316,84 @@ async def create_video_job(
             if not broll_video_provider:
                 logger.info("B-roll: no B-roll-capable provider configured — skipping")
             else:
-                # Search KB for image assets, upload as ref images for the B-roll clips
-                asset_urls: list[str] = []
+                # Reference images for B-roll generation come from the
+                # offer's Assets tab — the only place the UI lets users
+                # upload product-specific photos. Merchant-scope Assets
+                # aren't queried because no UI currently uploads to that
+                # scope; that query would always be empty in practice.
+                # Brandkit is intentionally NOT used as a source — it's
+                # brand identity (logo, colors, fonts), not product
+                # visual content for i2v conditioning.
+                from app.adapters.storage import LocalStorageAdapter
+                from app.models.asset import Asset
+                storage = LocalStorageAdapter()
+
+                candidates: list = []
+                source_label = "none"
                 try:
-                    from app.adapters.storage import LocalStorageAdapter
-                    from app.models.asset import Asset
-                    storage = LocalStorageAdapter()
                     result = await db.execute(
                         select(Asset).where(
+                            Asset.scope_type == "offer",
                             Asset.scope_id == creation.offer_id,
                             Asset.asset_type == "image",
                             Asset.mime_type.in_(["image/png", "image/jpeg", "image/webp"]),
-                        ).limit(5)
+                        ).order_by(Asset.created_at.desc()).limit(5)
                     )
-                    for asset in result.scalars().all():
-                        try:
-                            file_bytes = await storage.get_file(asset.storage_uri)
-                            ref_url = await broll_video_provider.upload_temp_file(
-                                file_bytes, asset.file_name or "ref.png",
-                            )
-                            asset_urls.append(ref_url)
-                        except Exception as e:
-                            logger.warning("B-roll: failed to upload KB asset %s: %s", asset.file_name, e)
-                    if asset_urls:
-                        logger.info("B-roll: %d reference images uploaded", len(asset_urls))
+                    candidates = list(result.scalars().all())
+                    if candidates:
+                        source_label = "offer_kb"
                 except Exception as e:
-                    logger.warning("B-roll: could not load KB assets: %s", e)
+                    logger.warning("B-roll: offer-KB asset lookup failed: %s", e)
 
+                # Upload each candidate; per-asset try so one bad file
+                # doesn't kill the rest. Empty ``candidates`` is fine —
+                # Seedance just runs pure text-to-video without ref_img.
+                asset_urls: list[str] = []
+                for asset in candidates:
+                    try:
+                        file_bytes = await storage.get_file(asset.storage_uri)
+                        ref_url = await broll_video_provider.upload_temp_file(
+                            file_bytes, asset.file_name or "ref.png",
+                        )
+                        asset_urls.append(ref_url)
+                    except Exception as e:
+                        logger.warning("B-roll: failed to upload asset %s: %s", asset.file_name, e)
+                logger.info(
+                    "B-roll: %d reference images uploaded (source=%s)",
+                    len(asset_urls), source_label,
+                )
+
+                # Cap aligned with composer spec (up to 5 inserts for 90s+).
                 broll_tasks: list[dict] = []
-                for idx, entry in enumerate(broll_plan[:4]):  # cap at 4 inserts
+                for idx, entry in enumerate(broll_plan[:5]):
                     prompt = (entry.get("prompt") or "").strip()
                     if not prompt:
                         continue
+                    shot_type = entry.get("type", "illustrative")
+                    # Retention opener: prepend style cues that nudge Seedance
+                    # toward a stopping-power shot. Without this, retention
+                    # and illustrative shots look identical — which defeats
+                    # the whole point of the type distinction.
+                    if shot_type == "retention":
+                        # Match prefix language to prompt language so the LLM
+                        # sees a coherent single-language prompt (previously
+                        # an English prefix was prepended even to Chinese
+                        # prompts, creating bilingual noise).
+                        # Can't use ``detect_text_language`` here — its
+                        # 30-char minimum sample throws out short broll
+                        # prompts and returns None, which would default to
+                        # English even for clearly-Chinese inputs. "Any
+                        # CJK char present" is the right granularity.
+                        has_cjk = any("一" <= c <= "鿿" for c in prompt)
+                        retention_prefix = (
+                            "特写推进镜头，0.75x 慢动作，浅景深，电影级打光，"
+                            "留人开场冲击力。"
+                            if has_cjk else
+                            "Extreme close-up push-in, slow-motion 0.75x, "
+                            "shallow depth of field, cinematic lighting, "
+                            "visually striking opener that stops the scroll. "
+                        )
+                        prompt = retention_prefix + prompt
                     dur = max(5, min(entry.get("duration_seconds") or 5, 10))
                     ref_img = asset_urls[idx % len(asset_urls)] if asset_urls else None
                     try:
@@ -429,12 +572,18 @@ async def _maybe_sync_status(
                 from app.config import settings
                 output_dir = str(settings.STORAGE_BASE_PATH) + "/composited"
                 try:
+                    _p = job.params or {}
                     output_path = await composite_broll(
                         avatar_video_url=status.video_url,
                         broll_clips=broll_clips,
-                        section_order=(job.params or {}).get("broll_section_order", []),
-                        sections=(job.params or {}).get("broll_sections", {}),
+                        section_order=_p.get("broll_section_order", []),
+                        sections=_p.get("broll_sections", {}),
                         output_dir=output_dir,
+                        caption=_p.get("caption", True),
+                        aspect_ratio=_p.get("aspect_ratio", "portrait"),
+                        subtitle_style=_p.get("subtitle_style", "classic"),
+                        subtitle_color=_p.get("subtitle_color"),
+                        subtitle_stroke=_p.get("subtitle_stroke"),
                     )
                     video_url = f"/uploads/composited/{output_path.split('/')[-1]}"
                     logger.info("B-roll composite done: %s", video_url)

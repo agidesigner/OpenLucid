@@ -13,7 +13,7 @@ from app.models.llm_config import LLMConfig
 from app.models.model_scene_config import ModelSceneConfig
 from app.models.asset_processing_job import AssetProcessingJob
 from app.models.asset_metric import AssetMetric
-from app.models.brandkit import BrandKit
+from app.models.brandkit import BrandKit, BrandKitColor, BrandKitFont
 from app.models.brandkit_asset_link import BrandKitAssetLink
 from app.models.mcp_token import McpToken
 from app.models.guest_access import GuestAccess
@@ -40,6 +40,8 @@ __all__ = [
     "LLMConfig",
     "ModelSceneConfig",
     "BrandKit",
+    "BrandKitColor",
+    "BrandKitFont",
     "BrandKitAssetLink",
     "McpToken",
     "GuestAccess",

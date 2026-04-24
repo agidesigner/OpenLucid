@@ -139,65 +139,254 @@ def _build_markdown_instruction(platform: ScriptPlatform, structure: ScriptStruc
     )
 
 
+def _persuasion_technique_spec(is_zh: bool) -> str:
+    """Persuasion-technique spine constraint. Distilled from a pro content-marketing
+    course (7 techniques) and tightened into two hard prompt rules:
+
+    1. Pick ONE technique as the whole-script spine — don't ladder through several.
+    2. Ban the "enumerate everything from the knowledge base" laziness that produced
+       the original friend complaint (monotonous structure, >20% product description).
+
+    Kept as prompt-layer constraints on purpose — no user-facing config, no DB.
+    The LLM picks the best fit for the current KB; if we forced the user to choose,
+    90% would pick wrong.
+    """
+    if is_zh:
+        return (
+            "## 说服手法（必选 1 种作全片骨架）\n"
+            "从以下 7 种说服手法中选 1 种作为**全片的主脊**，整条脚本都围绕它展开。"
+            "其余知识库内容只作为对主脊的具体支撑，不得自行另起一条叙事线：\n"
+            "\n"
+            "1. **USP 差异化** — 提出一个别人没有的独特卖点（工艺/设计/成分/理念/人群），"
+            "讲述逻辑=1 个 USP + 多个辅助证明。\n"
+            "2. **痛点解决** — 显性或隐性痛点 → 激发 → 展示方案 → 解决效果。"
+            "大痛点=大消耗，痛点原理讲清最容易出爆款。\n"
+            "3. **品类 PK** — 老品类（A）有缺陷 → 新品类（B）没这个缺陷 → B 的新优势。"
+            "对象要够大、够痛、够相关。\n"
+            "4. **场景代入** — 时节/需求/带入场景，在场景里用户购买欲望最强。\n"
+            "5. **因果论证** — 因为 X（技术/设计/工艺/产地），所以 Y（用户的具体好处）。"
+            "避免有果无因、有因无果、弱因弱果。\n"
+            "6. **细节工艺** — 刻画细节以体现匠心。用数词、名词、事实，不用形容词。\n"
+            "7. **权威背书** — 人（明星/专家/老板）、场（发布会/工厂/大景）、数据（检测报告/销量）。\n"
+            "\n"
+            "### 硬约束（违反即失败）\n"
+            "- **禁止把知识库按条罗列**。每一句口播都必须服务于选定的主脊，不能是对 KB 的平铺复述。\n"
+            "- **产品客观描述（参数/功能/配方）不得超过全文篇幅的 20%**。其余 80% 留给主脊的说服推进。\n"
+            "- **禁止多手法并列**。不要既讲 USP 又讲痛点又讲权威——选 1 个深讲，其他作为辅证。\n"
+            "- **主脊选择依据 KB 里最锋利的那个点**。如果 KB 里有强痛点数据，就走痛点；有独家工艺，就走 USP/细节；有达人/检测报告，就走权威。\n"
+        )
+    return (
+        "## Persuasion Technique (choose exactly ONE as the spine)\n"
+        "Pick ONE of the 7 techniques below as the spine for the entire script. "
+        "Every line must serve that spine — other knowledge-base content is only "
+        "supporting evidence, never a parallel narrative:\n"
+        "\n"
+        "1. **USP Differentiation** — one unique value point (craft/design/ingredient/philosophy/niche) "
+        "that no competitor offers. Logic = 1 USP + several supporting proofs.\n"
+        "2. **Pain-Point Resolution** — surface the pain (explicit or latent) → agitate → present solution → show the effect. "
+        "Explaining the *mechanism* of the pain works best.\n"
+        "3. **Category vs.** — old category (A) has flaw X → new category (B) doesn't have X → B's new value Y. "
+        "The comparison target must be big, painful, and relevant.\n"
+        "4. **Scenario Embedding** — place the product in a seasonal/need/aspirational scenario where buying intent is strongest.\n"
+        "5. **Cause & Effect** — because of X (tech/design/craft/origin), you get specific benefit Y. "
+        "Avoid effect-without-cause, cause-without-effect, and weak cause-effect links.\n"
+        "6. **Craft Details** — depict concrete details to convey quality. Use numbers, nouns, facts. No adjectives.\n"
+        "7. **Authority** — people (celebrities/experts/founders), places (launches/factories/grand settings), "
+        "data (lab reports, sales figures).\n"
+        "\n"
+        "### Hard constraints (violations = failure)\n"
+        "- **Never enumerate the knowledge base line-by-line**. Every spoken line must advance the chosen spine, "
+        "not summarize KB entries in sequence.\n"
+        "- **Objective product description (specs/features/ingredients) must not exceed 20%** of the total. "
+        "The remaining 80% drives the persuasion spine forward.\n"
+        "- **Do not mix multiple techniques**. Don't do USP + pain + authority in parallel — pick one, go deep, "
+        "others are supporting evidence only.\n"
+        "- **Choose the spine based on the sharpest angle in the KB**: strong pain data → pain-point spine; "
+        "proprietary craft → USP/detail; testimonials or lab reports → authority; and so on.\n"
+    )
+
+
+def _shot_description_spec(is_zh: bool) -> str:
+    """Spec for writing a detailed, production-grade shot description. Used
+    both for per-section ``visual_direction`` and ``broll_plan[].prompt`` so
+    the LLM produces cinematography-level depth, not "show product" bullet
+    slop. Based on real ad-agency shot list conventions.
+    """
+    if is_zh:
+        return (
+            "\n## 镜头描述规范（visual_direction 与 broll_plan.prompt 都必须达到这个深度）\n"
+            "\n每一段镜头描述必须依次覆盖以下 6 个维度，缺一不可：\n"
+            "1. **景别 + 运镜**：中景 / 特写 / 近景 / 全景 / 微距，搭配 固定 / 推进 / 跟随 / 摇移 / 升降。\n"
+            "2. **场景与光线**：具体环境（浴室 / 厨房 / 户外 / 办公桌前...）+ 时段（深夜 / 清晨 / 午后）+ 光质（明亮自然光 / 侧顶柔光 / 冷白镜光 / 逆光剪影）。\n"
+            "3. **主体动作与表情**：谁、在做什么具体动作、手部姿态、微表情（眉头微蹙 / 自信微笑 / 惊讶睁眼...）。\n"
+            "4. **产品/道具呈现**：品牌文字朝向镜头、手持方式、纹理质感（泡沫如云朵、液体挂壁、粉末扬起...）。\n"
+            "5. **画面质感**：景深虚化 / 柔焦 / 色调（暖金 / 冷白 / 哑光）/ 后期质感（高保真度、商业级品质、4K）。\n"
+            "6. **情绪锚点**：这段画面让观众感受到什么（挫败、期待、惊喜、松弛、自信）。\n"
+            "\n### 好范例（套用任何品类，长度必须至少 80 字）\n"
+            "> \"中景，深夜浴室，年轻女性站在镜前审视皮肤。镜中她的脸暗沉油腻，她眉头微蹙、指尖抚过脸颊，显露出困扰。"
+            "背景冷白色瓷砖泛着镜光，侧顶柔光勾勒轮廓。景深虚化，色调略偏冷。"
+            "高保真度、商业级品质、皮肤纹理清晰可见。\"\n"
+            "\n### 禁止写法（LLM 常见偷懒）\n"
+            "- \"展示产品的画面\" / \"一个人在使用产品\" / \"产品的特写\"（空泛）\n"
+            "- 少于 60 字的描述（信息量不够）\n"
+            "- 只写「什么」不写「怎么拍」（缺景别/光线）\n"
+            "- 与口播内容无关（必须服务当前这句话的情绪或信息）\n"
+            "\n### 视觉手法锚定（每段 visual_direction 必须采用 1 种并体现在描述里）\n"
+            "下列 8 种视觉手法选 1 种作为本段画面的核心表达：\n"
+            "- **同框** — 人/场/物与产品出现在同一画面，借他者属性赋能产品\n"
+            "- **超级效果** — 一个「看了就想要」的镜头，是 wow 级而非 good 级\n"
+            "- **符号动作** — 一个能放大卖点、制造停留的具象动作（合理的反常）\n"
+            "- **对比** — 前后 / 左右 / 同屏 / 分屏；能一镜到底就不剪辑\n"
+            "- **重复** — 关键视觉元素重复出现以构建记忆点\n"
+            "- **实验** — 有说服力、可视觉化、可过审的实验（眼见为实）\n"
+            "- **共情** — 洞察少被谈及的集体潜意识，引发情绪共鸣\n"
+            "- **蒙太奇** — 多镜头拼接暗示效果或叙事故事\n"
+        )
+    return (
+        "\n## Shot description spec (both visual_direction AND broll_plan.prompt must hit this depth)\n"
+        "\nEvery shot description MUST cover these 6 dimensions in order — none may be skipped:\n"
+        "1. **Framing + camera move**: wide / medium / close-up / extreme close-up / macro + static / push-in / pull-back / tracking / pan / tilt.\n"
+        "2. **Setting + lighting**: concrete location (bathroom / kitchen / outdoor / desk...) + time of day (late night / dawn / afternoon) + light quality (bright natural / soft key + rim / cold overhead / backlit silhouette).\n"
+        "3. **Subject action + micro-expression**: who is doing exactly what, hand gestures, face (furrowed brow / quiet smile / slight squint...).\n"
+        "4. **Product / prop beat**: brand name facing camera, how it's held, texture cues (cloud-soft foam, liquid clinging to glass, powder plume...).\n"
+        "5. **Visual quality**: depth of field, color palette (warm gold / cold white / matte), post treatment (high fidelity, commercial grade, 4K).\n"
+        "6. **Emotional anchor**: what the viewer should feel from this beat (frustration, anticipation, relief, confidence).\n"
+        "\n### Reference example (fits any category; minimum 50 words — aim for 3-4 sentences)\n"
+        "> \"Medium shot, late-night bathroom. A young woman studies her reflection. Her skin looks dull and oily; "
+        "she furrows her brow and runs her fingertip along her cheek, visibly bothered. Cold white tiles catch the mirror's reflection; "
+        "a soft overhead key light rakes across her face. Shallow depth of field, slight cool tint. "
+        "High fidelity, commercial grade, skin texture clearly visible.\"\n"
+        "\n### Banned patterns (common LLM laziness in English)\n"
+        "- Passive / distant voice: \"The scene shows...\", \"The camera captures...\", \"Various shots of...\", \"A shot of...\" — write it as a concrete director would on a shot list, not as a passive observer.\n"
+        "- \"Someone using it\" / \"A person doing X\" / \"Close-up of the item\" — vague placeholders, no framing or light.\n"
+        "- Fewer than 30 words, or a single sentence (not enough information for an AI image/video model to render).\n"
+        "- Says WHAT but not HOW to shoot it (missing framing, lighting, or depth of field).\n"
+        "- Not tied to the line of narration (every shot must serve the current beat's emotion or info).\n"
+        "\n### Visual technique anchor (every visual_direction must pick ONE and show it)\n"
+        "Choose exactly 1 of the 8 techniques below as the core visual move for each shot:\n"
+        "- **Co-framing** — person/place/object sharing the frame with the product, transferring attributes\n"
+        "- **Super effect** — a shot that makes the viewer want it immediately (wow, not good)\n"
+        "- **Signature action** — a specific, slightly unexpected action that amplifies a selling point and holds attention\n"
+        "- **Contrast** — before/after, left/right, split-screen, on-frame; prefer one uncut shot over edits when possible\n"
+        "- **Repetition** — a key visual element recurring to build memory\n"
+        "- **Experiment** — a convincing, platform-safe visual test (seeing is believing)\n"
+        "- **Empathy** — tap a rarely-spoken collective subtext to trigger emotional resonance\n"
+        "- **Montage** — sequential cuts that imply an effect or tell a story across time/place\n"
+    )
+
+
 def _build_json_schema(platform: ScriptPlatform, structure: ScriptStructure) -> str:
     """Build the JSON output schema instruction (video only)."""
     section_ids = structure.section_ids
     is_video = platform.is_video
     is_zh = platform.region == "zh"
 
-    example_section = '{"text": "口播文字，即说出口的内容", "visual_direction": "这个镜头应该呈现什么画面，用于B-roll素材匹配", "duration_seconds": 5}'
-    if not is_zh:
-        example_section = '{"text": "The spoken narration text", "visual_direction": "What should appear on screen, for B-roll matching", "duration_seconds": 5}'
+    if is_zh:
+        example_section = (
+            '{"text": "口播文字，即说出口的内容", '
+            '"visual_direction": "中景，明亮的现代浴室，年轻女性手持品牌洗面奶管，银色盖朝上，品牌文字清晰面向镜头。'
+            '她面带自然微笑，产品举至胸前；背景柔和白色大理石瓷砖，侧方柔光。景深虚化，色调温暖。'
+            '高保真度、商业级品质。", '
+            '"duration_seconds": 5}'
+        )
+    else:
+        example_section = (
+            '{"text": "The spoken narration text", '
+            '"visual_direction": "Medium shot, bright modern bathroom. A woman holds the brand cleanser tube with silver cap, '
+            'brand name clearly facing camera. She smiles naturally, product lifted chest-high. Soft white marble tiles behind her, '
+            'key light from the side. Shallow depth of field, warm tone. High fidelity, commercial grade.", '
+            '"duration_seconds": 5}'
+        )
 
     sections_example = {sid: json.loads(example_section) for sid in section_ids}
 
     # B-roll plan — AI director decides WHEN and WHY to cut
     if is_zh:
         broll_plan_example = [
-            {"type": "retention", "insert_after_char": 0, "duration_seconds": 2,
-             "prompt": "（在此描述能阻止用户划走的视觉冲击画面）"},
-            {"type": "illustrative", "insert_after_char": "（口播文字的第N个字之后插入，精确到具体位置）",
-             "duration_seconds": 4, "prompt": "（在此描述辅助说明当前口播内容的画面）"},
+            {"type": "retention", "insert_after_char": 0, "duration_seconds": 5,
+             "prompt": (
+                "特写推进镜头，画面从浴室镜面模糊的水雾中推入，逐渐聚焦到产品瓶身；"
+                "银色瓶盖在顶光下反射出冷光斑，品牌文字从失焦到锐利。背景大理石纹路虚化成暖色景深。"
+                "商业级 4K，慢动作 0.75 倍速，高保真度。"
+             )},
+            {"type": "illustrative", "insert_after_char": 42,
+             "duration_seconds": 6, "prompt": (
+                "微距特写，双手挤出产品到湿润手掌，质地如奶油绵密。镜头环绕 180° 跟随手掌搓揉，"
+                "泡沫从少到多如云朵堆起；光线柔侧光，水珠挂在指尖，背景柔焦白雾。商业级画质，质感清晰。"
+             )},
         ]
         broll_instruction = (
             "\n\nbroll_plan 编排规则（你是 AI 编导，根据文案内容智能编排视觉节奏）：\n"
-            "\n核心原则：短视频每 8-12 秒需要一次视觉变化，否则观众划走。"
-            "B-roll 是最强的视觉变化手段，系统会自动用模拟运镜（zoom）填充剩余间隔，"
-            "你只需规划 B-roll 的创意点位。\n\n"
-            "编排策略：\n"
-            "- retention 类型：放在视频开头（insert_after_char=0），用视觉冲击力阻止划走，5秒\n"
-            "- illustrative 类型：在口播提到具体事物/数据/场景时切入辅助画面，5-6秒\n"
-            "- 根据视频总时长决定 B-roll 数量：30秒以下=1-2个，30-60秒=2-3个，60秒以上=3-4个\n"
-            "- B-roll 之间尽量均匀分布，避免连续两段 B-roll 紧挨着\n"
-            "- CTA 段（最后一段）不要放 B-roll，保持数字人面对面\n"
-            "\n技术约束：\n"
-            "- duration_seconds 必须在 5-10 秒范围内\n"
-            "- insert_after_char 是口播全文（所有 section 的 text 拼接后）中第几个字之后插入\n"
-            "- prompt 要具体描述一个 AI 可生成的画面场景，避免含人脸\n"
-            "- 可以描述：产品界面、数据图表、场景氛围、动作特写、物品展示等\n"
+            "\n核心原则：短视频每 8-12 秒**必须**有一次视觉变化，否则画面"
+            "进入死寂期，观众划走。B-roll 是最强的视觉变化手段。\n\n"
+            "编排策略（按 estimated_total_seconds 算数量）：\n"
+            "- **视频 30 秒以下：** 至少 2 个 B-roll（1 retention + 1 illustrative）\n"
+            "- **视频 30-60 秒：** 至少 3 个 B-roll（1 retention + 2 illustrative）\n"
+            "- **视频 60-90 秒：** 至少 4 个 B-roll（1 retention + 3 illustrative）\n"
+            "- **视频 90 秒以上：** 至少 5 个 B-roll（1 retention + 4 illustrative）\n"
+            "\n分布铁律（违反会让中段变成视觉死寂）：\n"
+            "- retention 放视频开头：insert_after_char=0，5 秒，视觉冲击\n"
+            "- illustrative 之间的**相邻时间间隔不得超过 12 秒**。按 chars_per_sec ≈ 5 估算，"
+            "相邻 illustrative 的 insert_after_char 差不得超过 60 字\n"
+            "- 例：60 秒视频 313 字口播，3 个 illustrative 合理分布在 char ≈ 60 / 150 / 240 附近"
+            "（对应时间 ≈ 12s / 30s / 47s，gap 约 17s / 17s / 13s，每段 6s broll 后实际 gap 缩到 11s-11s-7s）\n"
+            "- CTA 段（最后一段的 insert_after_char 区间）不放 B-roll，保持数字人面对面\n"
+            "\n技术约束（⚠️ 违反会导致 B-roll 被服务端自动修正或丢弃）：\n"
+            "- **duration_seconds 必须是 5-10 的整数**。retention 固定 5 秒，illustrative 5-7 秒\n"
+            "- **insert_after_char 必须是纯整数**（0 到口播总字数之间）。"
+            "**严禁**写成中文句子、口播原文、描述性短语、英文字母——服务端会尝试匹配口播找位置，"
+            "匹配不到直接丢弃该条 B-roll。正确示例：`\"insert_after_char\": 14`；"
+            "错误示例（会被拒绝或容错修正，质量不保证）：`\"insert_after_char\": \"脸上花了大几千\"`\n"
+            "- 快速自检：你生成完 broll_plan 后，把每个 insert_after_char 想象成数到口播"
+            "第几个字符的位置，0 到 len(所有 text 拼接) 之间的一个数字；不是任何文字。\n"
+            "- prompt 要具体描述一个 AI 可生成的画面场景，retention 强调冲击力（extreme close-up,"
+            "slow motion, visually striking），illustrative 服务口播内容（产品界面、数据图表、场景氛围、"
+            "动作特写、物品展示等），避免含人脸\n"
         )
     else:
         broll_plan_example = [
-            {"type": "retention", "insert_after_char": 0, "duration_seconds": 2,
-             "prompt": "(Describe a visually striking shot that stops the scroll)"},
-            {"type": "illustrative", "insert_after_char": "(character position in concatenated narration text)",
-             "duration_seconds": 4, "prompt": "(Describe what should appear on screen to illustrate the narration)"},
+            {"type": "retention", "insert_after_char": 0, "duration_seconds": 5,
+             "prompt": (
+                "Extreme close-up push-in: camera drifts from a fogged mirror surface into sharp focus on the product bottle. "
+                "The silver cap catches an overhead rim-light, brand lettering sharpens from blur to crisp. "
+                "Marble grain behind goes warm and out of focus. Commercial-grade 4K, 0.75x slow-motion, high fidelity."
+             )},
+            {"type": "illustrative", "insert_after_char": 42,
+             "duration_seconds": 6, "prompt": (
+                "Macro close-up. Hands squeeze the cream into a wet palm, texture rich like whipped cream. "
+                "Camera arcs 180° around the hands as they lather; foam builds from sparse to cloud-like. "
+                "Soft side-key, water droplets clinging to fingertips, background a soft white mist. Commercial grade, texture readable."
+             )},
         ]
         broll_instruction = (
-            "\n\nbroll_plan rules (you are the AI director — plan visual rhythm based on script content):\n"
-            "\nCore principle: short videos need a visual change every 8-12 seconds or viewers scroll away. "
-            "B-roll is the strongest visual change. The system auto-inserts simulated camera moves (zoom) "
-            "for remaining gaps — you only plan the creative B-roll insert points.\n\n"
-            "Strategy:\n"
-            "- retention: at video start (insert_after_char=0), visually striking to stop scrolling, 5s\n"
-            "- illustrative: when narration mentions specific things/data/scenes, 5-6s\n"
-            "- Scale B-roll count by duration: under 30s=1-2, 30-60s=2-3, over 60s=3-4\n"
-            "- Distribute B-roll evenly — avoid clustering two inserts back-to-back\n"
-            "- Never place B-roll in the CTA (final) section — keep avatar face-to-camera\n"
-            "\nConstraints:\n"
-            "- duration_seconds must be 5-10\n"
-            "- insert_after_char = character position in concatenated narration (all section texts joined)\n"
-            "- prompt must describe a concrete AI-generatable scene, no human faces\n"
+            "\n\nbroll_plan rules (you are the AI director — plan visual rhythm for the script):\n"
+            "\nCore principle: short videos MUST have a visual change every 8-12 seconds. "
+            "Longer gaps turn the frame into a dead zone and viewers scroll.\n\n"
+            "Count the B-rolls based on ``estimated_total_seconds``:\n"
+            "- Video under 30s: at least 2 (1 retention + 1 illustrative)\n"
+            "- Video 30-60s: at least 3 (1 retention + 2 illustrative)\n"
+            "- Video 60-90s: at least 4 (1 retention + 3 illustrative)\n"
+            "- Video 90s+: at least 5 (1 retention + 4 illustrative)\n"
+            "\nDistribution rules (violating these creates visual dead zones):\n"
+            "- retention goes at insert_after_char=0, duration 5s, visually striking opener\n"
+            "- illustrative inserts must NEVER be more than 12 seconds apart. At the typical "
+            "5 chars/sec speaking pace, that means adjacent illustrative ``insert_after_char`` values "
+            "should differ by no more than 60 characters\n"
+            "- Example: a 60s / 313-char script supports 3 illustratives at char ≈ 60 / 150 / 240 "
+            "(times ≈ 12s / 30s / 47s → 6s cuts leave gaps ≈ 11s / 11s / 7s)\n"
+            "- Never place B-roll inside the CTA (final) section — keep the avatar face-to-camera\n"
+            "\nTechnical constraints (⚠️ violations will be auto-corrected or DROPPED on the server):\n"
+            "- **duration_seconds must be an integer 5-10**. Retention fixed at 5; illustrative 5-7.\n"
+            "- **insert_after_char MUST be a plain integer** (0 to total narration length). "
+            "The server parses it as a number — **do NOT write a sentence, narration excerpt, "
+            "or descriptive phrase**. The server will try substring-matching narration as a fallback, "
+            "but if that fails, the B-roll is dropped entirely.\n"
+            "- Correct: `\"insert_after_char\": 26`. "
+            "Wrong (quality not guaranteed): `\"insert_after_char\": \"thousands on skincare\"`.\n"
+            "- Sanity check: every insert_after_char is a number between 0 and len(all section texts joined).\n"
+            "- prompts: retention → ``extreme close-up, slow motion, visually striking``; "
+            "illustrative → serves the narration (product UI, data chart, scene, action close-up, "
+            "object reveal). Avoid human faces.\n"
         )
 
     schema_obj = {
@@ -209,12 +398,15 @@ def _build_json_schema(platform: ScriptPlatform, structure: ScriptStructure) -> 
         "broll_plan": broll_plan_example,
     }
 
+    shot_spec = _shot_description_spec(is_zh)
+
     if is_zh:
         instruction = (
             "输出格式要求：必须输出合法的JSON，结构如下（不要输出任何JSON以外的内容）：\n"
             f"```json\n{json.dumps(schema_obj, ensure_ascii=False, indent=2)}\n```\n\n"
             f"sections中必须包含以下key：{section_ids}，每个key对应上面的字段结构。\n"
             f"{broll_instruction}"
+            f"{shot_spec}"
         )
     else:
         instruction = (
@@ -222,6 +414,7 @@ def _build_json_schema(platform: ScriptPlatform, structure: ScriptStructure) -> 
             f"```json\n{json.dumps(schema_obj, ensure_ascii=False, indent=2)}\n```\n\n"
             f"sections MUST contain these keys: {section_ids}, each matching the field structure above.\n"
             f"{broll_instruction}"
+            f"{shot_spec}"
         )
 
     return instruction
@@ -285,6 +478,14 @@ def compose_system_prompt(
         structure_header = f"## Narrative Structure: {structure.emoji} {structure.name_en} — {structure.description_en}\n"
     structure_layer = structure_header + structure.body + "\n\n" + _build_output_instruction(platform, structure, language)
     layers.append(structure_layer)
+
+    # Layer 5b: PERSUASION (spine + anti-KB-dump constraint)
+    # Distilled from a pro content-marketing course. Orthogonal to STRUCTURE:
+    # structure = time-line (hook → problem → CTA), persuasion = logic of the spine
+    # (USP / pain / category-vs / scenario / cause-effect / detail / authority).
+    # Without this layer the LLM tends to flatly enumerate KB entries — the exact
+    # "monotonous, KB-piled, >>20% product description" symptom reported in the wild.
+    layers.append(_persuasion_technique_spec(is_zh))
 
     # Layer 6: BRAND OVERLAY (optional)
     if brand_tone and brand_tone.strip():

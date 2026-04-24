@@ -104,42 +104,44 @@ class TestResolveOutputLanguage:
         "等多个场景，口播和视觉本地化能力是它的核心优势。"
     )
 
-    def test_english_kb_overrides_chinese_request(self):
+    def test_none_request_follows_english_kb(self):
+        """No explicit language + English KB → English."""
         from app.libs.lang_detect import resolve_output_language
-        assert resolve_output_language("zh-CN", self.EN_TEXT) == "en"
+        assert resolve_output_language(None, self.EN_TEXT) == "en"
 
-    def test_chinese_kb_overrides_english_request(self):
+    def test_none_request_follows_chinese_kb(self):
+        """No explicit language + Chinese KB → Chinese."""
         from app.libs.lang_detect import resolve_output_language
-        assert resolve_output_language("en", self.ZH_TEXT) == "zh-CN"
+        assert resolve_output_language(None, self.ZH_TEXT) == "zh-CN"
 
-    def test_matching_kb_passes_through(self):
-        """When request and KB already agree, return requested as-is
-        (don't rewrite zh → zh-CN cosmetically)."""
+    def test_matching_request_passes_through(self):
+        """Explicit request wins verbatim — even when it matches the KB."""
         from app.libs.lang_detect import resolve_output_language
         assert resolve_output_language("zh-CN", self.ZH_TEXT) == "zh-CN"
         assert resolve_output_language("en", self.EN_TEXT) == "en"
 
-    def test_manual_override_wins_over_detection(self):
-        """User picked en in the UI; KB is Chinese; honor user."""
+    def test_explicit_request_overrides_kb(self):
+        """Presence of ``language`` is the override — user picked en, KB is
+        Chinese, we honor user. Cross-lang scenario (UI picker used)."""
         from app.libs.lang_detect import resolve_output_language
-        assert (
-            resolve_output_language("en", self.ZH_TEXT, manual_override=True)
-            == "en"
-        )
-        assert (
-            resolve_output_language("zh-CN", self.EN_TEXT, manual_override=True)
-            == "zh-CN"
-        )
+        assert resolve_output_language("en", self.ZH_TEXT) == "en"
+        assert resolve_output_language("zh-CN", self.EN_TEXT) == "zh-CN"
 
-    def test_empty_kb_falls_back_to_request(self):
+    def test_none_request_follows_kb(self):
+        """No explicit language → service follows KB detection."""
         from app.libs.lang_detect import resolve_output_language
-        assert resolve_output_language("zh-CN", "") == "zh-CN"
-        assert resolve_output_language("en", None) == "en"
+        assert resolve_output_language(None, self.ZH_TEXT) == "zh-CN"
+        assert resolve_output_language(None, self.EN_TEXT) == "en"
 
-    def test_undetectable_kb_falls_back_to_request(self):
-        """Below the 30-char threshold, detector returns None."""
+    def test_none_request_with_empty_kb_falls_back(self):
         from app.libs.lang_detect import resolve_output_language
-        assert resolve_output_language("zh-CN", "abc") == "zh-CN"
+        assert resolve_output_language(None, "") == "zh-CN"
+        assert resolve_output_language(None, None) == "zh-CN"
+
+    def test_none_request_with_undetectable_kb_falls_back(self):
+        """Below the 30-char threshold, detector returns None → zh-CN."""
+        from app.libs.lang_detect import resolve_output_language
+        assert resolve_output_language(None, "abc") == "zh-CN"
 
 
 class TestInferKnowledgeLanguage:
@@ -207,30 +209,35 @@ class TestInferKnowledgeLanguage:
         assert _infer_language_from_body(body) == "zh-CN"
 
 
-class TestSchemaLanguageOverrideFlag:
-    def test_kbqa_request_defaults_false(self):
+class TestSchemaLanguageOptional:
+    """After the simplification, ``language`` is a single Optional[str] on all
+    three request schemas. Omitting it (``None``) signals "follow KB".
+    The removed ``language_override: bool`` field is no longer part of the
+    request contract."""
+
+    def test_kbqa_defaults_to_none(self):
         from app.schemas.app import KBQAAskRequest
         import uuid
         r = KBQAAskRequest(offer_id=uuid.uuid4(), question="what is this?")
-        assert r.language_override is False
+        assert r.language is None
 
-    def test_scriptwriter_request_defaults_false(self):
+    def test_scriptwriter_defaults_to_none(self):
         from app.schemas.app import ScriptWriterRequest
         import uuid
         r = ScriptWriterRequest(offer_id=uuid.uuid4())
-        assert r.language_override is False
+        assert r.language is None
 
-    def test_topic_plan_request_defaults_false(self):
+    def test_topic_plan_defaults_to_none(self):
         from app.schemas.topic_plan import TopicPlanGenerateRequest
         import uuid
         r = TopicPlanGenerateRequest(offer_id=uuid.uuid4())
-        assert r.language_override is False
+        assert r.language is None
 
-    def test_all_accept_true(self):
+    def test_all_accept_explicit_language(self):
         from app.schemas.app import KBQAAskRequest, ScriptWriterRequest
         from app.schemas.topic_plan import TopicPlanGenerateRequest
         import uuid
         oid = uuid.uuid4()
-        assert KBQAAskRequest(offer_id=oid, question="q", language_override=True).language_override is True
-        assert ScriptWriterRequest(offer_id=oid, language_override=True).language_override is True
-        assert TopicPlanGenerateRequest(offer_id=oid, language_override=True).language_override is True
+        assert KBQAAskRequest(offer_id=oid, question="q", language="en").language == "en"
+        assert ScriptWriterRequest(offer_id=oid, language="en").language == "en"
+        assert TopicPlanGenerateRequest(offer_id=oid, language="en").language == "en"

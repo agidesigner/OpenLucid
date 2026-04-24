@@ -17,6 +17,10 @@ window.odSuggestTopic = async function({
   goal,
   strategy_unit_id = undefined,
   config_id = undefined,
+  // Explicit output language — omit to let the backend follow the KB's
+  // detected language (the default). Only pass a value when a composer
+  // UI picker exists AND the user explicitly picked a language.
+  language = undefined,
 } = {}) {
   if (!offer_id) throw new Error('offer_id is required');
   const res = await fetch('/api/v1/apps/script-writer/suggest-topic', {
@@ -27,7 +31,9 @@ window.odSuggestTopic = async function({
       goal,
       strategy_unit_id,
       config_id,
-      language: typeof getApiLang === 'function' ? getApiLang() : 'zh-CN',
+      // Only send the field when the caller explicitly picked — absence
+      // is the signal "follow KB language".
+      ...(language ? { language } : {}),
     }),
   });
   if (!res.ok) {

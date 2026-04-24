@@ -323,7 +323,8 @@ async def script_writer_suggest_topic(
             offer_id=data["offer_id"],
             strategy_unit_id=data.get("strategy_unit_id"),
             goal=data.get("goal", "reach_growth"),
-            language=data.get("language", "zh-CN"),
+            # Omit/null ``language`` → service follows KB detection.
+            language=data.get("language") or None,
             config_id=data.get("config_id"),
         )
     except Exception as e:

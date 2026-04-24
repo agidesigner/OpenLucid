@@ -53,13 +53,13 @@ def _build_offer_data(body: InferOfferKnowledgeRequest) -> dict:
 def _infer_language_from_body(body: InferOfferKnowledgeRequest) -> str:
     """KB-centric language for knowledge inference.
 
-    The caller's ``body.language`` reflects the UI locale, but the signal
-    that actually matters is the content the user uploaded: a Chinese UI
-    uploading an English brief should get English knowledge items back,
-    not Chinese translations. We sample the offer name + brief text +
-    any existing KB and let the shared detector decide. No manual-
-    override picker exists on the "AI smart update" UI, so the content
-    always wins.
+    AI smart update / create-wizard KB generation has no UI language
+    picker — the only signal is the brief text and any existing KB. Under
+    the system-wide rule (presence of ``language`` is the explicit API
+    override; anything else follows the content), we intentionally pass
+    ``None`` for the explicit side so a Chinese UI uploading an English
+    brief still gets English KB back. ``body.language`` is just the UI
+    locale, not a user pick, so we don't forward it as authoritative.
     """
     from app.libs.lang_detect import resolve_output_language
 
@@ -68,7 +68,7 @@ def _infer_language_from_body(body: InferOfferKnowledgeRequest) -> str:
         for k in body.existing_knowledge[:15]:
             sample_parts.append((k.title or "") + " " + (k.content_raw or "")[:500])
     sample = "\n".join(p for p in sample_parts if p)
-    return resolve_output_language(body.language, sample, caller="infer_knowledge")
+    return resolve_output_language(None, sample, caller="infer_knowledge")
 
 
 def _friendly_llm_error(e: Exception, adapter) -> str:

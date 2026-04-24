@@ -70,31 +70,43 @@ def matches(language: str | None, detected: str | None) -> bool:
     return language[:2].lower() == detected[:2].lower()
 
 
+_FALLBACK_LANGUAGE = "zh-CN"
+
+
 def resolve_output_language(
-    requested_language: str,
+    requested_language: str | None,
     kb_text: str | None,
     *,
-    manual_override: bool = False,
     caller: str = "",
 ) -> str:
-    """The system-wide rule: default output language follows the KB's
-    detected language. The UI may *override* that choice explicitly —
-    script-writer has a picker and sets ``manual_override=True`` — and
-    when it does we honor the user.
+    """The system-wide rule — one sentence:
 
-    Returns the effective language string to use downstream.
+        **The KB's language is the default. An explicit API-level
+        ``language`` value overrides it; anything else follows the KB.**
 
-    ``caller`` is a short label purely for log breadcrumbs ("kb_qa",
-    "topic_plan", "script_writer.generate", ...).
+    So:
+    - ``requested_language`` is a real string → honor it verbatim
+      (API caller / UI composer explicitly picked).
+    - ``requested_language`` is ``None`` / empty → detect the KB's
+      language and return that; if the KB is too short to decide,
+      fall back to ``zh-CN``.
+
+    Previous iterations carried a separate ``manual_override: bool``
+    alongside an always-populated ``language`` — that split ambiguated
+    "did the caller actually pick?" and let frontend defaults win over
+    KB detection. Unified rule: presence of ``language`` IS the
+    override signal.
+
+    ``caller`` is a short label purely for log breadcrumbs.
     """
-    if manual_override:
+    if requested_language:
         return requested_language
     detected = detect_text_language(kb_text)
-    if not detected or matches(requested_language, detected):
-        return requested_language
-    import logging
-    logging.getLogger(__name__).info(
-        "%s: requested=%s but KB content detected as %s — following KB",
-        caller or "lang_detect", requested_language, detected,
-    )
-    return detected
+    if detected:
+        import logging
+        logging.getLogger(__name__).info(
+            "%s: no explicit language — following KB (%s)",
+            caller or "lang_detect", detected,
+        )
+        return detected
+    return _FALLBACK_LANGUAGE

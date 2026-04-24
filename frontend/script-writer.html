@@ -987,6 +987,11 @@ Output language MUST match the language of the knowledge base content and topic.
               goal: this.goalId,
               strategy_unit_id: this.strategyUnitId || undefined,
               config_id: this.configId || undefined,
+              // Only send language when the user manually picked in the
+              // composer; otherwise let the backend follow KB detection.
+              language: this.languageManualOverride
+                ? (this.outputLang === 'zh' ? 'zh-CN' : 'en')
+                : undefined,
             });
           } catch(e) { console.error(e); toast.error(e.message); }
           this.suggestingTopic = false;
@@ -1021,10 +1026,11 @@ Output language MUST match the language of the knowledge base content and topic.
                 industry: this.industry || undefined,
                 reference: this.reference || undefined,
                 extra_req: this.extraReq || undefined,
-                language: this.outputLang === 'zh' ? 'zh-CN' : 'en',
-                // Only honored when the user manually flipped the picker;
-                // otherwise the backend follows the KB's detected language.
-                language_override: !!this.languageManualOverride,
+                // Only send language when the user manually picked in the
+                // composer; otherwise let the backend follow KB detection.
+                ...(this.languageManualOverride
+                  ? { language: this.outputLang === 'zh' ? 'zh-CN' : 'en' }
+                  : {}),
                 config_id: this.configId || undefined,
                 // Composer dimensions
                 platform_id: this.platformId || undefined,
