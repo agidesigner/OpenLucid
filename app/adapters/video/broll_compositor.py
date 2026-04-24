@@ -414,15 +414,36 @@ async def composite_broll(
         insert_points.sort(key=lambda x: x[0])
         logger.info("Insert plan: %s", [(f"{t:.1f}s", p.name, f"{d:.0f}s") for t, p, d in insert_points])
 
-        # 4. Extract audio from avatar (continuous, uncut)
-        audio_path = tmp_path / "audio.aac"
-        await _ffmpeg("-i", str(avatar_path), "-vn", "-acodec", "aac", "-b:a", "128k", str(audio_path))
-
-        # 5. Build visual segments: avatar → B-roll → avatar → B-roll → ...
-        #    For avatar segments > MAX_UNCUT seconds, auto-insert zoom changes
-        #    to simulate camera angle switches (keeps visual rhythm alive).
+        # 4. Build A+V segments — each carries its own audio slice.
+        #
+        # Previous implementation extracted the avatar's audio to a single
+        # ``audio.aac`` up front, built video-only segments with ``-an``,
+        # and re-muxed at the end. That split the pipeline into two
+        # independent timelines (silent-visual concat + lossless-audio
+        # track) that only met at final mux. Any ms-level drift in video
+        # re-encoding (VFR→CFR quirks with Jogg's 21.95fps output, AAC
+        # priming, -ss boundary rounding) accumulated across segments and
+        # the result was Jogg's burnt-in subtitles visibly drifting
+        # against the voice. Chanjing didn't trigger this because its
+        # output is CFR with dense keyframes, so the drift stayed below
+        # perception.
+        #
+        # New approach: each segment is A+V from the start. Avatar
+        # segments cut from ``avatar.mp4`` with audio attached; B-roll
+        # segments pair the broll visual with the matching slice of
+        # avatar audio at the insert point. Final assembly uses
+        # ``concat -c copy`` (no re-encode) so per-segment sync is
+        # preserved into the output.
         MAX_UNCUT = 12.0  # seconds — max time on one static avatar shot
         ZOOM_LEVELS = [1.0, 1.15, 1.0, 1.2, 1.0, 1.12]  # cycle through
+
+        # Pinned encoding params — every segment must match exactly or
+        # ``concat -c copy`` silently falls back to broken output.
+        _VENC = [
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-pix_fmt", "yuv420p", "-r", "24",
+        ]
+        _AENC = ["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "1"]
 
         segments: list[Path] = []
         zoom_idx = 0  # track which zoom level to use next
@@ -449,9 +470,9 @@ async def composite_broll(
                     vf = f"crop={cw}:{ch}:(iw-{cw})/2:(ih-{ch})/2,scale={out_w}:{out_h}:flags=lanczos,setsar=1"
                 await _ffmpeg(
                     "-i", str(avatar_path),
-                    "-ss", f"{start:.2f}", "-t", f"{dur:.2f}",
+                    "-ss", f"{start:.3f}", "-t", f"{dur:.3f}",
                     "-vf", vf,
-                    "-an", "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                    *_VENC, *_AENC,
                     str(seg),
                 )
                 segments.append(seg)
@@ -480,9 +501,9 @@ async def composite_broll(
                 logger.info("Skipping B-roll at %.1fs (cursor=%.1f, end=%.1f)", insert_time, cursor, avatar_duration)
                 continue
 
-            # Avatar segment(s) before this B-roll insert (none for the
-            # opener since it starts at 0 — the audio remains continuous
-            # via the separately-extracted master track merged at the end).
+            # Avatar segment(s) before this B-roll insert. None for the
+            # opener at t≈0 — the audio for those first ~0 seconds is
+            # silent/pre-speech in Jogg's output anyway.
             if insert_time > cursor + 0.5:
                 await _add_avatar_segment(cursor, insert_time)
 
@@ -528,11 +549,17 @@ async def composite_broll(
                 for (chunk_text, s, e) in subtitle_chunks
             ]
             vf = ",".join([scale_filter, *chunk_filters]) if chunk_filters else scale_filter
+            # Two-input: broll is input 0 (visual), avatar is input 1 with
+            # input-level ``-ss`` so the audio slice begins at insert_time.
+            # For audio-only take from the avatar input, input-level seek
+            # is sample-accurate (AAC packets are small), so drift-free.
             await _ffmpeg(
                 "-i", str(clip_path),
-                "-t", f"{use_dur:.2f}",
+                "-ss", f"{insert_time:.3f}", "-i", str(avatar_path),
+                "-map", "0:v:0", "-map", "1:a:0",
+                "-t", f"{use_dur:.3f}",
                 "-vf", vf,
-                "-an", "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                *_VENC, *_AENC,
                 str(seg),
             )
             segments.append(seg)
@@ -543,22 +570,18 @@ async def composite_broll(
         if cursor < avatar_duration - 0.5:
             await _add_avatar_segment(cursor, avatar_duration)
 
-        # 6. Concatenate + merge with audio
-        concat_list = tmp_path / "concat.txt"
-        concat_list.write_text("\n".join(f"file '{p.name}'" for p in segments))
-        visual_path = tmp_path / "visual.mp4"
-        await _ffmpeg(
-            "-f", "concat", "-safe", "0", "-i", str(concat_list),
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-            str(visual_path),
-        )
-
+        # 5. Concat all A+V segments with ``-c copy`` — fast and, more
+        #    importantly, preserves the per-segment sync already baked
+        #    in by the step-4 muxes. No more separate-audio re-merge.
         output_name = f"broll_{uuid.uuid4().hex[:12]}.mp4"
         output_path = Path(output_dir) / output_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        concat_list = tmp_path / "concat.txt"
+        concat_list.write_text("\n".join(f"file '{p.name}'" for p in segments))
         await _ffmpeg(
-            "-i", str(visual_path), "-i", str(audio_path),
-            "-c:v", "copy", "-c:a", "aac", "-shortest",
+            "-f", "concat", "-safe", "0", "-i", str(concat_list),
+            "-c", "copy",
             str(output_path),
         )
 

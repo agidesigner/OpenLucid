@@ -1605,12 +1605,15 @@
             this.guestBusy = false;
           }
         },
-        copyGuestUrl() {
+        async copyGuestUrl() {
+          // Route through odCopyText so plain-HTTP deployments still work —
+          // ``navigator.clipboard`` is undefined outside secure contexts
+          // (HTTPS / localhost), and the old direct call silently no-op'd.
           if (!this.guestUrl) return;
-          navigator.clipboard.writeText(this.guestUrl).then(() => {
-            this.guestCopied = true;
-            setTimeout(() => { this.guestCopied = false; }, 2000);
-          });
+          const ok = await window.odCopyText(this.guestUrl);
+          if (!ok) return;
+          this.guestCopied = true;
+          setTimeout(() => { this.guestCopied = false; }, 2000);
         },
       };
     }

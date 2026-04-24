@@ -23,6 +23,7 @@ no background scheduler is needed.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -364,7 +365,13 @@ async def create_video_job(
                 )
 
                 # Cap aligned with composer spec (up to 5 inserts for 90s+).
-                broll_tasks: list[dict] = []
+                # Build specs synchronously (cheap prep), then fan out the
+                # provider calls with a bounded semaphore. Previously this
+                # loop awaited each ``submit_broll_clip`` serially; for 3-5
+                # broll clips at ~5-30s each, total time dominated the job
+                # submission latency. Parallelism cuts that roughly in half
+                # (ceil(N / BROLL_SUBMIT_CONCURRENCY) waves instead of N).
+                broll_specs: list[tuple[int, dict, str, int, dict]] = []
                 for idx, entry in enumerate(broll_plan[:5]):
                     prompt = (entry.get("prompt") or "").strip()
                     if not prompt:
@@ -396,24 +403,53 @@ async def create_video_job(
                         prompt = retention_prefix + prompt
                     dur = max(5, min(entry.get("duration_seconds") or 5, 10))
                     ref_img = asset_urls[idx % len(asset_urls)] if asset_urls else None
-                    try:
-                        submit_kwargs = dict(prompt=prompt, duration=dur, aspect_ratio=ar, ref_img_url=ref_img)
-                        if broll_model_code:
-                            submit_kwargs["model_code"] = broll_model_code
-                        task_id = await broll_video_provider.submit_broll_clip(**submit_kwargs)
-                        broll_tasks.append({
+                    submit_kwargs: dict = dict(
+                        prompt=prompt, duration=dur,
+                        aspect_ratio=ar, ref_img_url=ref_img,
+                    )
+                    if broll_model_code:
+                        submit_kwargs["model_code"] = broll_model_code
+                    broll_specs.append((idx, entry, prompt, dur, submit_kwargs))
+
+                # Concurrency cap: 3 keeps us well under Jogg/Chanjing per-key
+                # rate limits (observed ~5 requests/sec ceilings in testing)
+                # while still cutting total submit time by ~50% for a typical
+                # 3-5 broll batch. Tune down if a provider starts 429-ing.
+                BROLL_SUBMIT_CONCURRENCY = 3
+                _sem = asyncio.Semaphore(BROLL_SUBMIT_CONCURRENCY)
+
+                async def _submit_one(
+                    idx: int, entry: dict, prompt: str, dur: int, submit_kwargs: dict
+                ) -> dict | None:
+                    async with _sem:
+                        try:
+                            task_id = await broll_video_provider.submit_broll_clip(**submit_kwargs)
+                        except Exception as e:
+                            # Per-item isolation: one failure must not sink
+                            # the batch. Matches the previous serial loop's
+                            # warn-and-continue behavior.
+                            logger.warning("B-roll #%d submit failed: %s", idx, e)
+                            return None
+                        logger.info(
+                            "B-roll #%d submitted via %s: type=%s char=%s task=%s",
+                            idx, broll_provider_config.provider, entry.get("type"),
+                            entry.get("insert_after_char"), task_id,
+                        )
+                        return {
                             "index": idx,
                             "task_id": task_id,
                             "type": entry.get("type", "illustrative"),
                             "insert_after_char": entry.get("insert_after_char", 0),
                             "duration_seconds": dur,
                             "prompt": prompt,
-                        })
-                        logger.info("B-roll #%d submitted via %s: type=%s char=%s task=%s",
-                                    idx, broll_provider_config.provider, entry.get("type"),
-                                    entry.get("insert_after_char"), task_id)
-                    except Exception as e:
-                        logger.warning("B-roll #%d submit failed: %s", idx, e)
+                        }
+
+                results = await asyncio.gather(
+                    *(_submit_one(*s) for s in broll_specs)
+                )
+                # ``gather`` preserves argument order, so the surviving tasks
+                # stay in narration order without an explicit sort.
+                broll_tasks: list[dict] = [r for r in results if r is not None]
 
                 if broll_tasks:
                     params["broll_tasks"] = broll_tasks
