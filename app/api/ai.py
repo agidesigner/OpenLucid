@@ -219,9 +219,126 @@ def _strip_jina_metadata(text: str) -> str:
     return text.strip()
 
 
+def _harvest_structured_metadata(raw_html: str) -> str:
+    """Pull JSON-LD product/SoftwareApplication blocks + nav anchor text out
+    of raw HTML before any stripping passes destroy them.
+
+    Why this matters: product sites embed an authoritative "what this is"
+    summary in ``<script type="application/ld+json">`` (schema.org
+    SoftwareApplication / Product / Service). It enumerates the actual
+    feature list, price, OS support, and category — exactly the fields
+    our infer-knowledge prompt needs but normally has to guess from
+    marketing copy. The previous ``_extract_url_text`` flow killed this
+    in two places (Jina Reader's plain-text view drops scripts; the
+    direct-fetch fallback explicitly strips ``<script>``), so an LLM
+    looking at PrivacyCrop's homepage saw "Privacy Blur" hero copy and
+    confidently summarised the whole product as "screenshot redaction"
+    — missing the 6 other features the JSON-LD listed by name.
+
+    Returns a labelled prefix block (or empty string if nothing useful
+    was found). Callers prepend this to whatever the page-text extractor
+    yields, so the LLM sees the structured metadata first.
+    """
+    import json as _json
+    import re as _re
+    if not raw_html:
+        return ""
+
+    sections: list[str] = []
+
+    # 1) JSON-LD product-ish blocks — schema.org gives canonical product data
+    try:
+        ld_pattern = _re.compile(
+            r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>([\s\S]*?)</script>',
+            _re.IGNORECASE,
+        )
+        relevant_types = {"SoftwareApplication", "Product", "Service", "WebApplication", "MobileApplication"}
+        for m in ld_pattern.finditer(raw_html):
+            blob = m.group(1).strip()
+            if not blob:
+                continue
+            try:
+                data = _json.loads(blob)
+            except _json.JSONDecodeError:
+                continue
+            # @graph wraps multi-entity payloads
+            entities = data.get("@graph") if isinstance(data, dict) and "@graph" in data else (
+                data if isinstance(data, list) else [data]
+            )
+            for ent in entities or []:
+                if not isinstance(ent, dict):
+                    continue
+                t = ent.get("@type")
+                if isinstance(t, list):
+                    matched = any(x in relevant_types for x in t)
+                else:
+                    matched = t in relevant_types
+                if not matched:
+                    continue
+                # Trim to the high-signal fields the LLM actually needs.
+                trimmed = {
+                    k: ent.get(k) for k in
+                    ("@type", "name", "description", "applicationCategory",
+                     "operatingSystem", "browserRequirements", "featureList",
+                     "offers", "category")
+                    if ent.get(k) is not None
+                }
+                sections.append(_json.dumps(trimmed, ensure_ascii=False, indent=2))
+    except Exception:
+        pass
+
+    # 2) Top-level <nav> anchor text — the sidebar / header navigation
+    # usually IS the product's feature list, written by the site owner.
+    # Pulling these as a flat list complements the JSON-LD when the
+    # latter is missing or sparse.
+    try:
+        nav_pattern = _re.compile(r"<nav[^>]*>([\s\S]*?)</nav>", _re.IGNORECASE)
+        anchor_pattern = _re.compile(r"<a[^>]*>([\s\S]*?)</a>", _re.IGNORECASE)
+        tag_pattern = _re.compile(r"<[^>]+>")
+        nav_items: list[str] = []
+        # Cap at first 3 <nav> blocks; large sites have multi-level nav.
+        nav_blocks = list(nav_pattern.finditer(raw_html))[:3]
+        for nav_match in nav_blocks:
+            for a_match in anchor_pattern.finditer(nav_match.group(1)):
+                text = tag_pattern.sub(" ", a_match.group(1))
+                text = " ".join(text.split())
+                if text and 1 < len(text) <= 60 and text not in nav_items:
+                    nav_items.append(text)
+        if nav_items:
+            sections.append("Navigation items:\n  - " + "\n  - ".join(nav_items[:30]))
+    except Exception:
+        pass
+
+    if not sections:
+        return ""
+    body = "\n\n".join(sections)
+    return f"[STRUCTURED PRODUCT METADATA — extracted from page schema/nav, treat as authoritative]\n{body}\n\n[/STRUCTURED PRODUCT METADATA]\n\n"
+
+
 async def _extract_url_text(url: str) -> str:
-    """Extract text from a URL using Jina Reader (handles JS-rendered SPA pages)."""
+    """Extract text from a URL using Jina Reader (handles JS-rendered SPA pages).
+
+    Now also harvests JSON-LD ``SoftwareApplication`` / ``Product`` blocks
+    and nav-anchor text from the raw HTML and prepends them as a labelled
+    "[STRUCTURED PRODUCT METADATA]" prefix. This survives even when Jina
+    Reader's plain-text view drops the original script tags. Without it
+    the LLM only sees marketing hero copy and confidently mis-classifies
+    multi-feature products by their loudest hero section.
+    """
     import re
+
+    # Fetch raw HTML once up front so we can both harvest structured
+    # metadata AND fall back to it if Jina is unavailable.
+    raw_html = ""
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+            resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; OpenLucid)"})
+            resp.raise_for_status()
+            raw_html = resp.text
+    except Exception:
+        raw_html = ""
+    metadata_prefix = _harvest_structured_metadata(raw_html)
+
     jina_url = f"https://r.jina.ai/{url}"
     jina_error = None
     try:
@@ -230,21 +347,23 @@ async def _extract_url_text(url: str) -> str:
             resp.raise_for_status()
             text = _strip_jina_metadata(resp.text)
             if text:
-                return text
+                return metadata_prefix + text
     except Exception as e:
         jina_error = str(e)
         logger.warning("Jina Reader failed for %s: %s, falling back to direct fetch", url, jina_error)
 
-    # Fallback: direct fetch + strip tags
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-    except Exception as e:
-        raise HTTPException(400, f"Unable to access URL: {e}")
+    # Fallback: direct fetch + strip tags. Reuse the raw HTML we already
+    # pulled to avoid a second network round-trip.
+    if not raw_html:
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                raw_html = resp.content.decode("utf-8", errors="ignore")
+        except Exception as e:
+            raise HTTPException(400, f"Unable to access URL: {e}")
 
-    raw = resp.content.decode("utf-8", errors="ignore")
-    text = re.sub(r"<script[^>]*>[\s\S]*?</script>", "", raw)
+    text = re.sub(r"<script[^>]*>[\s\S]*?</script>", "", raw_html)
     text = re.sub(r"<style[^>]*>[\s\S]*?</style>", "", text)
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
@@ -270,7 +389,7 @@ async def _extract_url_text(url: str) -> str:
             "Please copy and paste the page content directly.",
         )
 
-    return text
+    return metadata_prefix + text
 
 
 def _extract_docx_text(content: bytes) -> str:
