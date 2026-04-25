@@ -27,6 +27,7 @@
   <script src="/js/avatar.js"></script>
   <script src="/js/feedback.js"></script>
   <script src="/js/apps-shared.js"></script>
+  <script src="/js/header-selectors.js"></script>
   <script src="/js/shared.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
@@ -92,7 +93,6 @@
           <label class="text-sm text-gray-500 shrink-0" x-text="t('offer_label')"></label>
           <select x-model="offerId" @change="onOfferChange()"
                   class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent min-w-[14rem]">
-            <option value="" x-text="t('offer_placeholder')"></option>
             <template x-for="o in offers" :key="o.id">
               <option :value="o.id" x-text="o.name"></option>
             </template>
@@ -112,9 +112,8 @@
         <!-- LLM model selector -->
         <div class="flex items-center gap-2" x-show="llmConfigs.length > 0" x-cloak>
           <label class="text-sm text-gray-500 shrink-0" x-text="t('model_label')"></label>
-          <select x-model="configId"
+          <select x-model="configId" @change="onConfigChange()"
                   class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent min-w-[10rem]">
-            <option value="" x-text="t('model_default')"></option>
             <template x-for="c in llmConfigs" :key="c.id">
               <option :value="c.id" x-text="c.label + ' (' + c.model_name + ')'"></option>
             </template>
@@ -453,22 +452,18 @@
             if (llmRes?.ok) this.llmConfigs = await llmRes.json();
           } catch(e) { console.error('Failed to load offers', e); }
 
-          // Determine which offer to select
-          let targetOffer = urlOfferId || localStorage.getItem('od_last_topic_offer') || '';
-          if (targetOffer && !this.offers.find(o => o.id === targetOffer)) {
-            targetOffer = '';
-          }
+          // Standardised header-selector behaviour (v1.2.x).
+          await this.$nextTick();
+          this.offerId  = window.odHeaderSelectors.pickInitialOffer(this.offers, "topic", urlOfferId);
+          this.configId = window.odHeaderSelectors.pickInitialConfig(this.llmConfigs, "topic");
+          window.odHeaderSelectors.rememberOffer("topic", this.offerId);
+          window.odHeaderSelectors.rememberConfig("topic", this.configId);
 
-          if (targetOffer) {
-            // Wait for offer options to render, then set value
-            await this.$nextTick();
-            this.offerId = targetOffer;
-            localStorage.setItem('od_last_topic_offer', targetOffer);
-            const name = this.offers.find(o => o.id === targetOffer)?.name || '';
+          if (this.offerId) {
+            const name = this.offers.find(o => o.id === this.offerId)?.name || '';
             document.title = `${t('page_title')} · ${name} - OpenLucid`;
 
             await this.loadStrategyUnits();
-            // Wait for strategy unit options to render, then set value
             if (urlUnitId && this.strategyUnits.find(u => u.id === urlUnitId)) {
               await this.$nextTick();
               this.strategyUnitId = urlUnitId;
@@ -480,8 +475,12 @@
           }
         },
 
+        onConfigChange() {
+          window.odHeaderSelectors.rememberConfig("topic", this.configId);
+        },
+
         async onOfferChange() {
-          localStorage.setItem('od_last_topic_offer', this.offerId);
+          window.odHeaderSelectors.rememberOffer("topic", this.offerId);
           this.newPlans = [];
           this.genThinking = null;
           this.historyPlans = [];

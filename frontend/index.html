@@ -260,9 +260,27 @@
                x-data="{ menuOpen: false }">
             <a :href="'/offer.html?id=' + o.id" class="block">
               <div class="flex items-start gap-3 mb-3">
-                <div class="w-10 h-10 rounded-xl flex items-center justify-center text-base font-bold shrink-0"
-                     :class="{'bg-blue-50 text-blue-600': o.offer_type==='product', 'bg-green-50 text-green-600': o.offer_type==='service', 'bg-purple-50 text-purple-600': o.offer_type==='bundle', 'bg-orange-50 text-orange-600': o.offer_type==='solution'}"
-                     x-text="(o.name || '?')[0].toUpperCase()"></div>
+                <!-- Brandkit primary logo if set, else first-letter avatar fallback.
+                     Container height is fixed at 40px; width grows with logo aspect
+                     ratio up to 80px (2:1 cap) so wide wordmarks don't get squashed
+                     inside a 40×40 frame. Square logos still render in a 40×40 box
+                     identical to the letter-avatar fallback for visual consistency. -->
+                <template x-if="o.logo_url">
+                  <div :style="(() => {
+                         const a = (o.logo_w && o.logo_h) ? (o.logo_w / o.logo_h) : 1;
+                         const w = Math.max(40, Math.min(80, Math.round(a * 40)));
+                         return `width: ${w}px;`;
+                       })()"
+                       class="h-10 rounded-xl bg-gray-200 border border-gray-300 overflow-hidden shrink-0 flex items-center justify-center">
+                    <img :src="o.logo_url" :alt="o.name" class="max-w-full max-h-full object-contain"
+                         @error="o.logo_url = null">
+                  </div>
+                </template>
+                <template x-if="!o.logo_url">
+                  <div class="w-10 h-10 rounded-xl flex items-center justify-center text-base font-bold shrink-0"
+                       :class="{'bg-blue-50 text-blue-600': o.offer_type==='product', 'bg-green-50 text-green-600': o.offer_type==='service', 'bg-purple-50 text-purple-600': o.offer_type==='bundle', 'bg-orange-50 text-orange-600': o.offer_type==='solution'}"
+                       x-text="(o.name || '?')[0].toUpperCase()"></div>
+                </template>
                 <div class="min-w-0 flex-1">
                   <h3 class="font-semibold text-gray-800 text-[15px] truncate group-hover:text-accent transition-colors" x-text="o.name"></h3>
                   <span class="text-xs text-gray-400" x-text="({product:t('offer_type_product'), service:t('offer_type_service'), bundle:t('offer_type_bundle'), solution:t('offer_type_solution')}[o.offer_type] || o.offer_type)"></span>
@@ -846,8 +864,25 @@
         async fetchOffers() {
           this.loading = true;
           try {
-            const res = await fetch(`${API}/offers?merchant_id=${this.workspace.id}&page_size=50`);
-            this.offers = (await res.json()).items || [];
+            // Parallel: list offers + resolve each offer's primary brandkit
+            // logo URL. /offers/logos returns {offer_id: "/api/v1/assets/.../file"}
+            // for offers that have a brandkit logo set; offers without one are
+            // simply omitted, and the card falls through to the first-letter
+            // avatar.
+            const [offersRes, logosRes] = await Promise.all([
+              fetch(`${API}/offers?merchant_id=${this.workspace.id}&page_size=50`),
+              fetch(`${API}/offers/logos?merchant_id=${this.workspace.id}`),
+            ]);
+            const offers = (await offersRes.json()).items || [];
+            const logos = logosRes.ok ? await logosRes.json() : {};
+            // logos[id] is now {url, w, h} (v1.2.x). Spread into the offer so
+            // the card template can size the container by aspect ratio.
+            this.offers = offers.map(o => {
+              const l = logos[o.id];
+              return l
+                ? { ...o, logo_url: l.url, logo_w: l.w || 0, logo_h: l.h || 0 }
+                : { ...o, logo_url: null, logo_w: 0, logo_h: 0 };
+            });
           } catch { this.offers = []; }
           this.loading = false;
         },

@@ -92,28 +92,25 @@
                    class="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
           </div>
         </div>
-        <select x-model="filterType" @change="reload()"
-                class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
-          <option value="" x-text="t('creations_all_types')"></option>
-          <option value="topic" x-text="t('creations_type_topic')"></option>
-          <option value="post" x-text="t('creations_type_post')"></option>
-          <option value="script" x-text="t('creations_type_script')"></option>
-          <option value="email" x-text="t('creations_type_email')"></option>
-          <option value="caption" x-text="t('creations_type_caption')"></option>
-          <option value="hook" x-text="t('creations_type_hook')"></option>
-          <option value="general" x-text="t('creations_type_general')"></option>
-        </select>
+        <!-- Source filter — populated from /api/v1/apps?lang=... at init().
+             Values are: real app_id for webui apps (script_writer / content_studio
+             / topic_studio), 'mcp:*' glob for any MCP-triggered creation, and
+             'manual' for direct REST creations. The fetched apps list is filtered
+             to category=content_creation so kb_qa / asset_tagging (which don't
+             write creations) don't show up as permanently-empty options. -->
         <select x-model="filterSource" @change="reload()"
                 class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
           <option value="" x-text="t('creations_all_sources')"></option>
-          <option value="mcp:external" x-text="t('creations_source_mcp')"></option>
-          <option value="topic_studio">Topic Studio</option>
+          <template x-for="app in webuiApps" :key="app.app_id">
+            <option :value="app.app_id" x-text="app.name"></option>
+          </template>
+          <option value="mcp:*" x-text="t('creations_source_mcp')"></option>
           <option value="manual" x-text="t('creations_source_manual')"></option>
         </select>
         <!-- Clear-filters shortcut — shown only when any filter is active. -->
-        <button x-show="searchQ || filterType || filterSource"
+        <button x-show="searchQ || filterSource"
                 x-cloak
-                @click="searchQ = ''; filterType = ''; filterSource = ''; reload()"
+                @click="searchQ = ''; filterSource = ''; reload()"
                 class="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-accent transition-colors px-2 py-2">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
           <span x-text="t('creations_filters_clear')"></span>
@@ -945,8 +942,8 @@
         pageSize: 20,
         loading: true,
         searchQ: '',
-        filterType: '',
         filterSource: '',
+        webuiApps: [],  // populated at init from /api/v1/apps (category=content_creation)
         flashCreationId: '',  // transient highlight when arriving from ?highlight=<id>
         modal: {
           open: false,
@@ -1212,6 +1209,22 @@
 
         async init() {
           document.title = t('creations_title') + ' - OpenLucid';
+
+          // Populate the Source filter from /api/v1/apps. Only
+          // category="content_creation" apps actually write to
+          // creations (kb_qa / asset_tagging never do, listing them
+          // would be permanent-empty noise). Lang follows the UI
+          // locale so an English session sees "Script Writer", not
+          // "视频脚本".
+          const lang = (typeof getApiLang === 'function' ? getApiLang() : 'zh').slice(0, 2);
+          try {
+            const r = await fetch(`/api/v1/apps?lang=${lang}`);
+            if (r.ok) {
+              const all = await r.json();
+              this.webuiApps = all.filter(a => a.category === 'content_creation');
+            }
+          } catch (e) { console.warn('Failed to load apps registry for filter:', e); }
+
           await this.reload();
 
           const urlParams = new URLSearchParams(location.search);
@@ -1247,7 +1260,6 @@
               page_size: this.pageSize,
             });
             if (this.searchQ) params.set('q', this.searchQ);
-            if (this.filterType) params.set('content_type', this.filterType);
             if (this.filterSource) params.set('source_app', this.filterSource);
             const res = await fetch(`/api/v1/creations?${params}`);
             if (res.ok) {

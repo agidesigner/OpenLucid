@@ -47,6 +47,8 @@ class KnowledgeSourceType(str, Enum):
     FILE = "file"
     URL = "url"
     IMPORTED = "imported"
+    AI_INFERRED = "ai_inferred"
+    WEB_EXTRACT = "web_extract"
 
 
 class AssetType(str, Enum):

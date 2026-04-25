@@ -199,7 +199,7 @@
           <!-- Primary Logo (hero card) -->
           <template x-if="primaryLogo">
             <div class="group relative bg-gray-50 border rounded-xl p-5 flex items-center gap-5 mb-4">
-              <div class="w-20 h-20 bg-white rounded-lg border flex items-center justify-center overflow-hidden shrink-0">
+              <div class="w-20 h-20 bg-gray-200 rounded-lg border border-gray-300 flex items-center justify-center overflow-hidden shrink-0">
                 <img :src="`/api/v1/assets/${primaryLogo.asset.id}/file`" class="w-full h-full object-contain p-2" :alt="primaryLogo.asset.file_name">
               </div>
               <div class="flex-1 min-w-0">
@@ -226,7 +226,7 @@
           <div class="grid grid-cols-6 gap-3" x-show="primaryLogo">
             <template x-for="link in alternateLogos" :key="link.id">
               <div class="group relative">
-                <div class="aspect-square bg-gray-50 border rounded-lg overflow-hidden cursor-pointer hover:border-accent transition-colors"
+                <div class="aspect-square bg-gray-200 border border-gray-300 rounded-lg overflow-hidden cursor-pointer hover:border-accent transition-colors"
                      @click="setPrimaryLogo(link.id)"
                      :title="t('click_set_primary')">
                   <img :src="`/api/v1/assets/${link.asset.id}/file`" class="w-full h-full object-contain p-2" :alt="link.asset.file_name">

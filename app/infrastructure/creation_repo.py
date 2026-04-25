@@ -44,8 +44,18 @@ class CreationRepository:
             base = base.where(Creation.content_type == content_type)
             count_base = count_base.where(Creation.content_type == content_type)
         if source_app:
-            base = base.where(Creation.source_app == source_app)
-            count_base = count_base.where(Creation.source_app == source_app)
+            # Trailing ":*" turns the value into a prefix glob — used by
+            # the creations.html "MCP External" filter, which needs to
+            # cover any mcp:<client> value (mcp:external, mcp:claude-code,
+            # mcp:cursor, …). Plain values still match exactly so the
+            # existing per-app filter (?source_app=script_writer) keeps
+            # working.
+            if source_app.endswith(":*"):
+                clause = Creation.source_app.like(source_app[:-1] + "%")
+            else:
+                clause = Creation.source_app == source_app
+            base = base.where(clause)
+            count_base = count_base.where(clause)
         if q:
             pattern = f"%{q}%"
             search_clause = or_(

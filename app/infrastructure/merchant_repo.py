@@ -28,9 +28,18 @@ class MerchantRepository:
         return list(result.scalars().all()), total
 
     async def update(self, merchant: Merchant, **kwargs) -> Merchant:
+        # Set every passed kwarg, INCLUDING None — same fix as v1.1.5
+        # OfferRepository.update (bug #12). ``MerchantUpdate.model_dump
+        # (exclude_unset=True)`` upstream guarantees only explicitly-set
+        # fields land in kwargs, so a None here is always intentional
+        # ("PATCH this field to null to clear it"). Pre-v1.1.7 the None
+        # filter silently no-op'd a clear-attempt with HTTP 200.
         for key, value in kwargs.items():
-            if value is not None:
-                setattr(merchant, key, value)
+            setattr(merchant, key, value)
         await self.session.flush()
         await self.session.refresh(merchant)
         return merchant
+
+    async def delete(self, merchant: Merchant) -> None:
+        await self.session.delete(merchant)
+        await self.session.flush()

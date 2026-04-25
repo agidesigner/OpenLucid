@@ -173,9 +173,27 @@
       <!-- Offer Info -->
       <div class="px-6 py-5 bg-white border-b">
         <div class="flex items-center gap-3 mb-2">
-          <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg"
-               :class="{'bg-blue-50': offer?.offer_type==='product', 'bg-green-50': offer?.offer_type==='service', 'bg-purple-50': offer?.offer_type==='bundle', 'bg-orange-50': offer?.offer_type==='solution'}"
-               x-text="({product:'📦', service:'🛎️', bundle:'📋', solution:'💡'}[offer?.offer_type] || '📦')"></div>
+          <!-- Brandkit primary logo if set, else type-emoji avatar fallback.
+               Same aspect-aware container as the Library card (index.html):
+               height fixed at 40px, width grows with logo aspect up to 80×40.
+               Square logos and the emoji fallback render in identical 40×40
+               frames so the page header layout stays stable regardless. -->
+          <template x-if="logo_url">
+            <div :style="(() => {
+                   const a = (logo_w && logo_h) ? (logo_w / logo_h) : 1;
+                   const w = Math.max(40, Math.min(80, Math.round(a * 40)));
+                   return `width: ${w}px;`;
+                 })()"
+                 class="h-10 rounded-xl bg-gray-200 border border-gray-300 overflow-hidden shrink-0 flex items-center justify-center">
+              <img :src="logo_url" :alt="offer?.name" class="max-w-full max-h-full object-contain"
+                   @error="logo_url = null">
+            </div>
+          </template>
+          <template x-if="!logo_url">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0"
+                 :class="{'bg-blue-50': offer?.offer_type==='product', 'bg-green-50': offer?.offer_type==='service', 'bg-purple-50': offer?.offer_type==='bundle', 'bg-orange-50': offer?.offer_type==='solution'}"
+                 x-text="({product:'📦', service:'🛎️', bundle:'📋', solution:'💡'}[offer?.offer_type] || '📦')"></div>
+          </template>
           <div>
             <h1 class="text-lg font-semibold text-gray-800" x-text="offer?.name"></h1>
             <p class="text-sm text-gray-400 cursor-pointer"
@@ -1305,6 +1323,10 @@
         overview: null, loadingOverview: false,
         consumption: null,
         deleteConfirm: false, deleting: false,
+        // Brandkit primary logo, resolved from /offers/logos at init.
+        // Same aspect-aware container logic as the Library card; falls
+        // back to the offer-type emoji icon when no logo is configured.
+        logo_url: null, logo_w: 0, logo_h: 0,
 
         // Knowledge
         knowledgeItems: [], knowledgeTotal: 0,
@@ -1562,7 +1584,22 @@
             this.fetchConsumption(),
             this.fetchTagVocabulary(),
             this.fetchChannelFitSuggestions(),
+            this.fetchLogo(),
           ]);
+        },
+
+        async fetchLogo() {
+          try {
+            const r = await fetch(`${API}/offers/logos?offer_id=${this.offerId}`);
+            if (!r.ok) return;
+            const d = await r.json();
+            const info = d[this.offerId];
+            if (info) {
+              this.logo_url = info.url || null;
+              this.logo_w = info.w || 0;
+              this.logo_h = info.h || 0;
+            }
+          } catch {}
         },
 
         async fetchConsumption() {

@@ -139,17 +139,35 @@ class CoverageService:
 
         offer_ids = [r[0] for r in rows]
         profile_data = {}
+        # v1.1.9: also expose the offer-field "filled?" booleans to the
+        # knowledge bucket below. selling_point / audience / scenario
+        # have two valid storage sites (offer columns + knowledge_items
+        # rows of matching type) — same dual-storage pattern v1.1.6
+        # surfaced for the per-offer scorer. Pre-v1.1.9 the merchant
+        # scorer's knowledge bucket only saw the KB-row site, so an
+        # offer with all three populated as columns scored 0 on
+        # selling+audience+scenario despite the data being right
+        # there in the same SELECT.
+        offer_fields_filled: dict[uuid.UUID, dict[str, bool]] = {}
         for r in rows:
+            has_sp = bool(r[2] and isinstance(r[2], dict) and r[2].get("points"))
+            has_au = bool(r[3] and isinstance(r[3], dict) and r[3].get("items"))
+            has_sc = bool(r[4] and isinstance(r[4], dict) and r[4].get("items"))
             score = 0
             if r[1]:  # description
                 score += 5
-            if r[2] and (isinstance(r[2], dict) and r[2].get("points")):
+            if has_sp:
                 score += 5
-            if r[3] and (isinstance(r[3], dict) and r[3].get("items")):
+            if has_au:
                 score += 5
-            if r[4] and (isinstance(r[4], dict) and r[4].get("items")):
+            if has_sc:
                 score += 5
             profile_data[r[0]] = score
+            offer_fields_filled[r[0]] = {
+                "selling_point": has_sp,
+                "audience": has_au,
+                "scenario": has_sc,
+            }
 
         # 2. Knowledge by type per offer
         ki_rows = (await session.execute(text(
@@ -209,12 +227,20 @@ class CoverageService:
             profile = profile_data.get(oid, 0)
 
             ki_types = ki_data.get(oid, {})
+            fields = offer_fields_filled.get(oid, {})
             knowledge = 0
-            if ki_types.get("selling_point", 0) > 0:
+            # v1.1.9: OR the offer-column site with the KB-row site
+            # for selling_point / audience / scenario. Mirrors v1.1.6's
+            # per-offer fix (CoverageService.get_offer_coverage). Two
+            # offers built from the same source content — one via the
+            # AI-infer path that writes KB rows, one via create_offer's
+            # flat-list args that writes offer columns — should now
+            # score the same 7+7+7 instead of 21 vs 0.
+            if ki_types.get("selling_point", 0) > 0 or fields.get("selling_point"):
                 knowledge += 7
-            if ki_types.get("audience", 0) > 0:
+            if ki_types.get("audience", 0) > 0 or fields.get("audience"):
                 knowledge += 7
-            if ki_types.get("scenario", 0) > 0:
+            if ki_types.get("scenario", 0) > 0 or fields.get("scenario"):
                 knowledge += 7
             if ki_types.get("faq", 0) > 0:
                 knowledge += 5
@@ -286,11 +312,39 @@ class CoverageService:
         strategy_unit_count = await self.su_repo.count_by_offer(offer_id)
         topic_count = await self.tp_repo.count_by_offer(offer_id)
 
-        required_types = {"selling_point", "audience", "scenario"}
+        # selling_point / audience / scenario have TWO valid storage sites: the
+        # offer's own ``core_selling_points_json`` / ``target_audience_json`` /
+        # ``target_scenarios_json`` columns (written by ``create_offer``'s flat-
+        # list args, rendered as the header tag chips) AND ``knowledge_items``
+        # rows of the matching type (written by ``add_knowledge_item``). Either
+        # source counts as fulfillment — pre-v1.1.6 the scorer only saw the KB
+        # rows so a fully-populated offer read 0% ready.
+        from app.models.offer import Offer
+        offer = await self.session.get(Offer, offer_id)
+
+        def _wrapped_has_items(payload: dict | None, key: str) -> bool:
+            return bool(payload and isinstance(payload, dict) and payload.get(key))
+
+        selling_filled = (
+            knowledge_by_type.get("selling_point", 0) > 0
+            or (offer is not None and _wrapped_has_items(offer.core_selling_points_json, "points"))
+        )
+        audience_filled = (
+            knowledge_by_type.get("audience", 0) > 0
+            or (offer is not None and _wrapped_has_items(offer.target_audience_json, "items"))
+        )
+        scenario_filled = (
+            knowledge_by_type.get("scenario", 0) > 0
+            or (offer is not None and _wrapped_has_items(offer.target_scenarios_json, "items"))
+        )
+
         missing = []
-        for t in required_types:
-            if knowledge_by_type.get(t, 0) == 0:
-                missing.append(t)
+        if not selling_filled:
+            missing.append("selling_point")
+        if not audience_filled:
+            missing.append("audience")
+        if not scenario_filled:
+            missing.append("scenario")
         if asset_count == 0:
             missing.append("assets")
         if strategy_unit_count == 0:
@@ -299,11 +353,11 @@ class CoverageService:
         total_checks = 5
         readiness_score = round((total_checks - len(missing)) / total_checks, 4)
 
-        if knowledge_by_type.get("selling_point", 0) == 0:
+        if not selling_filled:
             next_action = "add_knowledge"
-        elif knowledge_by_type.get("audience", 0) == 0:
+        elif not audience_filled:
             next_action = "add_audience"
-        elif knowledge_by_type.get("scenario", 0) == 0:
+        elif not scenario_filled:
             next_action = "add_scenario"
         elif asset_count == 0:
             next_action = "upload_assets"

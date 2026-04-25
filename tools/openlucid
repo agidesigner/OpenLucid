@@ -837,6 +837,57 @@ def cmd_get_offer(base, token, cookie, args):
     _out(_request(base, token, cookie, "GET", f"/offers/{args.id}"))
 
 
+def cmd_update_offer(base, token, cookie, args):
+    """PATCH an offer. Mirrors update-knowledge: pass only the fields you
+    want to change. ``--clear FIELD`` sets a column to NULL (uses the
+    flat MCP-style names: core_selling_points, target_audiences, ...)."""
+    payload: dict = {}
+    if args.name is not None:
+        payload["name"] = args.name
+    if args.description is not None:
+        payload["description"] = args.description
+    if args.positioning is not None:
+        payload["positioning"] = args.positioning
+    if args.offer_type is not None:
+        payload["offer_type"] = args.offer_type
+    if args.offer_model is not None:
+        payload["offer_model"] = args.offer_model
+    if args.locale is not None:
+        payload["locale"] = args.locale
+    if args.status is not None:
+        payload["status"] = args.status
+    if args.selling_points is not None:
+        items = _csv_list(args.selling_points)
+        payload["core_selling_points_json"] = {"points": items} if items else None
+    if args.audiences is not None:
+        items = _csv_list(args.audiences)
+        payload["target_audience_json"] = {"items": items} if items else None
+    if args.scenarios is not None:
+        items = _csv_list(args.scenarios)
+        payload["target_scenarios_json"] = {"items": items} if items else None
+    _CLEAR_ALIAS = {
+        "core_selling_points": "core_selling_points_json",
+        "target_audiences": "target_audience_json",
+        "target_scenarios": "target_scenarios_json",
+        "objections": "objections_json",
+        "proofs": "proofs_json",
+    }
+    for f in (args.clear or []):
+        col = _CLEAR_ALIAS.get(f, f)
+        payload[col] = None
+    if not payload:
+        print("Error: pass at least one field to update, or use --clear FIELD", file=sys.stderr)
+        sys.exit(1)
+    _out(_request(base, token, cookie, "PATCH", f"/offers/{args.id}", body=payload))
+
+
+def cmd_delete_offer(base, token, cookie, args):
+    """Delete an offer by UUID. Cascades to attached strategy_units,
+    creations, knowledge items, assets, brandkits."""
+    _request(base, token, cookie, "DELETE", f"/offers/{args.id}")
+    print(f"Deleted offer {args.id}")
+
+
 def cmd_offer_context(base, token, cookie, args):
     _out(_request(base, token, cookie, "GET", f"/offers/{args.id}/context"))
 
@@ -848,7 +899,54 @@ def cmd_extract_text(base, token, cookie, args):
 
 
 def cmd_create_offer(base, token, cookie, args):
+    """Create offer; if --infer-knowledge passed, follow up with the
+    AI knowledge-inference pass against the new offer's id (v1.2.0).
+
+    Two-step intentionally: POST /offers stays a pure data write;
+    the second call to POST /offers/{id}/infer-knowledge is the
+    AI step. If the inference fails the offer creation still
+    succeeded — we print a warning but exit 0, matching the v1.1.5
+    'minimal write' contract.
+    """
     result = _request(base, token, cookie, "POST", "/offers", body=_create_offer_payload(args))
+    _out(result)
+
+    if getattr(args, "infer_knowledge", False) and isinstance(result, dict) and result.get("id"):
+        offer_id = result["id"]
+        try:
+            report = _request(
+                base, token, cookie, "POST",
+                f"/offers/{offer_id}/infer-knowledge",
+                body={},
+            )
+            print("--- inference report ---", file=sys.stderr)
+            _out(report)
+        except Exception as e:
+            print(
+                f"Warning: offer {offer_id} created, but knowledge inference failed: {e}",
+                file=sys.stderr,
+            )
+    return result
+
+
+def cmd_infer_knowledge_for_offer(base, token, cookie, args):
+    """Re-run AI knowledge inference against an existing offer
+    (v1.2.0). Mirrors the WebUI offer page's "AI 智能更新" button
+    and the MCP ``infer_knowledge_for_offer`` tool.
+
+    Body forwards optional --language / --hint for the LLM call.
+    Persisted rows carry source_type=ai_inferred and
+    source_ref=auto-infer:rest_endpoint:<offer_id>."""
+    body = {}
+    if getattr(args, "language", None):
+        body["language"] = args.language
+    if getattr(args, "user_hint", None):
+        body["user_hint"] = args.user_hint
+    result = _request(
+        base, token, cookie, "POST",
+        f"/offers/{args.id}/infer-knowledge",
+        body=body,
+    )
     _out(result)
     return result
 
@@ -894,14 +992,70 @@ def cmd_list_knowledge(base, token, cookie, args):
 
 def cmd_add_knowledge(base, token, cookie, args):
     scope_type, scope_id = _resolve_scope_arg(base, token, cookie, args)
-    _out(_request(base, token, cookie, "POST", "/knowledge", body={
+    # ``--content-raw`` is the canonical flag (matches list-knowledge
+    # output and the REST schema). ``--content`` is the legacy alias —
+    # accepted for backwards compat with shell scripts written before
+    # v1.1.3 unified the names. content_raw wins when both are passed.
+    body_text = (getattr(args, "content_raw", None) or args.content or "") or None
+    if args.content and not getattr(args, "content_raw", None):
+        print("warn: --content is deprecated, use --content-raw", file=sys.stderr)
+
+    if args.tags:
+        tag_list = [t.strip() for t in args.tags.split(",") if t.strip()]
+        tags_json = {"general": tag_list} if tag_list else None
+    else:
+        tags_json = None
+
+    body = {
         "scope_type": scope_type,
         "scope_id": scope_id,
         "title": args.title,
-        "content_raw": args.content or None,
+        "content_raw": body_text,
         "knowledge_type": args.type,
         "language": args.language,
-    }))
+        "source_type": args.source_type,
+    }
+    if args.source_ref:
+        body["source_ref"] = args.source_ref
+    if tags_json:
+        body["tags_json"] = tags_json
+    if args.confidence is not None:
+        body["confidence"] = max(0.0, min(1.0, args.confidence))
+    _out(_request(base, token, cookie, "POST", "/knowledge", body=body))
+
+
+def cmd_update_knowledge(base, token, cookie, args):
+    """Update an existing knowledge entry. Only fields explicitly passed
+    are sent — everything else stays put. Mirrors update_knowledge_item
+    on the MCP side."""
+    payload: dict = {}
+    if args.title is not None:
+        payload["title"] = args.title
+    if args.content_raw is not None:
+        payload["content_raw"] = args.content_raw
+    if args.type is not None:
+        payload["knowledge_type"] = args.type
+    if args.language is not None:
+        payload["language"] = args.language
+    if args.source_type is not None:
+        payload["source_type"] = args.source_type
+    if args.source_ref is not None:
+        payload["source_ref"] = args.source_ref
+    if args.confidence is not None:
+        payload["confidence"] = max(0.0, min(1.0, args.confidence))
+    if args.tags is not None:
+        tag_list = [t.strip() for t in args.tags.split(",") if t.strip()]
+        payload["tags_json"] = {"general": tag_list} if tag_list else None
+    if not payload:
+        print("Error: pass at least one field to update", file=sys.stderr)
+        sys.exit(1)
+    _out(_request(base, token, cookie, "PATCH", f"/knowledge/{args.id}", body=payload))
+
+
+def cmd_delete_knowledge(base, token, cookie, args):
+    """Delete a knowledge entry by UUID. Returns 204 on success."""
+    _request(base, token, cookie, "DELETE", f"/knowledge/{args.id}")
+    print(f"Deleted knowledge {args.id}")
 
 
 # -- Assets --
@@ -1083,6 +1237,30 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("get-offer", help="Get an offer by ID")
     p.add_argument("--id", required=True, help="Offer UUID")
 
+    # -- update-offer --
+    p = sub.add_parser("update-offer", help="Update an offer (only fields passed are changed)")
+    p.add_argument("--id", required=True, help="Offer UUID")
+    p.add_argument("--name")
+    p.add_argument("--description")
+    p.add_argument("--positioning")
+    p.add_argument("--offer-type", dest="offer_type",
+                   choices=["product", "service", "bundle", "solution"])
+    p.add_argument("--offer-model", dest="offer_model")
+    p.add_argument("--locale")
+    p.add_argument("--status")
+    p.add_argument("--selling-points", dest="selling_points",
+                   help="Comma-separated; replaces existing list")
+    p.add_argument("--audiences", help="Comma-separated; replaces existing list")
+    p.add_argument("--scenarios", help="Comma-separated; replaces existing list")
+    p.add_argument("--clear", action="append", default=None,
+                   help="Set a field to NULL (repeatable). Field names: "
+                        "description / positioning / core_selling_points / target_audiences / "
+                        "target_scenarios / objections / proofs")
+
+    # -- delete-offer --
+    p = sub.add_parser("delete-offer", help="Delete an offer by UUID (cascades attachments)")
+    p.add_argument("--id", required=True, help="Offer UUID")
+
     # -- offer-context --
     p = sub.add_parser("offer-context", help="Get full context for an offer")
     p.add_argument("--id", required=True, help="Offer UUID")
@@ -1103,6 +1281,18 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--audiences", default="", help="Comma-separated target audiences")
     p.add_argument("--scenarios", default="", help="Comma-separated target scenarios")
     p.add_argument("--locale", default="zh-CN", help="Locale, default zh-CN")
+    p.add_argument("--infer-knowledge", dest="infer_knowledge", action="store_true",
+                   help="After creating the offer, run AI knowledge inference "
+                        "to populate selling_point / audience / scenario / "
+                        "pain_point / faq / objection / proof KB rows. "
+                        "Failure prints a warning but doesn't fail the command.")
+
+    # -- infer-knowledge-for-offer --
+    p = sub.add_parser("infer-knowledge-for-offer",
+                       help="Run AI knowledge inference against an existing offer (v1.2.0)")
+    p.add_argument("--id", required=True, help="Offer UUID")
+    p.add_argument("--language", help="Override language; defaults to offer.locale")
+    p.add_argument("--hint", dest="user_hint", help="Free-text hint for the LLM (e.g. 'focus on B2B angles')")
 
     # -- create-offer-from-url --
     p = sub.add_parser("create-offer-from-url", help="Extract URL text and create a product/service offer")
@@ -1133,10 +1323,38 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--scope-type", choices=["merchant", "offer"], help="(legacy)")
     p.add_argument("--scope-id", help="(legacy)")
     p.add_argument("--title", required=True)
-    p.add_argument("--content", default="")
+    p.add_argument("--content-raw", dest="content_raw", default="",
+                   help="Body text — the canonical name matching list-knowledge output")
+    p.add_argument("--content", default="",
+                   help="(deprecated alias for --content-raw, will be removed)")
     p.add_argument("--type", default="general",
-                   help="Type: brand|audience|scenario|selling_point|objection|proof|faq|general")
+                   help="Type: brand|audience|scenario|selling_point|pain_point|objection|proof|faq|general")
     p.add_argument("--language", default="zh-CN")
+    p.add_argument("--source-type", dest="source_type", default="manual",
+                   help="Provenance: manual | ai_inferred | web_extract | file | url | imported")
+    p.add_argument("--source-ref", dest="source_ref", default="",
+                   help="Where this came from (URL, document name, infer run id)")
+    p.add_argument("--confidence", type=float, default=None,
+                   help="0.0-1.0 — populate when source-type=ai_inferred so the UI can flag suggested vs verified")
+    p.add_argument("--tags", default="",
+                   help="Optional comma-separated tags (stored under category 'general')")
+
+    # -- update-knowledge --
+    p = sub.add_parser("update-knowledge", help="Update an existing knowledge entry")
+    p.add_argument("--id", required=True, help="Knowledge UUID")
+    p.add_argument("--title")
+    p.add_argument("--content-raw", dest="content_raw")
+    p.add_argument("--type", help="brand|audience|scenario|selling_point|pain_point|objection|proof|faq|general")
+    p.add_argument("--language")
+    p.add_argument("--source-type", dest="source_type",
+                   help="manual | ai_inferred | web_extract | file | url | imported")
+    p.add_argument("--source-ref", dest="source_ref")
+    p.add_argument("--confidence", type=float)
+    p.add_argument("--tags", help="Comma-separated; replaces existing tags. Empty string = clear.")
+
+    # -- delete-knowledge --
+    p = sub.add_parser("delete-knowledge", help="Delete a knowledge entry by UUID")
+    p.add_argument("--id", required=True, help="Knowledge UUID")
 
     # -- search-assets --
     p = sub.add_parser("search-assets", help="Search assets (images, videos, docs)")
@@ -1242,9 +1460,14 @@ _DISPATCH = {
     "offer-context": cmd_offer_context,
     "extract-text": cmd_extract_text,
     "create-offer": cmd_create_offer,
+    "update-offer": cmd_update_offer,
+    "delete-offer": cmd_delete_offer,
+    "infer-knowledge-for-offer": cmd_infer_knowledge_for_offer,
     "create-offer-from-url": cmd_create_offer_from_url,
     "list-knowledge": cmd_list_knowledge,
     "add-knowledge": cmd_add_knowledge,
+    "update-knowledge": cmd_update_knowledge,
+    "delete-knowledge": cmd_delete_knowledge,
     "search-assets": cmd_search_assets,
     "list-strategy-units": cmd_list_strategy_units,
     "list-apps": cmd_list_apps,

@@ -12,6 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.ai import get_ai_adapter, OpenAICompatibleAdapter, StubAIAdapter
 from app.api.deps import get_db
+from app.application.knowledge_inference_service import (
+    build_offer_data as _service_build_offer_data,
+    friendly_llm_error as _service_friendly_llm_error,
+)
 from app.schemas.ai import (
     ExtractTextResponse,
     InferOfferKnowledgeRequest,
@@ -36,18 +40,30 @@ async def ai_status(db: AsyncSession = Depends(get_db)):
 
 
 def _build_offer_data(body: InferOfferKnowledgeRequest) -> dict:
-    """Build offer_data dict from request. Shared by stream and non-stream endpoints."""
-    knowledge_items = []
-    if body.existing_knowledge:
-        knowledge_items = [
+    """Adapter from the WebUI request shape to the canonical offer_data
+    dict used by ``OpenAICompatibleAdapter.infer_knowledge``.
+
+    v1.2.0: the actual dict construction lives in
+    ``KnowledgeInferenceService.build_offer_data`` so MCP / CLI /
+    REST entry points all feed the LLM the same payload shape. This
+    wrapper just translates the WebUI ``InferOfferKnowledgeRequest``
+    (used by the create-wizard preview endpoints) into the keyword
+    args the service helper expects.
+    """
+    knowledge_items = (
+        [
             {"knowledge_type": k.knowledge_type, "title": k.title, "content_raw": k.content_raw}
             for k in body.existing_knowledge
         ]
-    return {
-        "offer": {"name": body.name, "offer_type": body.offer_type, "description": body.description},
-        "selling_points": [], "target_audiences": [], "target_scenarios": [],
-        "knowledge_items": knowledge_items,
-    }
+        if body.existing_knowledge
+        else []
+    )
+    return _service_build_offer_data(
+        offer_name=body.name,
+        offer_type=body.offer_type,
+        description=body.description,
+        existing_knowledge=knowledge_items,
+    )
 
 
 def _infer_language_from_body(body: InferOfferKnowledgeRequest) -> str:
@@ -72,40 +88,12 @@ def _infer_language_from_body(body: InferOfferKnowledgeRequest) -> str:
 
 
 def _friendly_llm_error(e: Exception, adapter) -> str:
-    """Turn an OpenAI SDK exception into a message that tells the user (a) which
-    model failed, (b) what class of failure it was, (c) where to go next. The
-    raw str(e) is often just "Request timed out." which sends users hunting."""
-    from openai import APITimeoutError, APIConnectionError, RateLimitError, AuthenticationError, BadRequestError
-
-    provider = getattr(adapter, "provider", "?")
-    model = getattr(adapter, "model", "?")
-    label = f"{provider}/{model}"
-
-    if isinstance(e, APITimeoutError):
-        return (
-            f"模型 {label} 连续超时 3 次未响应。"
-            f"请检查：(1) Settings → 模型配置中该 LLM 的 API 地址是否可达；"
-            f"(2) 若走代理需确认代理服务正常；(3) 可在 Settings 中将 knowledge 场景切换到其他可用模型。"
-        )
-    if isinstance(e, APIConnectionError):
-        return (
-            f"模型 {label} 连接失败：{e}。"
-            f"请检查 Settings → 模型配置中的 base_url 与网络连通性；或切换到其他模型。"
-        )
-    if isinstance(e, RateLimitError):
-        return (
-            f"模型 {label} 触发限流 / 额度耗尽：{e}。"
-            f"请补充该 LLM 账户额度，或在 Settings 中切换到其他可用模型。"
-        )
-    if isinstance(e, AuthenticationError):
-        return (
-            f"模型 {label} 鉴权失败：{e}。"
-            f"请在 Settings → 模型配置中核对 API Key。"
-        )
-    if isinstance(e, BadRequestError):
-        return f"模型 {label} 拒绝请求：{e}。可能是 prompt 超长或参数不兼容，请反馈。"
-    # Unknown — keep raw message but prefix with model label for traceability
-    return f"模型 {label} 调用失败：{e}"
+    """Backwards-compat alias — the body moved to v1.2.0's shared
+    service helper at ``app/application/knowledge_inference_service.
+    friendly_llm_error`` so MCP / CLI / REST get the same Chinese-
+    localised error format. Endpoints below still call this name;
+    the body is one line."""
+    return _service_friendly_llm_error(e, adapter)
 
 
 def _build_suggestions(raw: dict) -> dict[str, list[InferredKnowledgeItem]]:
@@ -219,9 +207,126 @@ def _strip_jina_metadata(text: str) -> str:
     return text.strip()
 
 
+def _harvest_structured_metadata(raw_html: str) -> str:
+    """Pull JSON-LD product/SoftwareApplication blocks + nav anchor text out
+    of raw HTML before any stripping passes destroy them.
+
+    Why this matters: product sites embed an authoritative "what this is"
+    summary in ``<script type="application/ld+json">`` (schema.org
+    SoftwareApplication / Product / Service). It enumerates the actual
+    feature list, price, OS support, and category — exactly the fields
+    our infer-knowledge prompt needs but normally has to guess from
+    marketing copy. The previous ``_extract_url_text`` flow killed this
+    in two places (Jina Reader's plain-text view drops scripts; the
+    direct-fetch fallback explicitly strips ``<script>``), so an LLM
+    looking at PrivacyCrop's homepage saw "Privacy Blur" hero copy and
+    confidently summarised the whole product as "screenshot redaction"
+    — missing the 6 other features the JSON-LD listed by name.
+
+    Returns a labelled prefix block (or empty string if nothing useful
+    was found). Callers prepend this to whatever the page-text extractor
+    yields, so the LLM sees the structured metadata first.
+    """
+    import json as _json
+    import re as _re
+    if not raw_html:
+        return ""
+
+    sections: list[str] = []
+
+    # 1) JSON-LD product-ish blocks — schema.org gives canonical product data
+    try:
+        ld_pattern = _re.compile(
+            r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>([\s\S]*?)</script>',
+            _re.IGNORECASE,
+        )
+        relevant_types = {"SoftwareApplication", "Product", "Service", "WebApplication", "MobileApplication"}
+        for m in ld_pattern.finditer(raw_html):
+            blob = m.group(1).strip()
+            if not blob:
+                continue
+            try:
+                data = _json.loads(blob)
+            except _json.JSONDecodeError:
+                continue
+            # @graph wraps multi-entity payloads
+            entities = data.get("@graph") if isinstance(data, dict) and "@graph" in data else (
+                data if isinstance(data, list) else [data]
+            )
+            for ent in entities or []:
+                if not isinstance(ent, dict):
+                    continue
+                t = ent.get("@type")
+                if isinstance(t, list):
+                    matched = any(x in relevant_types for x in t)
+                else:
+                    matched = t in relevant_types
+                if not matched:
+                    continue
+                # Trim to the high-signal fields the LLM actually needs.
+                trimmed = {
+                    k: ent.get(k) for k in
+                    ("@type", "name", "description", "applicationCategory",
+                     "operatingSystem", "browserRequirements", "featureList",
+                     "offers", "category")
+                    if ent.get(k) is not None
+                }
+                sections.append(_json.dumps(trimmed, ensure_ascii=False, indent=2))
+    except Exception:
+        pass
+
+    # 2) Top-level <nav> anchor text — the sidebar / header navigation
+    # usually IS the product's feature list, written by the site owner.
+    # Pulling these as a flat list complements the JSON-LD when the
+    # latter is missing or sparse.
+    try:
+        nav_pattern = _re.compile(r"<nav[^>]*>([\s\S]*?)</nav>", _re.IGNORECASE)
+        anchor_pattern = _re.compile(r"<a[^>]*>([\s\S]*?)</a>", _re.IGNORECASE)
+        tag_pattern = _re.compile(r"<[^>]+>")
+        nav_items: list[str] = []
+        # Cap at first 3 <nav> blocks; large sites have multi-level nav.
+        nav_blocks = list(nav_pattern.finditer(raw_html))[:3]
+        for nav_match in nav_blocks:
+            for a_match in anchor_pattern.finditer(nav_match.group(1)):
+                text = tag_pattern.sub(" ", a_match.group(1))
+                text = " ".join(text.split())
+                if text and 1 < len(text) <= 60 and text not in nav_items:
+                    nav_items.append(text)
+        if nav_items:
+            sections.append("Navigation items:\n  - " + "\n  - ".join(nav_items[:30]))
+    except Exception:
+        pass
+
+    if not sections:
+        return ""
+    body = "\n\n".join(sections)
+    return f"[STRUCTURED PRODUCT METADATA — extracted from page schema/nav, treat as authoritative]\n{body}\n\n[/STRUCTURED PRODUCT METADATA]\n\n"
+
+
 async def _extract_url_text(url: str) -> str:
-    """Extract text from a URL using Jina Reader (handles JS-rendered SPA pages)."""
+    """Extract text from a URL using Jina Reader (handles JS-rendered SPA pages).
+
+    Now also harvests JSON-LD ``SoftwareApplication`` / ``Product`` blocks
+    and nav-anchor text from the raw HTML and prepends them as a labelled
+    "[STRUCTURED PRODUCT METADATA]" prefix. This survives even when Jina
+    Reader's plain-text view drops the original script tags. Without it
+    the LLM only sees marketing hero copy and confidently mis-classifies
+    multi-feature products by their loudest hero section.
+    """
     import re
+
+    # Fetch raw HTML once up front so we can both harvest structured
+    # metadata AND fall back to it if Jina is unavailable.
+    raw_html = ""
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+            resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; OpenLucid)"})
+            resp.raise_for_status()
+            raw_html = resp.text
+    except Exception:
+        raw_html = ""
+    metadata_prefix = _harvest_structured_metadata(raw_html)
+
     jina_url = f"https://r.jina.ai/{url}"
     jina_error = None
     try:
@@ -230,21 +335,23 @@ async def _extract_url_text(url: str) -> str:
             resp.raise_for_status()
             text = _strip_jina_metadata(resp.text)
             if text:
-                return text
+                return metadata_prefix + text
     except Exception as e:
         jina_error = str(e)
         logger.warning("Jina Reader failed for %s: %s, falling back to direct fetch", url, jina_error)
 
-    # Fallback: direct fetch + strip tags
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-    except Exception as e:
-        raise HTTPException(400, f"Unable to access URL: {e}")
+    # Fallback: direct fetch + strip tags. Reuse the raw HTML we already
+    # pulled to avoid a second network round-trip.
+    if not raw_html:
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                raw_html = resp.content.decode("utf-8", errors="ignore")
+        except Exception as e:
+            raise HTTPException(400, f"Unable to access URL: {e}")
 
-    raw = resp.content.decode("utf-8", errors="ignore")
-    text = re.sub(r"<script[^>]*>[\s\S]*?</script>", "", raw)
+    text = re.sub(r"<script[^>]*>[\s\S]*?</script>", "", raw_html)
     text = re.sub(r"<style[^>]*>[\s\S]*?</style>", "", text)
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
@@ -270,7 +377,7 @@ async def _extract_url_text(url: str) -> str:
             "Please copy and paste the page content directly.",
         )
 
-    return text
+    return metadata_prefix + text
 
 
 def _extract_docx_text(content: bytes) -> str:

@@ -39,9 +39,17 @@ class OfferRepository:
         await self.session.flush()
 
     async def update(self, offer: Offer, **kwargs) -> Offer:
+        # Set every passed kwarg, INCLUDING None. Filtering None here was
+        # a defensive over-reach: it broke "PATCH a field to null to
+        # clear it", which is the canonical REST semantic. Pre-v1.1.5
+        # an attempt to wipe ``description`` / ``core_selling_points_json``
+        # / etc returned 200 with no DB change — silent no-op.
+        # The "did the caller mean to send this field at all?" question
+        # is already answered upstream by ``OfferUpdate.model_dump
+        # (exclude_unset=True)``: only fields the caller explicitly set
+        # arrive in kwargs. So if it's here, write it — even if it's None.
         for key, value in kwargs.items():
-            if value is not None:
-                setattr(offer, key, value)
+            setattr(offer, key, value)
         await self.session.flush()
         await self.session.refresh(offer)
         return offer

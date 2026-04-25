@@ -93,7 +93,7 @@
                 <div class="flex items-center gap-3">
                   <!-- Tile shows uploaded logo if present; falls back to default icon. -->
                   <div class="w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden shrink-0"
-                       :class="logoUrls[merchantKit.id] ? 'bg-white border border-gray-200' : 'bg-purple-50'">
+                       :class="logoUrls[merchantKit.id] ? 'bg-gray-200 border border-gray-300' : 'bg-purple-50'">
                     <img x-show="logoUrls[merchantKit.id]" :src="logoUrls[merchantKit.id]" alt="logo"
                          class="w-full h-full object-contain p-0.5">
                     <svg x-show="!logoUrls[merchantKit.id]" class="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
@@ -134,7 +134,7 @@
                   <div class="flex items-center gap-3">
                     <!-- Tile shows uploaded logo if present; falls back to default icon. -->
                     <div class="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden shrink-0"
-                         :class="logoUrls[kit.id] ? 'bg-white border border-gray-200' : 'bg-blue-50'">
+                         :class="logoUrls[kit.id] ? 'bg-gray-200 border border-gray-300' : 'bg-blue-50'">
                       <img x-show="logoUrls[kit.id]" :src="logoUrls[kit.id]" alt="logo"
                            class="w-full h-full object-contain p-0.5">
                       <svg x-show="!logoUrls[kit.id]" class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>

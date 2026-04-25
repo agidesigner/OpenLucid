@@ -27,6 +27,7 @@
   <script src="/js/avatar.js"></script>
   <script src="/js/feedback.js"></script>
   <script src="/js/apps-shared.js"></script>
+  <script src="/js/header-selectors.js"></script>
   <script src="/js/shared.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
@@ -93,7 +94,6 @@
           <label class="text-sm text-gray-500 shrink-0" x-text="t('offer_label')"></label>
           <select x-model="offerId" @change="onOfferChange()"
                   class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent min-w-[14rem]">
-            <option value="" x-text="t('offer_placeholder')"></option>
             <template x-for="o in offers" :key="o.id">
               <option :value="o.id" x-text="o.name"></option>
             </template>
@@ -113,9 +113,8 @@
         <!-- LLM model -->
         <div class="flex items-center gap-2" x-show="llmConfigs.length > 0" x-cloak>
           <label class="text-sm text-gray-500 shrink-0" x-text="t('model_label')"></label>
-          <select x-model="configId"
+          <select x-model="configId" @change="onConfigChange()"
                   class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent min-w-[10rem]">
-            <option value="" x-text="t('model_default')"></option>
             <template x-for="c in llmConfigs" :key="c.id">
               <option :value="c.id" x-text="c.label + ' (' + c.model_name + ')'"></option>
             </template>
@@ -368,20 +367,15 @@
               }
             } catch {}
           }
-          const lastOffer = localStorage.getItem('od_last_cs_offer') || '';
-          let targetOffer = '';
-          if (urlOffer && this.offers.find(o => o.id === urlOffer)) {
-            targetOffer = urlOffer;
-          } else if (lastOffer && this.offers.find(o => o.id === lastOffer)) {
-            targetOffer = lastOffer;
-          } else if (this.offers.length) {
-            targetOffer = this.offers[0].id;
-          }
+          // Standardised header-selector behaviour (v1.2.x).
+          await this.$nextTick();
+          this.offerId  = window.odHeaderSelectors.pickInitialOffer(this.offers, "cs", urlOffer);
+          this.configId = window.odHeaderSelectors.pickInitialConfig(this.llmConfigs, "cs");
+          window.odHeaderSelectors.rememberOffer("cs", this.offerId);
+          window.odHeaderSelectors.rememberConfig("cs", this.configId);
+
           const urlUnit = params.get('strategy_unit_id') || '';
-          if (targetOffer) {
-            // Wait for <option> elements to render before assigning x-model value
-            await this.$nextTick();
-            this.offerId = targetOffer;
+          if (this.offerId) {
             await this.loadStrategyUnits();
             if (urlUnit && this.strategyUnits.find(u => u.id === urlUnit)) {
               await this.$nextTick();
@@ -390,6 +384,10 @@
             }
             await this.fetchContext();
           }
+        },
+
+        onConfigChange() {
+          window.odHeaderSelectors.rememberConfig("cs", this.configId);
         },
 
         async onOfferChange() {
@@ -401,7 +399,7 @@
           this.strategyUnits = [];
           this.contextData = null;
           if (this.offerId) {
-            localStorage.setItem('od_last_cs_offer', this.offerId);
+            window.odHeaderSelectors.rememberOffer("cs", this.offerId);
             await this.loadStrategyUnits();
             await this.fetchContext();
           }

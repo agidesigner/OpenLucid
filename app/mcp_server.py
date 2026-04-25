@@ -67,7 +67,36 @@ mcp = FastMCP(
         "strategy_unit_id, config_id, asset_id, ...) is a UUID, never a "
         "human-readable name. If you only know the name, discover the UUID "
         "first via the matching list_* tool (list_merchants, list_offers, "
-        "list_strategy_units, ...) — do NOT pass the name directly."
+        "list_strategy_units, ...) — do NOT pass the name directly.\n"
+        "\n"
+        "MERCHANT DEFAULTING (when creating an offer): do NOT call "
+        "create_merchant unless the user explicitly asks for a new "
+        "workspace/brand. Always call list_merchants first. If exactly "
+        "one merchant exists, use it as merchant_id without asking. If "
+        "multiple merchants exist, ASK the user which one — never guess "
+        "or invent. If zero merchants exist, ask the user for the brand "
+        "name and create one only after confirming. The same rule "
+        "applies before any tool that needs a merchant_id.\n"
+        "\n"
+        "KNOWLEDGE INFERENCE — OpenLucid does NOT hold a preferred "
+        "LLM. It holds the prompt (the 167-line marketing-knowledge "
+        "discipline) and the data layer; the brain is meant to be YOU. "
+        "Two equally legitimate paths to populate an offer's KB:\n"
+        "  (a) PREFERRED — call get_knowledge_inference_prompt(offer_id) "
+        "to fetch the system_prompt + user_message + output_schema, run "
+        "it through your own LLM (whichever you're running on), then "
+        "write each returned item back via add_knowledge_item with "
+        "source_type=ai_inferred and source_ref=external-agent:<your-id>:"
+        "<offer_id>. You stay the brain; OpenLucid contributes the "
+        "discipline.\n"
+        "  (b) CONVENIENCE — call create_offer(infer_knowledge=True) or "
+        "infer_knowledge_for_offer(offer_id) to have OpenLucid's "
+        "configured 'knowledge'-scene model run the prompt server-side. "
+        "Useful when the user has no LLM credentials configured, or "
+        "when they explicitly prefer the built-in model.\n"
+        "Both paths produce KB rows with source_type=ai_inferred; the "
+        "source_ref prefix (external-agent: vs auto-infer:) lets an "
+        "audit tell them apart."
     ),
 )
 
@@ -112,26 +141,85 @@ def _app_url_looks_valid() -> bool:
     return True
 
 
-def _serialize(obj: Any, schema_cls: type | None = None) -> str:
+# ── Offer JSON-field unwrap ────────────────────────────────────────
+#
+# OfferResponse / OfferUpdate keep five legacy "_json" wrapper columns
+# (``core_selling_points_json``, ``target_audience_json``, ...) where the
+# value is shaped like ``{"points": [...]}`` or ``{"items": [...]}``. This
+# was a DB compromise; the MCP-facing creation tools already accept the
+# flat list form (``core_selling_points: list[str]``). The asymmetry —
+# write a list, read back a wrapper-dict — broke read→edit→write loops
+# for agents and was the root cause of multiple "missing fields" bugs.
+#
+# This helper post-processes any serialized offer payload so the MCP
+# layer presents a consistent flat shape regardless of what the DB
+# stores. Schema/REST/DB are unchanged.
+_OFFER_JSON_UNWRAP = {
+    "core_selling_points_json": ("core_selling_points", "points"),
+    "target_audience_json": ("target_audiences", "items"),
+    "target_scenarios_json": ("target_scenarios", "items"),
+    "objections_json": ("objections", "items"),
+    "proofs_json": ("proofs", "items"),
+    "secondary_objectives_json": ("secondary_objectives", "items"),
+}
+
+
+def _unwrap_offer_json_fields(payload: Any) -> Any:
+    """Replace ``foo_json: {wrapper_key: [...]}`` with ``foo: [...]``.
+
+    Walks dicts and lists recursively. Idempotent — fields that are
+    already in flat form are passed through unchanged. Any unrecognised
+    wrapper shape is left as-is rather than silently dropping data.
+    """
+    if isinstance(payload, list):
+        return [_unwrap_offer_json_fields(x) for x in payload]
+    if not isinstance(payload, dict):
+        return payload
+    out: dict[str, Any] = {}
+    for k, v in payload.items():
+        if k in _OFFER_JSON_UNWRAP:
+            new_key, wrapper_key = _OFFER_JSON_UNWRAP[k]
+            if v is None:
+                out[new_key] = None
+            elif isinstance(v, dict) and wrapper_key in v and isinstance(v[wrapper_key], list):
+                out[new_key] = v[wrapper_key]
+            else:
+                # Unknown shape — preserve the original under the new
+                # name so debugging is possible without losing data.
+                out[new_key] = v
+        else:
+            out[k] = _unwrap_offer_json_fields(v) if isinstance(v, (dict, list)) else v
+    return out
+
+
+def _serialize(obj: Any, schema_cls: type | None = None, *, unwrap_offer: bool = False) -> str:
     """Serialize an object to JSON string.
 
     If schema_cls is provided, validates the object through a Pydantic schema
     with from_attributes=True (useful for SQLAlchemy models).
+
+    ``unwrap_offer=True`` applies ``_unwrap_offer_json_fields`` so the MCP
+    output uses the same flat shape that ``create_offer`` accepts as
+    input. Use for any tool that returns OfferResponse-shaped payloads.
     """
     if schema_cls is not None:
         model = schema_cls.model_validate(obj, from_attributes=True)
-        return json.dumps(model.model_dump(mode="json"), ensure_ascii=False, indent=2)
-    if hasattr(obj, "model_dump"):
-        return json.dumps(obj.model_dump(mode="json"), ensure_ascii=False, indent=2)
-    if isinstance(obj, list):
+        data = model.model_dump(mode="json")
+    elif hasattr(obj, "model_dump"):
+        data = obj.model_dump(mode="json")
+    elif isinstance(obj, list):
         items = []
         for item in obj:
             if hasattr(item, "model_dump"):
                 items.append(item.model_dump(mode="json"))
             else:
                 items.append(item)
-        return json.dumps(items, ensure_ascii=False, indent=2, default=str)
-    return json.dumps(obj, ensure_ascii=False, indent=2, default=str)
+        data = items
+    else:
+        data = obj
+    if unwrap_offer:
+        data = _unwrap_offer_json_fields(data)
+    return json.dumps(data, ensure_ascii=False, indent=2, default=str)
 
 
 logger = logging.getLogger("mcp.audit")
@@ -191,16 +279,59 @@ async def create_merchant(
     name: str,
     merchant_type: str = "goods",
     default_locale: str = "zh-CN",
+    confirm_intent: bool = False,
 ) -> str:
-    """Create a marketing workspace (merchant) that owns brand knowledge, offers,
-    assets, and brand kits. Use this as the top-level container when setting up
-    a new brand knowledge base, marketing data hub, or RAG source for AI content
-    generation. merchant_type: goods | service | hybrid."""
+    """Create a marketing workspace (merchant) that owns brand knowledge,
+    offers, assets, and brand kits. Use this as the top-level container
+    when setting up a new brand knowledge base, marketing data hub, or
+    RAG source for AI content generation. merchant_type: goods | service
+    | hybrid.
+
+    GUARDRAIL (v1.1.8) — when one or more merchants already exist,
+    this tool REJECTS the call unless ``confirm_intent=True``. This is
+    a hard server-side enforcement of the v1.1.7 defaulting rule:
+    instructions and docstrings are TEXT, easy for an agent to
+    rationalize around; this gate is binary.
+
+    The error response includes the existing merchants so the agent
+    can recover by either (a) calling ``create_offer`` under one of
+    them, or (b) re-calling with ``confirm_intent=True`` after the
+    user explicitly asks for a brand-new workspace.
+
+    Pass ``confirm_intent=True`` ONLY when the user has clearly asked
+    for a NEW workspace/brand. A name reference like "create an offer
+    for PrivacyCrop" is NOT such a request — try ``create_offer``
+    against the existing merchant first."""
     from app.application.merchant_service import MerchantService
     from app.schemas.merchant import MerchantCreate, MerchantResponse
 
     async with _session_factory() as session:
         svc = MerchantService(session)
+
+        # Hard gate: refuse when others exist + intent not confirmed.
+        # We list a small page only — we just need to know "any?".
+        existing_items, existing_total = await svc.list(page=1, page_size=20)
+        if existing_total > 0 and not confirm_intent:
+            return json.dumps(
+                {
+                    "error": "merchants_exist",
+                    "existing_total": existing_total,
+                    "existing": [
+                        {"id": str(m.id), "name": m.name}
+                        for m in existing_items
+                    ],
+                    "hint": (
+                        "One or more merchants already exist. If the user "
+                        "named a brand, call list_merchants and reuse an "
+                        "existing match. To override this guard pass "
+                        "confirm_intent=true — only when the user "
+                        "explicitly asks for a NEW workspace/brand."
+                    ),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+
         data = MerchantCreate(
             name=name,
             merchant_type=merchant_type,
@@ -209,6 +340,34 @@ async def create_merchant(
         merchant = await svc.create(data)
         await session.commit()
         return _serialize(merchant, MerchantResponse)
+
+
+@mcp.tool()
+async def delete_merchant(merchant_id: str) -> str:
+    """Delete a merchant (brand/workspace) and EVERYTHING under it:
+    every offer, every offer's strategy_units / topic_plans /
+    creations / knowledge / brandkit / assets, plus the merchant's own
+    merchant-scoped knowledge / brandkit / assets. Asset files on
+    disk are not removed (orphan rows are wiped, bytes linger — same
+    trade-off ``delete_offer`` makes).
+
+    DESTRUCTIVE — confirm scope with the user before calling. Use
+    only when the user explicitly asks to drop a brand / workspace,
+    or to clean up demo / test data. There is no recovery short of
+    a database restore.
+
+    Returns ``{"deleted": true, "id": ...}`` on success or raises
+    NotFoundError when the row doesn't exist."""
+    from app.application.merchant_service import MerchantService
+
+    async with _session_factory() as session:
+        svc = MerchantService(session)
+        await svc.delete(uuid.UUID(merchant_id))
+        await session.commit()
+        return json.dumps(
+            {"deleted": True, "id": merchant_id},
+            ensure_ascii=False, indent=2,
+        )
 
 
 @mcp.tool()
@@ -232,8 +391,8 @@ async def list_merchants(page: int = 1, page_size: int = 20) -> str:
 
 @mcp.tool()
 async def create_offer(
-    merchant_id: str,
     name: str,
+    merchant_id: str | None = None,
     offer_type: str = "product",
     description: str = "",
     positioning: str = "",
@@ -241,6 +400,7 @@ async def create_offer(
     target_audiences: list[str] | None = None,
     target_scenarios: list[str] | None = None,
     locale: str = "zh-CN",
+    infer_knowledge: bool = False,
 ) -> str:
     """Create a product / service / bundle as an offer under a merchant. An
     offer is the entity you'll attach marketing knowledge, pain points, selling
@@ -248,12 +408,115 @@ async def create_offer(
     unit of grounding for AI script writing, topic generation, and RAG. Pass
     positioning + core_selling_points + target_audiences when known; they
     bootstrap the knowledge base automatically. offer_type: product | service |
-    bundle | solution."""
+    bundle | solution.
+
+    MERCHANT_ID DISCOVERY (server-enforced as of v1.1.8) — you do NOT
+    have to pass ``merchant_id``. When omitted, the server applies the
+    defaulting rule directly:
+
+    1. Exactly ONE merchant exists → auto-fill, no prompt to the user.
+    2. ZERO merchants → returns ``{"error": "no_merchants"}``. Ask the
+       user for the brand/workspace name and create_merchant first.
+    3. MULTIPLE merchants → returns
+       ``{"error": "multiple_merchants_pick_one", "merchants": [...]}``.
+       Ask the user which one (don't guess by name similarity / recency /
+       alphabetical — those heuristics caused dogfood incidents where an
+       offer landed under the wrong brand and silently grounded content
+       with the wrong KB).
+
+    Do NOT call ``create_merchant`` reflexively just because the user
+    named a brand. "Create an offer for PrivacyCrop" is a NAME REFERENCE,
+    not a "create new merchant" signal — try ``create_offer`` first
+    (the auto-fill handles the single-merchant case), only escalate to
+    ``create_merchant`` if the user explicitly asks for a new workspace.
+    ``create_merchant`` itself rejects when others exist unless you pass
+    ``confirm_intent=true``.
+
+    KNOWLEDGE INFERENCE — three legitimate ways to populate this
+    offer's KB; pick by who's the brain. OpenLucid is opinionated
+    about the *prompt* (167 lines at app/adapters/ai.py:61-227) but
+    NOT about which LLM runs it.
+
+    1. PREFERRED for MCP-first usage — leave ``infer_knowledge=False``
+       (the default). Create the offer. Then call
+       ``get_knowledge_inference_prompt(offer_id)`` to fetch the
+       system_prompt + user_message + output_schema. Run them through
+       YOUR OWN LLM. Write each returned item back via
+       ``add_knowledge_item`` with source_type=ai_inferred,
+       source_ref=external-agent:<your-id>:<offer_id>. You stay the
+       brain; OpenLucid contributes the prompt discipline + the
+       storage. This is how an agent + MCP product is supposed to
+       work.
+
+    2. CONVENIENCE — pass ``infer_knowledge=True``. After offer
+       creation, OpenLucid runs ITS configured 'knowledge'-scene
+       model server-side and writes the rows for you with
+       source_ref=auto-infer:create_offer:<offer_id>. Use when the
+       user has no LLM configured at the agent layer, or explicitly
+       prefers the built-in model. Failure (timeout/auth/parse) is
+       reported in ``inference_status`` without rolling back the
+       offer; you can retry via ``infer_knowledge_for_offer``.
+
+    3. MANUAL — ``infer_knowledge=False`` and you write
+       ``add_knowledge_item`` rows yourself from your own thinking,
+       no LLM-prompt-ritual. Fine for small targeted KB additions
+       but the discipline of (1) usually produces more complete
+       coverage across the 7 KB types.
+
+    Default ``infer_knowledge=False`` keeps the v1.1.5 minimal-write
+    semantic — older callers and chatty agents (who'll either follow
+    path 1 or path 3) don't silently incur server-side LLM cost."""
     from app.application.offer_service import OfferService
     from app.schemas.offer import OfferCreate, OfferResponse
 
     async with _session_factory() as session:
         svc = OfferService(session)
+
+        # Server-enforced merchant defaulting (v1.1.8). Doesn't matter
+        # whether the agent's system prompt has the v1.1.7 rule text —
+        # the server fails closed on ambiguity.
+        if merchant_id is None:
+            from app.application.merchant_service import MerchantService
+
+            mvc = MerchantService(session)
+            merchants, total = await mvc.list(page=1, page_size=20)
+            if total == 0:
+                return json.dumps(
+                    {
+                        "error": "no_merchants",
+                        "hint": (
+                            "No merchants exist yet. Ask the user for the "
+                            "brand/workspace name, then call create_merchant "
+                            "(it requires confirm_intent=true when other "
+                            "merchants already exist; for the empty-state "
+                            "this guard auto-passes)."
+                        ),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            if total > 1:
+                return json.dumps(
+                    {
+                        "error": "multiple_merchants_pick_one",
+                        "existing_total": total,
+                        "merchants": [
+                            {"id": str(m.id), "name": m.name}
+                            for m in merchants
+                        ],
+                        "hint": (
+                            "Multiple merchants exist. Ask the user which "
+                            "one to put this offer under and re-call with "
+                            "the chosen merchant_id. Do NOT guess by name "
+                            "similarity / recency / alphabetical."
+                        ),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            # Exactly one — auto-fill.
+            merchant_id = str(merchants[0].id)
+
         data = OfferCreate(
             merchant_id=uuid.UUID(merchant_id),
             name=name,
@@ -267,7 +530,341 @@ async def create_offer(
         )
         offer = await svc.create(data)
         await session.commit()
-        return _serialize(offer, OfferResponse)
+        # Build the response payload as a dict so we can attach
+        # inference_report / inference_status without re-parsing JSON.
+        offer_payload = OfferResponse.model_validate(offer, from_attributes=True).model_dump(mode="json")
+        offer_payload = _unwrap_offer_json_fields(offer_payload)
+        offer_id_str = str(offer.id)
+
+    if infer_knowledge:
+        # New session — offer creation already committed above. AI
+        # failure here is best-effort: the offer stays, the report
+        # tells the agent what to do next. Same fail-open contract
+        # as the REST endpoint at POST /offers/{id}/infer-knowledge.
+        from app.application.knowledge_inference_service import (
+            KnowledgeInferenceService,
+        )
+
+        async with _session_factory() as session2:
+            ksvc = KnowledgeInferenceService(session2)
+            report = await ksvc.infer_and_persist_offer_knowledge(
+                uuid.UUID(offer_id_str),
+                language=locale,
+                trigger="create_offer",
+            )
+            await session2.commit()
+        offer_payload["inference_report"] = report.model_dump(mode="json")
+
+    return json.dumps(offer_payload, ensure_ascii=False, indent=2, default=str)
+
+
+@mcp.tool()
+async def update_offer(
+    offer_id: str,
+    name: str | None = None,
+    offer_type: str | None = None,
+    offer_model: str | None = None,
+    description: str | None = None,
+    positioning: str | None = None,
+    core_selling_points: list[str] | None = None,
+    target_audiences: list[str] | None = None,
+    target_scenarios: list[str] | None = None,
+    objections: list[str] | None = None,
+    proofs: list[str] | None = None,
+    locale: str | None = None,
+    status: str | None = None,
+    clear_fields: list[str] | None = None,
+) -> str:
+    """Update an offer. Pass only the fields you want to change; omitted
+    fields stay as-is. Returns the full updated row in the same flat
+    shape as ``create_offer`` / ``list_offers``.
+
+    Filling the gap pre-v1.1.5 forced agents to fall back to raw REST
+    PATCH (or wipe + recreate) just to fix a typo, change positioning,
+    or merge in a new selling point.
+
+    List-shaped fields (``core_selling_points`` / ``target_audiences`` /
+    ``target_scenarios`` / ``objections`` / ``proofs``) take a flat
+    ``list[str]`` — same shape as ``create_offer`` accepts and as
+    ``list_offers`` returns. The MCP layer wraps them into the
+    underlying ``foo_json: {points|items: [...]}`` columns.
+
+    To CLEAR a field (set to NULL), include its name in
+    ``clear_fields`` — e.g. ``clear_fields=["description","positioning"]``.
+    Passing ``None`` to a field means "leave alone", not "clear", which
+    is the same convention as ``update_knowledge_item``."""
+    from app.application.offer_service import OfferService
+    from app.schemas.offer import OfferUpdate, OfferResponse
+
+    payload: dict[str, Any] = {}
+    if name is not None:
+        payload["name"] = name
+    if offer_type is not None:
+        payload["offer_type"] = offer_type
+    if offer_model is not None:
+        payload["offer_model"] = offer_model
+    if description is not None:
+        payload["description"] = description
+    if positioning is not None:
+        payload["positioning"] = positioning
+    if core_selling_points is not None:
+        payload["core_selling_points_json"] = {"points": core_selling_points}
+    if target_audiences is not None:
+        payload["target_audience_json"] = {"items": target_audiences}
+    if target_scenarios is not None:
+        payload["target_scenarios_json"] = {"items": target_scenarios}
+    if objections is not None:
+        payload["objections_json"] = {"items": objections}
+    if proofs is not None:
+        payload["proofs_json"] = {"items": proofs}
+    if locale is not None:
+        payload["locale"] = locale
+    if status is not None:
+        payload["status"] = status
+
+    # ``clear_fields`` is the explicit "set to NULL" channel. Map flat
+    # MCP names back onto the underlying ``_json`` columns.
+    _CLEAR_ALIAS = {
+        "core_selling_points": "core_selling_points_json",
+        "target_audiences": "target_audience_json",
+        "target_scenarios": "target_scenarios_json",
+        "objections": "objections_json",
+        "proofs": "proofs_json",
+    }
+    for f in (clear_fields or []):
+        col = _CLEAR_ALIAS.get(f, f)
+        payload[col] = None
+
+    if not payload:
+        return json.dumps(
+            {"error": "no fields provided",
+             "hint": "pass at least one field to update, or use clear_fields=[...] to NULL columns"},
+            ensure_ascii=False, indent=2,
+        )
+
+    async with _session_factory() as session:
+        svc = OfferService(session)
+        data = OfferUpdate(**payload)
+        offer = await svc.update(uuid.UUID(offer_id), data)
+        await session.flush()
+        await session.refresh(offer)
+        result = _serialize(offer, OfferResponse, unwrap_offer=True)
+        await session.commit()
+        return result
+
+
+@mcp.tool()
+async def delete_offer(offer_id: str) -> str:
+    """Delete an offer by UUID. Cascades to attached strategy_units,
+    creations, knowledge items, assets, and brandkits via the service-
+    layer cleanup. Returns ``{"deleted": true, "id": ...}`` on success
+    or raises NotFoundError when the row doesn't exist.
+
+    Use cases: drop a product line, remove a misbuilt offer
+    (e.g. wrong merchant), or clean up demo data."""
+    from app.application.offer_service import OfferService
+
+    async with _session_factory() as session:
+        svc = OfferService(session)
+        await svc.delete(uuid.UUID(offer_id))
+        await session.commit()
+        return json.dumps(
+            {"deleted": True, "id": offer_id},
+            ensure_ascii=False, indent=2,
+        )
+
+
+@mcp.tool()
+async def infer_knowledge_for_offer(
+    offer_id: str,
+    language: str | None = None,
+    user_hint: str | None = None,
+) -> str:
+    """Convenience: have OpenLucid's CONFIGURED knowledge-scene LLM
+    run the prompt against this offer + persist the resulting rows.
+    Use when the user prefers the built-in model or has no agent-
+    side LLM credentials.
+
+    PREFERRED ALTERNATIVE for external-agent-driven flows: call
+    ``get_knowledge_inference_prompt(offer_id)`` instead — it returns
+    the same prompt OpenLucid would run server-side, but lets YOU
+    run it through your own LLM (Claude / GPT / wherever). Then
+    write rows back via ``add_knowledge_item`` with
+    source_ref=external-agent:<your-id>:<offer_id>. That preserves
+    the MCP-first design intent: OpenLucid holds the prompt
+    discipline + the data layer; the external agent holds the brain.
+
+    Provenance:
+    - ``source_type=ai_inferred`` so the WebUI can show AI-vs-manual
+      badges
+    - ``source_ref=auto-infer:infer_knowledge_for_offer:<offer_id>``
+      so an audit can tell apart create-time inferences from manual
+      re-runs
+    - ``confidence`` from the LLM's per-item score
+
+    Re-running over an offer that already has KB rows is safe — the
+    ``(scope_type, scope_id, knowledge_type, title)`` unique
+    constraint causes same-titled rows to be updated in place rather
+    than duplicated. New rows get inserted.
+
+    Returns a ``KnowledgeInferenceReport``:
+    ``{success, written_count, updated_count, by_type, model_label}``,
+    or ``{success: false, reason: ...}`` when the LLM call fails
+    (timeout / auth / rate limit / parse error). Hard failures
+    surface NotFoundError when ``offer_id`` doesn't exist."""
+    from app.application.knowledge_inference_service import (
+        KnowledgeInferenceService,
+    )
+
+    async with _session_factory() as session:
+        svc = KnowledgeInferenceService(session)
+        report = await svc.infer_and_persist_offer_knowledge(
+            uuid.UUID(offer_id),
+            language=language,
+            user_hint=user_hint,
+            trigger="infer_knowledge_for_offer",
+        )
+        await session.commit()
+        return json.dumps(
+            report.model_dump(mode="json"),
+            ensure_ascii=False, indent=2, default=str,
+        )
+
+
+@mcp.tool()
+async def get_knowledge_inference_prompt(
+    offer_id: str,
+    language: str | None = None,
+    user_hint: str | None = None,
+) -> str:
+    """Return the offer-knowledge-inference prompt OpenLucid would
+    feed its built-in LLM, so YOU (the external agent) can run it
+    through your own model and write the resulting KB rows back via
+    ``add_knowledge_item``.
+
+    This is v1.2.1's answer to the v1.2.0 architectural concern: the
+    167-line system prompt at ``app/adapters/ai.py:61-227`` is the
+    product asset (the marketing-knowledge-extraction discipline);
+    the LLM that runs it is implementation. Pre-v1.2.1 only OpenLucid's
+    configured model could see the prompt — meaning external agents
+    that wanted to use their own LLM (Claude, GPT, Gemini, …) had to
+    either (a) blindly write KB rows from their own freeform thinking,
+    or (b) call ``infer_knowledge_for_offer`` and accept whatever
+    OpenLucid's "knowledge"-scene model produced. Neither is right
+    for an MCP-first product where the external agent is supposed to
+    be the brain.
+
+    Use this tool when you (the agent) want the **discipline** of
+    OpenLucid's prompt but the **reasoning** of your own LLM:
+
+    1. Call this tool — get back ``system_prompt`` + ``user_message``
+       + ``output_schema`` + ``write_back_instructions``.
+    2. Run them through your own LLM (Claude / GPT / your fine-tuned
+       small model — your choice; whatever's strongest at structured
+       extraction).
+    3. Parse your LLM's JSON output. For each ``{title, content_raw,
+       confidence}`` per type, call ``add_knowledge_item(scope_type=
+       "offer", scope_id=offer_id, knowledge_type=<type>, ...)`` with
+       ``source_type="ai_inferred"`` and ``source_ref="external-agent:
+       <your_agent_id>:<offer_id>"`` — the ``external-agent:`` prefix
+       distinguishes your runs from server-internal
+       ``auto-infer:create_offer:...`` rows in the audit trail.
+
+    ``language`` / ``user_hint`` mirror the corresponding params on
+    ``infer_knowledge_for_offer``. ``language`` defaults to the
+    offer's locale; ``user_hint`` is forwarded into the user message
+    when supplied (e.g. "focus on B2B angles").
+
+    Returns ``{system_prompt, user_message, output_schema,
+    recommended_temperature, language, offer, write_back_instructions}``
+    — every field the agent needs to run the prompt + write the
+    output back, no more."""
+    from app.adapters.prompt_builder import (
+        format_existing_knowledge,
+        format_offer_summary,
+    )
+    from app.adapters.ai import _build_infer_knowledge_system_prompt
+    from app.application.knowledge_inference_service import build_offer_data
+    from app.exceptions import NotFoundError
+    from app.infrastructure.knowledge_repo import KnowledgeItemRepository
+    from app.infrastructure.offer_repo import OfferRepository
+
+    async with _session_factory() as session:
+        offer = await OfferRepository(session).get_by_id(uuid.UUID(offer_id))
+        if not offer:
+            raise NotFoundError("Offer", offer_id)
+
+        lang = language or getattr(offer, "locale", None) or "zh-CN"
+
+        existing_items, _ = await KnowledgeItemRepository(session).list(
+            scope_type="offer", scope_id=uuid.UUID(offer_id), offset=0, limit=500,
+        )
+        existing_payload = [
+            {
+                "knowledge_type": ki.knowledge_type,
+                "title": ki.title,
+                "content_raw": ki.content_raw or "",
+            }
+            for ki in existing_items
+        ]
+
+        offer_data = build_offer_data(
+            offer_name=offer.name,
+            offer_type=offer.offer_type,
+            description=offer.description,
+            existing_knowledge=existing_payload,
+        )
+
+        # Same composition the built-in adapter uses at
+        # app/adapters/ai.py:1148-1153 — kept identical so the prompt
+        # an external agent runs is byte-for-byte the prompt the
+        # internal model sees.
+        system_prompt = _build_infer_knowledge_system_prompt(lang)
+        user_message = format_offer_summary(offer_data, language=lang) + format_existing_knowledge(
+            existing_payload, language=lang,
+        )
+        if user_hint:
+            user_message += f"\nAdditional notes from user: {user_hint}"
+
+    payload = {
+        "system_prompt": system_prompt,
+        "user_message": user_message,
+        "output_schema": {
+            "_description": (
+                "Your LLM should return a JSON object with these top-level "
+                "keys. Each value is a list of items; each item has title, "
+                "content_raw, confidence (0..1). Empty list is fine for "
+                "categories the source page doesn't address — don't fabricate."
+            ),
+            "selling_point": [{"title": "...", "content_raw": "...", "confidence": 0.85}],
+            "audience": [{"title": "...", "content_raw": "...", "confidence": 0.85}],
+            "scenario": [{"title": "...", "content_raw": "...", "confidence": 0.85}],
+            "pain_point": [{"title": "...", "content_raw": "...", "confidence": 0.85}],
+            "faq": [{"title": "...", "content_raw": "...", "confidence": 0.85}],
+            "objection": [{"title": "...", "content_raw": "...", "confidence": 0.85}],
+            "proof": [{"title": "...", "content_raw": "...", "confidence": 0.85}],
+        },
+        "recommended_temperature": 0.7,
+        "language": lang,
+        "offer": {
+            "id": offer_id,
+            "name": offer.name,
+            "offer_type": offer.offer_type,
+        },
+        "write_back_instructions": (
+            "For each item your LLM returns, call add_knowledge_item("
+            f"scope_type='offer', scope_id='{offer_id}', "
+            "knowledge_type=<type>, title=<title>, content_raw=<content_raw>, "
+            "source_type='ai_inferred', "
+            f"source_ref='external-agent:<your_agent_id>:{offer_id}', "
+            f"confidence=<0..1>, language='{lang}'). The "
+            "(scope_type, scope_id, knowledge_type, title) UNIQUE "
+            "constraint means re-running won't duplicate same-titled "
+            "rows; existing rows are updated in place. Skip empty-title "
+            "items the LLM occasionally emits."
+        ),
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2, default=str)
 
 
 @mcp.tool()
@@ -293,6 +890,10 @@ async def list_offers(
         # Strip full description from list — agent should call get_offer_context_summary for details
         for item in serialized_items:
             item.pop("description", None)
+        # Flatten ``foo_json: {wrapper: [...]}`` to ``foo: [...]`` so the
+        # output matches the input shape of create_offer (read↔write
+        # symmetry — see _unwrap_offer_json_fields docstring).
+        serialized_items = _unwrap_offer_json_fields(serialized_items)
         return json.dumps({"total": total, "page": page, "items": serialized_items}, ensure_ascii=False, indent=2, default=str)
 
 
@@ -331,19 +932,50 @@ async def add_knowledge_item(
     scope_type: str,
     scope_id: str,
     title: str,
-    content: str = "",
+    content_raw: str = "",
     knowledge_type: str = "general",
     language: str = "zh-CN",
+    source_type: str = "manual",
+    source_ref: str | None = None,
+    confidence: float | None = None,
+    tags: str | list[str] = "",
+    content: str | None = None,
 ) -> str:
     """Add a brand / marketing knowledge entry to a merchant or offer KB — one
     atomic fact, selling point, pain point, proof, FAQ, audience persona, or
     usage scenario. This is the source-of-truth content that script writers,
     content generators, KB QA, and RAG pipelines pull from.
+
     scope_type: merchant | offer.
     knowledge_type: brand | audience | scenario | selling_point | pain_point |
-      objection | proof | faq | general."""
+      objection | proof | faq | general.
+    source_type: manual | ai_inferred | web_extract — provenance, used to
+      decide which entries are owner-vetted vs LLM-generated.
+    source_ref: where this came from (URL, document name, infer-knowledge run id).
+    confidence: 0.0-1.0 — populate when ``source_type=ai_inferred`` so the UI
+      can show a "verified-vs-AI-suggested" badge.
+    tags: free-form tags. Accepts a comma-separated string or a list[str].
+
+    ``content`` is a deprecated alias for ``content_raw`` kept for
+    backwards-compat with calls written against the pre-1.1.3 MCP shape;
+    the rename closed a read/write asymmetry where ``list_knowledge``
+    returned ``content_raw`` but ``add_knowledge_item`` accepted only
+    ``content``."""
     from app.application.knowledge_service import KnowledgeService
     from app.schemas.knowledge import KnowledgeItemCreate, KnowledgeItemResponse
+
+    body = content_raw or (content or "")
+    if content and not content_raw:
+        logger.warning(
+            "MCP add_knowledge_item: 'content' is deprecated — use 'content_raw' "
+            "(matches list_knowledge / KnowledgeItemResponse field name)."
+        )
+
+    if isinstance(tags, str):
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    else:
+        tag_list = [t.strip() for t in tags if isinstance(t, str) and t.strip()]
+    tags_json = {"general": tag_list} if tag_list else None
 
     async with _session_factory() as session:
         svc = KnowledgeService(session)
@@ -351,13 +983,114 @@ async def add_knowledge_item(
             scope_type=scope_type,
             scope_id=uuid.UUID(scope_id),
             title=title,
-            content_raw=content or None,
+            content_raw=body or None,
             knowledge_type=knowledge_type,
             language=language,
+            source_type=source_type,
+            source_ref=source_ref,
+            tags_json=tags_json,
+            confidence=(
+                max(0.0, min(1.0, float(confidence)))
+                if confidence is not None else None
+            ),
         )
         item = await svc.create(data)
+        # Serialize BEFORE commit so a failure here triggers async-with's
+        # rollback. The earlier commit-then-serialize order left dirty
+        # rows in the DB when serialization tripped MissingGreenlet
+        # (observed once during v1.1.3 dogfood and required a manual
+        # delete to clean up). flush() materialises server-defaults so
+        # _serialize can see them without lazy-loading.
+        await session.flush()
+        await session.refresh(item)
+        result = _serialize(item, KnowledgeItemResponse)
         await session.commit()
-        return _serialize(item, KnowledgeItemResponse)
+        return result
+
+
+@mcp.tool()
+async def update_knowledge_item(
+    item_id: str,
+    title: str | None = None,
+    content_raw: str | None = None,
+    knowledge_type: str | None = None,
+    language: str | None = None,
+    source_type: str | None = None,
+    source_ref: str | None = None,
+    confidence: float | None = None,
+    tags: str | list[str] | None = None,
+) -> str:
+    """Update an existing knowledge item. Pass only the fields you want
+    to change; omitted fields stay as-is. Returns the full updated row.
+
+    Fills the gap that pre-v1.1.4 forced agents to fall back to raw REST
+    PATCH (or wipe + re-add) just to fix a typo or bump a confidence
+    score on an AI-inferred entry.
+
+    item_id: UUID of the knowledge entry (from list_knowledge / add_*).
+    Field semantics match ``add_knowledge_item``."""
+    from app.application.knowledge_service import KnowledgeService
+    from app.schemas.knowledge import KnowledgeItemUpdate, KnowledgeItemResponse
+
+    payload: dict[str, Any] = {}
+    if title is not None:
+        payload["title"] = title
+    if content_raw is not None:
+        payload["content_raw"] = content_raw
+    if knowledge_type is not None:
+        payload["knowledge_type"] = knowledge_type
+    if language is not None:
+        payload["language"] = language
+    if source_type is not None:
+        payload["source_type"] = source_type
+    if source_ref is not None:
+        payload["source_ref"] = source_ref
+    if confidence is not None:
+        payload["confidence"] = max(0.0, min(1.0, float(confidence)))
+    if tags is not None:
+        if isinstance(tags, list):
+            tag_list = [t.strip() for t in tags if isinstance(t, str) and t.strip()]
+        else:
+            tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        payload["tags_json"] = {"general": tag_list} if tag_list else None
+
+    if not payload:
+        # Empty patch — surface as no-op rather than silently 200ing.
+        # Saves a confused agent round-trip wondering why nothing changed.
+        return json.dumps(
+            {"error": "no fields provided", "hint": "pass at least one field to update"},
+            ensure_ascii=False, indent=2,
+        )
+
+    async with _session_factory() as session:
+        svc = KnowledgeService(session)
+        data = KnowledgeItemUpdate(**payload)
+        item = await svc.update(uuid.UUID(item_id), data)
+        await session.flush()
+        await session.refresh(item)
+        result = _serialize(item, KnowledgeItemResponse)
+        await session.commit()
+        return result
+
+
+@mcp.tool()
+async def delete_knowledge_item(item_id: str) -> str:
+    """Delete a knowledge item by UUID. Returns ``{"deleted": true, "id": ...}``
+    on success or raises NotFoundError when the row doesn't exist.
+
+    Use cases: clean up an AI-inferred entry the owner rejected; remove
+    a duplicate that slipped past the unique-title constraint via a
+    rename; wipe demo / test rows."""
+    from app.application.knowledge_service import KnowledgeService
+
+    async with _session_factory() as session:
+        svc = KnowledgeService(session)
+        await svc.delete(uuid.UUID(item_id))
+        await session.commit()
+        return json.dumps(
+            {"deleted": True, "id": item_id},
+            ensure_ascii=False, indent=2,
+        )
 
 
 @mcp.tool()
@@ -487,7 +1220,7 @@ async def get_offer_context_summary(offer_id: str) -> str:
     async with _session_factory() as session:
         svc = ContextService(session)
         ctx = await svc.get_offer_context(uuid.UUID(offer_id))
-        return _serialize(ctx)
+        return _serialize(ctx, unwrap_offer=True)
 
 
 # ── Strategy Unit Tools ───────────────────────────────────────
@@ -1030,6 +1763,8 @@ async def get_merchant_overview(merchant_id: str) -> str:
         offer_svc = OfferService(session)
         offers, offer_total = await offer_svc.list(merchant_id=mid, page=1, page_size=100)
         offers_data = [OfferResponse.model_validate(o, from_attributes=True).model_dump(mode="json") for o in offers]
+        # Flatten _json wrappers to keep MCP read shape consistent with create_offer input.
+        offers_data = _unwrap_offer_json_fields(offers_data)
 
         bk_svc = BrandKitService(session)
         brandkits, bk_total = await bk_svc.list(scope_type="merchant", scope_id=mid, page=1, page_size=100)
@@ -1072,7 +1807,7 @@ async def save_creation(
     content_type: str = "general",
     offer_id: str | None = None,
     merchant_id: str | None = None,
-    tags: str = "",
+    tags: str | list[str] = "",
     source_note: str | None = None,
 ) -> str:
     """Save a finished content piece (post, script, copy, email, etc.) back to OpenLucid
@@ -1117,7 +1852,10 @@ async def save_creation(
     from app.application.creation_service import CreationService
     from app.schemas.creation import CreationCreate, CreationResponse
 
-    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+    if isinstance(tags, list):
+        tag_list = [t.strip() for t in tags if isinstance(t, str) and t.strip()] or None
+    else:
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
 
     async with _session_factory() as session:
         svc = CreationService(session)
@@ -1454,14 +2192,15 @@ async def create_copy_asset(
     title: str,
     content_text: str,
     language: str = "zh-CN",
-    tags: str = "",
+    tags: str | list[str] = "",
 ) -> str:
     """Save a text asset (a "copy") under a scope — e.g. an agent captured a
     customer testimonial, a reference passage, a marketing doc excerpt, and
     wants it persistent in the KB.
 
     scope_type: "merchant" | "offer". scope_id: UUID of the scope owner.
-    tags: optional comma-separated tags (stored under a generic category).
+    tags: optional tags. Accepts a comma-separated string or a list[str];
+      stored under a generic category in the asset's tags_json field.
     """
     from app.adapters.storage import LocalStorageAdapter
     from app.application.asset_service import AssetService
@@ -1469,7 +2208,11 @@ async def create_copy_asset(
     from app.domain.enums import ScopeType
 
     tag_list: dict[str, list[str]] = {}
-    if tags:
+    if isinstance(tags, list):
+        clean = [t.strip() for t in tags if isinstance(t, str) and t.strip()]
+        if clean:
+            tag_list = {"general": clean}
+    elif tags:
         tag_list = {"general": [t.strip() for t in tags.split(",") if t.strip()]}
 
     async with _session_factory() as session:
@@ -1668,7 +2411,7 @@ async def offer_context_resource(offer_id: str) -> str:
     async with _session_factory() as session:
         svc = ContextService(session)
         ctx = await svc.get_offer_context(uuid.UUID(offer_id))
-        return _serialize(ctx)
+        return _serialize(ctx, unwrap_offer=True)
 
 
 # ── Prompts ───────────────────────────────────────────────────

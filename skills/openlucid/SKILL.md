@@ -105,20 +105,53 @@ openlucid create-offer-from-url \
   --url "https://example.com/product-page"
 ```
 
+> **MCP / agent note**: When agents call ``list_offers`` /
+> ``get_offer_context_summary`` via MCP (rather than the REST CLI),
+> the response now uses **flat-list** fields — ``core_selling_points``,
+> ``target_audiences``, ``target_scenarios``, ``objections``, ``proofs``
+> — to match the input shape of ``create_offer``. Don't expect the
+> legacy ``foo_json: {"points": [...]}`` wrapper anymore. The CLI
+> output (which shells out to REST) still shows the wrapped form;
+> only the MCP layer flattens. This unifies read↔write so you can do
+> ``data = list_offers(); data["items"][0]["core_selling_points"].append("X");
+> create_offer(**data["items"][0])`` without manual reshaping.
+
 ### Knowledge Base
 ```bash
-# List knowledge for an offer
-openlucid list-knowledge --scope-type offer --scope-id <offer_uuid>
+# List knowledge for an offer (or --merchant <name> to scope by merchant)
+openlucid list-knowledge --offer <name_or_uuid>
 
-# List knowledge for a merchant
-openlucid list-knowledge --scope-type merchant --scope-id <merchant_uuid>
+# Add a manual knowledge item
+openlucid add-knowledge --offer <name_or_uuid> \
+  --title "核心卖点" \
+  --content-raw "3倍洁净去渍力" \
+  --type selling_point
 
-# Add knowledge
-openlucid add-knowledge --scope-type offer --scope-id <offer_uuid> \
-  --title "核心卖点" --content "3倍洁净去渍力" --type selling_point
+# Add an AI-inferred entry (set provenance + confidence so the UI can
+# distinguish it from owner-vetted knowledge)
+openlucid add-knowledge --offer <name_or_uuid> \
+  --title "Zero-Upload Privacy Architecture" \
+  --content-raw "Before: ... Feature: ... Advantage: ... Benefit: ... Evidence: ..." \
+  --type selling_point \
+  --source-type ai_inferred \
+  --source-ref "infer-run-2026-04-25" \
+  --tags "import,homepage"
 ```
 
-Knowledge types: `brand`, `audience`, `scenario`, `selling_point`, `objection`, `proof`, `faq`, `general`
+Field names follow the schema/DB exactly: `content_raw`, `source_type`,
+`source_ref`, `tags`. The same names appear on output (``list-knowledge``,
+``get-creation``) so read → edit → write loops round-trip cleanly.
+
+Knowledge types: `brand`, `audience`, `scenario`, `selling_point`,
+`pain_point`, `objection`, `proof`, `faq`, `general`.
+
+Source types: `manual` (owner-typed), `ai_inferred` (LLM output, pair
+with `--confidence` via the API), `web_extract` (page scrape), `file`,
+`url`, `imported`.
+
+> **Migration note**: ``--content`` (and the equivalent MCP ``content``
+> param) still works but logs a deprecation warning. Old scripts keep
+> running; new code should use ``--content-raw`` to match the read shape.
 
 ### Creations (Topics, Scripts, Posts)
 ```bash
