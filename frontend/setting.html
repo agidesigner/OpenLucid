@@ -310,7 +310,7 @@
                   </div>
 
                   <!-- Empty state: no providers configured for this capability yet -->
-                  <template x-if="cap.options.length === 0">
+                  <template x-if="!cap.options.some(o => o.available !== false)">
                     <div class="bg-blue-50/60 border border-blue-100 rounded-lg px-3 py-3 text-xs text-gray-700">
                       <p class="mb-2" x-text="t('cap_no_provider_yet')"></p>
                       <p class="text-[11px] text-gray-500 mb-3" x-text="capRecommendText(cap.capability)"></p>
@@ -347,14 +347,15 @@
                   </template>
 
                   <!-- Has options: show dropdown + provider source hint + add-more link -->
-                  <template x-if="cap.options.length > 0">
+                  <template x-if="cap.options.some(o => o.available !== false)">
                     <div>
                       <select @change="setMediaCapabilityInline(cap.capability, $event.target.value)"
                               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
                         <option value="" x-text="t('default_model')"></option>
-                        <template x-for="opt in cap.options" :key="opt.provider_config_id + '::' + (opt.model_code || opt.voice_id || '')">
-                          <option :value="opt.provider_config_id + '::' + (opt.model_code || opt.voice_id || '')"
-                                  :selected="isMediaCapabilitySelected(cap, opt)"
+                        <template x-for="opt in cap.options" :key="(opt.provider_config_id || 'unset') + '::' + (opt.model_code || opt.voice_id || '') + '::' + opt.provider">
+                          <option :value="opt.available === false ? '' : (opt.provider_config_id + '::' + (opt.model_code || opt.voice_id || ''))"
+                                  :disabled="opt.available === false"
+                                  :selected="opt.available !== false && isMediaCapabilitySelected(cap, opt)"
                                   x-text="opt.display_label"></option>
                         </template>
                       </select>
@@ -413,6 +414,8 @@
                                'bg-purple-50': cfg.provider === 'minimax',
                                'bg-amber-50': cfg.provider === 'anthropic',
                                'bg-blue-50': cfg.provider === 'deepseek',
+                               'bg-indigo-50': cfg.provider === 'kimi',
+                               'bg-slate-100': cfg.provider === 'grok',
                                'bg-orange-50': cfg.provider === 'ollama',
                                'bg-gray-100': cfg.provider === 'custom',
                              }"
@@ -589,30 +592,31 @@
                            class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
                   </div>
 
-                  <!-- Validate status -->
-                  <div x-show="validateStatus" class="text-xs px-3 py-2 rounded-xl"
-                       :class="validateStatus === 'ok' ? 'bg-green-50 text-green-700' : validateStatus === 'error' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-500'">
-                    <span x-show="validateStatus === 'checking'" x-text="t('validating')"></span>
-                    <span x-show="validateStatus === 'ok'" x-text="t('validate_ok')"></span>
-                    <span x-show="validateStatus === 'error'" x-text="validateError || t('validate_error')"></span>
-                  </div>
                 </form>
 
-                <!-- Footer actions (sticky) -->
+                <!-- Footer actions (sticky). Validate status renders inline
+                     next to the button — the form area is scrollable, so a
+                     status banner inside it can fall below the fold. -->
                 <div class="px-6 py-4 border-t border-gray-100 shrink-0 flex items-center gap-3">
                   <button @click="validateConnection()"
                           :disabled="validateStatus === 'checking'"
-                          class="px-4 py-2 rounded-xl text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
-                          x-text="t('validate_connection')">
+                          class="px-4 py-2 rounded-xl text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50 shrink-0">
+                    <span x-text="validateStatus === 'checking' ? t('validating') : t('validate_connection')"></span>
                   </button>
+                  <span x-show="validateStatus" class="text-xs min-w-0 truncate"
+                        :class="validateStatus === 'ok' ? 'text-green-600' : validateStatus === 'error' ? 'text-red-600' : 'text-gray-500'">
+                    <span x-show="validateStatus === 'checking'" x-text="t('validating')"></span>
+                    <span x-show="validateStatus === 'ok'" x-text="t('validate_ok')"></span>
+                    <span x-show="validateStatus === 'error'" :title="validateError || t('validate_error')" x-text="validateError || t('validate_error')"></span>
+                  </span>
                   <div class="flex-1"></div>
                   <button @click="cancelForm()"
-                          class="px-4 py-2 rounded-xl text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                          class="px-4 py-2 rounded-xl text-sm text-gray-500 hover:text-gray-700 transition-colors shrink-0"
                           x-text="t('btn_cancel')">
                   </button>
                   <button @click="saveForm()"
                           :disabled="formSaving"
-                          class="bg-accent text-white px-5 py-2 rounded-xl text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50">
+                          class="bg-accent text-white px-5 py-2 rounded-xl text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50 shrink-0">
                     <span x-text="formSaving ? t('saving') : t('btn_save')"></span>
                   </button>
                 </div>
@@ -869,6 +873,51 @@
             <!-- Loading -->
             <div x-show="mpLoading" class="flex items-center justify-center py-12">
               <svg class="animate-spin w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+            </div>
+
+            <!-- Google (Veo + Nano Banana) — read-only status, key shared with
+                 LLM Gemini. There's nothing to configure here; the card just
+                 surfaces the readiness state and routes the user to the LLM
+                 settings if the key is missing. -->
+            <div x-show="!mpLoading" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-3">
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                  <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-lg bg-blue-50">💎</div>
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <p class="text-sm font-semibold text-gray-900" x-text="t('mp_google_name')"></p>
+                      <span class="od-tag" :class="googleReady ? 'od-tag-success' : 'od-tag-neutral'">
+                        <span class="od-dot" :class="googleReady ? 'od-dot-success' : 'od-dot-neutral'"></span>
+                        <span x-text="googleReady ? t('mp_google_ready') : t('mp_google_not_configured')"></span>
+                      </span>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-0.5" x-text="t('mp_google_tagline')"></p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Source row: which LLM gemini config is providing the key -->
+              <div x-show="googleReady" class="mt-3 bg-gray-50 rounded-xl px-3 py-2.5 text-xs text-gray-600 flex items-center gap-2">
+                <svg class="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+                <span class="text-gray-500" x-text="t('mp_google_source_prefix')"></span>
+                <span class="font-medium text-gray-700 truncate" x-text="geminiLlmConfig && geminiLlmConfig.label"></span>
+              </div>
+
+              <!-- Not-ready hint -->
+              <div x-show="!googleReady" class="mt-3 text-xs text-gray-500" x-text="t('mp_google_not_configured_hint')"></div>
+
+              <div class="flex items-center gap-2 mt-3">
+                <a href="/setting.html?section=llm"
+                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
+                   :class="googleReady ? 'border-gray-200 text-gray-600 hover:bg-gray-50' : 'border-accent text-white bg-accent hover:bg-accent-hover'">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 5l7 7-7 7"/></svg>
+                  <span x-text="googleReady ? t('mp_google_manage_in_llm') : t('mp_google_setup_in_llm')"></span>
+                </a>
+                <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener"
+                   class="text-xs text-accent hover:underline ml-auto">
+                  <span x-text="t('mp_get_credentials')"></span> →
+                </a>
+              </div>
             </div>
 
             <!-- Provider list: configured (detailed cards) + available (compact rows). -->
@@ -1501,19 +1550,20 @@
                 <div class="text-[11px] text-gray-400 mt-0.5" x-text="cap.description"></div>
               </div>
             </div>
-            <template x-if="cap.options.length === 0">
+            <template x-if="!cap.options.some(o => o.available !== false)">
               <div class="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 text-[11px] text-amber-700 flex items-center justify-between gap-2">
                 <span x-text="t('cap_need_provider')"></span>
                 <a href="/setting.html?section=media-providers" class="font-medium text-amber-800 hover:underline whitespace-nowrap" x-text="t('cap_configure_provider')"></a>
               </div>
             </template>
-            <select x-show="cap.options.length > 0"
+            <select x-show="cap.options.some(o => o.available !== false)"
                     @change="setMediaCapability(cap.capability, $event.target.value)"
                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
               <option value="" x-text="t('default_model')"></option>
-              <template x-for="opt in cap.options" :key="opt.provider_config_id + '::' + (opt.model_code || opt.voice_id || '')">
-                <option :value="opt.provider_config_id + '::' + (opt.model_code || opt.voice_id || '')"
-                        :selected="isMediaCapabilitySelected(cap, opt)"
+              <template x-for="opt in cap.options" :key="(opt.provider_config_id || 'unset') + '::' + (opt.model_code || opt.voice_id || '') + '::' + opt.provider">
+                <option :value="opt.available === false ? '' : (opt.provider_config_id + '::' + (opt.model_code || opt.voice_id || ''))"
+                        :disabled="opt.available === false"
+                        :selected="opt.available !== false && isMediaCapabilitySelected(cap, opt)"
                         x-text="opt.display_label"></option>
               </template>
             </select>
@@ -1549,6 +1599,8 @@
       ollama:    { label: 'Ollama',    icon: '🦙', base_url: 'http://localhost:11434/v1',                           key_hint: '' },
       minimax:   { label: 'MiniMax',   icon: '💜', base_url: 'https://api.minimaxi.com/v1',                        key_hint: 'eyJ...' },
       deepseek:  { label: 'DeepSeek',  icon: '🔵', base_url: 'https://api.deepseek.com',                           key_hint: 'sk-...' },
+      kimi:      { label: 'Kimi',      icon: '🌙', base_url: 'https://api.moonshot.cn/v1',                          key_hint: 'sk-...' },
+      grok:      { label: 'Grok',      icon: '⚡', base_url: 'https://api.x.ai/v1',                                 key_hint: 'xai-...' },
       custom:    { label: 'Custom',    icon: '⚙️', base_url: '',                                                    key_hint: '' },
     };
 
@@ -1958,13 +2010,28 @@
         defaultsError: '',
         defaultsForm: { avatar_id: '', voice_id: '', aspect_ratio: 'portrait' },
 
+        // Google (Veo + Nano Banana) shares the LLM Gemini key, so its
+        // readiness is derived from the LLM list, not from a credentials
+        // form on this page.
+        geminiLlmConfig: null,
+        get googleReady() { return !!this.geminiLlmConfig; },
+
         async loadMediaProviders() {
           this.mpLoading = true;
           this.mpError = '';
           try {
-            const r = await fetch('/api/v1/media-providers');
-            if (!r.ok) throw new Error(await r.text());
-            this.providers = await r.json();
+            const [mpRes, llmRes] = await Promise.all([
+              fetch('/api/v1/media-providers'),
+              fetch('/api/v1/settings/llm'),
+            ]);
+            if (!mpRes.ok) throw new Error(await mpRes.text());
+            this.providers = await mpRes.json();
+            if (llmRes.ok) {
+              const llms = await llmRes.json();
+              // Pick most recent gemini config — matches what the backend
+              // mirror sync uses, so the label here matches the live key.
+              this.geminiLlmConfig = llms.filter(c => c.provider === 'gemini').pop() || null;
+            }
           } catch (e) {
             this.mpError = t('load_failed') + e.message;
           } finally {

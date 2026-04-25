@@ -405,6 +405,49 @@
                             x-text="formatRelative(job.created_at)"></span>
                     </div>
                     <p x-show="job.error_message" class="text-[11px] text-red-600 mt-1 break-words" x-text="job.error_message"></p>
+                    <!-- B-roll submit warnings: surfaced when individual broll shots failed during submission (quota / auth / rate-limit / etc.). Errors are grouped by message so identical failures collapse into a single line; the raw per-shot list is one click away under the Details disclosure. -->
+                    <div x-show="job.params && Array.isArray(job.params.broll_warnings) && job.params.broll_warnings.length > 0"
+                         role="alert" aria-live="polite"
+                         class="mt-1.5 rounded-lg border bg-amber-50 border-amber-200 text-amber-900 px-3 py-2.5">
+                      <div class="flex items-start gap-2">
+                        <svg class="w-4 h-4 shrink-0 mt-0.5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z"/></svg>
+                        <div class="min-w-0 flex-1">
+                          <div class="flex items-center gap-1.5 flex-wrap text-[12px] font-semibold">
+                            <span x-text="job.params?.broll_status === 'all_failed' ? t('vg_broll_warn_all_failed') : t('vg_broll_warn_partial')"></span>
+                            <span class="text-amber-700/70 font-normal text-[11px]">
+                              <span x-text="(job.params?.broll_warnings?.length || 0)"></span><span class="opacity-50"> shot</span><span x-show="(job.params?.broll_warnings?.length || 0) !== 1" class="opacity-50">s</span>
+                              <span x-show="job.params?.broll_warning_provider">· <span x-text="job.params.broll_warning_provider"></span></span>
+                            </span>
+                          </div>
+                          <!-- Grouped causes: dedupe identical error strings so the user sees the cause once with a count, not the same JSON repeated 4×. -->
+                          <ul class="mt-1 space-y-1 text-[12px] leading-snug">
+                            <template x-for="(group, ci) in groupBrollWarnings(job.params.broll_warnings)" :key="ci">
+                              <li class="flex items-start gap-1.5">
+                                <span x-show="group.shots.length > 1"
+                                      class="shrink-0 inline-flex items-center justify-center min-w-[1.25rem] h-[1rem] px-1 rounded bg-amber-200/70 text-amber-900 text-[10px] font-mono tabular-nums"
+                                      x-text="'×' + group.shots.length"></span>
+                                <span x-show="group.shots.length === 1"
+                                      class="shrink-0 text-[10px] text-amber-700/60 font-mono tabular-nums pt-px"
+                                      x-text="'#' + (group.shots[0] + 1)"></span>
+                                <span class="break-words" x-text="group.error"></span>
+                              </li>
+                            </template>
+                          </ul>
+                          <!-- Raw per-shot dump for debugging — collapsed by default to keep the visible surface clean. -->
+                          <details class="mt-1.5 group/det" x-show="(job.params?.broll_warnings?.length || 0) > 1">
+                            <summary class="cursor-pointer select-none text-[11px] text-amber-800/70 hover:text-amber-900 inline-flex items-center gap-1">
+                              <svg class="w-3 h-3 transition-transform group-open/det:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                              <span x-text="t('vg_broll_warn_show_details')"></span>
+                            </summary>
+                            <ul class="mt-1.5 space-y-0.5 text-[11px] text-amber-800/90">
+                              <template x-for="w in (job.params.broll_warnings || [])" :key="w.idx">
+                                <li class="break-words font-mono leading-snug"><span class="opacity-60" x-text="'#' + ((w.idx || 0) + 1) + ' '"></span><span x-text="w.error"></span></li>
+                              </template>
+                            </ul>
+                          </details>
+                        </div>
+                      </div>
+                    </div>
                     <div class="flex items-center gap-3 mt-2">
                       <a x-show="job.status === 'completed' && job.video_url"
                          :href="job.video_url" target="_blank" rel="noopener" download
@@ -480,6 +523,47 @@
                    it — the editable B-roll plan below is the only UI that
                    actually shapes the generated B-roll. Removed to stop
                    confusing users who saw two different shot listings. -->
+            </div>
+
+            <!-- ── Primary: Aspect ratio ──
+                 Lifted above Avatar so the avatar grid below can filter to
+                 templates that match the chosen format. Jogg avatars carry
+                 ``extras.aspect_ratio`` (portrait / landscape) sourced from
+                 the API; Chanjing has no per-avatar ratio and stays visible
+                 in either format because its server stretches the figure
+                 to the canvas at generation time. -->
+            <div>
+              <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 block mb-2" x-text="t('vg_section_format')"></label>
+              <div class="grid grid-cols-2 gap-2" role="group" :aria-label="t('vg_section_format')">
+                <button type="button" @click="setAspectRatio('portrait')"
+                        :aria-pressed="videoModal.form.aspect_ratio === 'portrait'"
+                        class="group py-2 px-3 rounded-lg border transition-colors flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-accent/40"
+                        :class="videoModal.form.aspect_ratio === 'portrait'
+                          ? 'border-accent bg-accent/5'
+                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'">
+                  <span class="inline-block w-3 h-[18px] border rounded-[2px] transition-colors"
+                        :class="videoModal.form.aspect_ratio === 'portrait' ? 'border-accent' : 'border-gray-400 group-hover:border-gray-500'"></span>
+                  <span class="text-sm font-medium"
+                        :class="videoModal.form.aspect_ratio === 'portrait' ? 'text-accent' : 'text-gray-700'"
+                        x-text="t('vg_aspect_portrait')"></span>
+                  <span class="text-[11px] font-mono tabular-nums"
+                        :class="videoModal.form.aspect_ratio === 'portrait' ? 'text-accent/70' : 'text-gray-400'">9:16</span>
+                </button>
+                <button type="button" @click="setAspectRatio('landscape')"
+                        :aria-pressed="videoModal.form.aspect_ratio === 'landscape'"
+                        class="group py-2 px-3 rounded-lg border transition-colors flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-accent/40"
+                        :class="videoModal.form.aspect_ratio === 'landscape'
+                          ? 'border-accent bg-accent/5'
+                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'">
+                  <span class="inline-block w-[18px] h-3 border rounded-[2px] transition-colors"
+                        :class="videoModal.form.aspect_ratio === 'landscape' ? 'border-accent' : 'border-gray-400 group-hover:border-gray-500'"></span>
+                  <span class="text-sm font-medium"
+                        :class="videoModal.form.aspect_ratio === 'landscape' ? 'text-accent' : 'text-gray-700'"
+                        x-text="t('vg_aspect_landscape')"></span>
+                  <span class="text-[11px] font-mono tabular-nums"
+                        :class="videoModal.form.aspect_ratio === 'landscape' ? 'text-accent/70' : 'text-gray-400'">16:9</span>
+                </button>
+              </div>
             </div>
 
             <!-- ── Primary: Avatar (the one real decision — highest visual weight) ── -->
@@ -563,52 +647,6 @@
               </div>
             </div>
 
-            <!-- ── Primary: Aspect ratio ── -->
-            <div>
-              <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 block mb-2" x-text="t('vg_section_format')"></label>
-              <div class="grid grid-cols-3 gap-2">
-                <button type="button" @click="videoModal.form.aspect_ratio = 'portrait'"
-                        class="py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center gap-1.5"
-                        :class="videoModal.form.aspect_ratio === 'portrait'
-                          ? 'border-accent bg-accent/5'
-                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'">
-                  <div class="w-5 h-9 border-2 rounded-sm transition-colors"
-                       :class="videoModal.form.aspect_ratio === 'portrait' ? 'border-accent' : 'border-gray-400'"></div>
-                  <div class="text-[11px] font-medium"
-                       :class="videoModal.form.aspect_ratio === 'portrait' ? 'text-accent' : 'text-gray-600'">
-                    <span x-text="t('vg_aspect_portrait')"></span>
-                    <span class="text-[9px] text-gray-400 ml-1">9:16</span>
-                  </div>
-                </button>
-                <button type="button" @click="videoModal.form.aspect_ratio = 'landscape'"
-                        class="py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center gap-1.5"
-                        :class="videoModal.form.aspect_ratio === 'landscape'
-                          ? 'border-accent bg-accent/5'
-                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'">
-                  <div class="w-9 h-5 border-2 rounded-sm transition-colors"
-                       :class="videoModal.form.aspect_ratio === 'landscape' ? 'border-accent' : 'border-gray-400'"></div>
-                  <div class="text-[11px] font-medium"
-                       :class="videoModal.form.aspect_ratio === 'landscape' ? 'text-accent' : 'text-gray-600'">
-                    <span x-text="t('vg_aspect_landscape')"></span>
-                    <span class="text-[9px] text-gray-400 ml-1">16:9</span>
-                  </div>
-                </button>
-                <button type="button" @click="videoModal.form.aspect_ratio = 'square'"
-                        class="py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center gap-1.5"
-                        :class="videoModal.form.aspect_ratio === 'square'
-                          ? 'border-accent bg-accent/5'
-                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'">
-                  <div class="w-7 h-7 border-2 rounded-sm transition-colors"
-                       :class="videoModal.form.aspect_ratio === 'square' ? 'border-accent' : 'border-gray-400'"></div>
-                  <div class="text-[11px] font-medium"
-                       :class="videoModal.form.aspect_ratio === 'square' ? 'text-accent' : 'text-gray-600'">
-                    <span x-text="t('vg_aspect_square')"></span>
-                    <span class="text-[9px] text-gray-400 ml-1">1:1</span>
-                  </div>
-                </button>
-              </div>
-            </div>
-
             <!-- ── Primary: Enhancements (B-roll + Caption toggles) ── -->
             <div class="space-y-2">
               <!-- B-roll (conditional — only when structured_content has visual_direction) -->
@@ -636,7 +674,33 @@
                           <span x-text="t('vg_broll_chars')"></span>
                         </span>
                       </div>
-                      <div class="flex items-center gap-3">
+                      <div class="flex items-center gap-3 flex-wrap">
+                        <!-- B-roll video model selector — applies to all shots in this generation. -->
+                        <template x-if="videoModal.brollModelOptions.some(o => o.available)">
+                          <div class="relative">
+                            <select :aria-label="t('vg_broll_model_aria')"
+                                    @change="(() => { const sel = videoModal.brollModelOptions.find(o => (o.provider_config_id + '::' + o.model_code) === $event.target.value); if (sel) { videoModal.form.broll_provider_config_id = sel.provider_config_id; videoModal.form.broll_model_code = sel.model_code; } })()"
+                                    class="appearance-none text-[11px] font-medium text-gray-700 bg-white border border-gray-200 rounded-md pl-6 pr-6 py-1 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors cursor-pointer max-w-[200px] truncate">
+                              <template x-for="opt in videoModal.brollModelOptions" :key="(opt.provider_config_id || 'unset') + '::' + opt.model_code + '::' + opt.provider">
+                                <option :value="opt.available ? (opt.provider_config_id + '::' + opt.model_code) : ''"
+                                        :disabled="!opt.available"
+                                        :selected="opt.available && opt.provider_config_id === videoModal.form.broll_provider_config_id && opt.model_code === videoModal.form.broll_model_code"
+                                        x-text="opt.display_label"></option>
+                              </template>
+                            </select>
+                            <svg class="absolute left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                            <svg class="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                          </div>
+                        </template>
+                        <template x-if="!videoModal.brollModelOptions.some(o => o.available)">
+                          <a href="/setting.html?section=llm"
+                             :title="t('vg_broll_model_unset_hint')"
+                             class="text-[11px] text-amber-600 hover:text-amber-700 font-medium flex items-center gap-1">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z"/></svg>
+                            <span x-text="t('vg_broll_model_unset')"></span>
+                          </a>
+                        </template>
+
                         <button type="button" @click="brollRegeneratePlan()"
                                 :disabled="brollRegenerating"
                                 class="text-[11px] text-gray-500 hover:text-accent font-medium flex items-center gap-1 disabled:opacity-50">
@@ -959,6 +1023,7 @@
           creation: null,
           providers: [],          // active media-provider configs
           providersLoading: false,
+          brollModelOptions: [],  // video_gen capability options (Veo / Seedance / Kling …)
           selectedProviderId: '',
           jobs: [],
           jobsLoading: false,
@@ -1051,9 +1116,53 @@
           return this.auditionPreviewText.length > 0;
         },
 
+        // Collapse identical broll-warning entries into one row each so the
+        // banner shows "Insufficient credits — ..." once with "×4" instead
+        // of four lookalike lines. Order is preserved by first occurrence.
+        groupBrollWarnings(warnings) {
+            if (!Array.isArray(warnings)) return [];
+            const groups = [];
+            const seen = new Map();  // error string → group index
+            for (const w of warnings) {
+              const err = (w && w.error) || '';
+              if (seen.has(err)) {
+                groups[seen.get(err)].shots.push(w.idx);
+              } else {
+                seen.set(err, groups.length);
+                groups.push({ error: err, shots: [w.idx] });
+              }
+            }
+            return groups;
+        },
+
+        // Switching format may invalidate the currently-selected avatar
+        // (e.g. user picked a portrait Jogg template and then flipped to
+        // landscape — the avatar grid will hide it, but the form would
+        // still hold its id). Clear the selection in that case so the
+        // submit button visibly resets and the user re-picks deliberately.
+        setAspectRatio(ratio) {
+          this.videoModal.form.aspect_ratio = ratio;
+          const sel = this.uniqueAvatars.find(a => a.id === this.videoModal.form.avatar_id);
+          if (sel && sel.extras && sel.extras.aspect_ratio && sel.extras.aspect_ratio !== ratio) {
+            this.videoModal.form.avatar_id = '';
+            this.videoModal.form.voice_id = '';
+          }
+        },
+
         // ── Avatar filter ──
+        // Avatars whose underlying source ratio doesn't match the chosen
+        // Format are dropped — Jogg exposes this via extras.aspect_ratio
+        // ("portrait" | "landscape"). Chanjing has no per-avatar ratio
+        // field (its server-side canvas just stretches the figure to fit),
+        // so chanjing avatars stay visible across both formats.
+        _avatarMatchesAspect(a) {
+          const want = this.videoModal.form.aspect_ratio;
+          const have = a && a.extras && a.extras.aspect_ratio;
+          if (!have) return true;        // unknown → don't hide
+          return have === want;
+        },
         get avatarCounts() {
-          const all = this.uniqueAvatars;
+          const all = this.uniqueAvatars.filter(a => this._avatarMatchesAspect(a));
           return {
             all: all.length,
             male: all.filter(a => a.gender === 'male').length,
@@ -1061,9 +1170,10 @@
           };
         },
         get filteredAvatars() {
+          const list = this.uniqueAvatars.filter(a => this._avatarMatchesAspect(a));
           const f = this.videoModal.avatarFilter;
-          if (f === 'all') return this.uniqueAvatars;
-          return this.uniqueAvatars.filter(a => a.gender === f);
+          if (f === 'all') return list;
+          return list.filter(a => a.gender === f);
         },
 
         // ── Voice search + filter ──
@@ -1383,20 +1493,51 @@
               const plan = creation?.structured_content?.broll_plan;
               return Array.isArray(plan) ? JSON.parse(JSON.stringify(plan)) : [];
             })(),
+            // Per-job B-roll model override. Hydrated below from the
+            // video_gen capability default; user can change in the toolbar.
+            broll_provider_config_id: '',
+            broll_model_code: '',
             script: this._extractNarration(creation),
           };
+          this.videoModal.brollModelOptions = [];
 
-          // Load providers + existing jobs in parallel
+          // Load providers + existing jobs + capability defaults in parallel
           this.videoModal.providersLoading = true;
           this.videoModal.jobsLoading = true;
           try {
-            const [pr, jr] = await Promise.all([
+            const [pr, jr, cr] = await Promise.all([
               fetch('/api/v1/media-providers'),
               fetch(`/api/v1/creations/${creation.id}/videos`),
+              fetch('/api/v1/settings/media-capabilities'),
             ]);
             if (pr.ok) {
               const all = await pr.json();
-              this.videoModal.providers = all.filter(p => p.is_active);
+              // Avatar (talking-head) providers only — Google/Veo doesn't
+              // do avatars, it's our B-roll engine and is selected via the
+              // video_gen capability default, not from this picker.
+              this.videoModal.providers = all.filter(p => p.is_active && p.provider !== 'google');
+            }
+            if (cr.ok) {
+              const caps = await cr.json();
+              const videoGen = (caps.capabilities || []).find(c => c.capability === 'video_gen');
+              if (videoGen) {
+                // Drop options without a model_code (e.g. tts-style placeholders).
+                // Keep ghost (available=false) options so users see what
+                // exists; they're rendered disabled.
+                this.videoModal.brollModelOptions = (videoGen.options || []).filter(o => o.model_code);
+                // Pre-select the system default; if absent, fall back to the
+                // first AVAILABLE option (never auto-select a disabled ghost).
+                if (videoGen.current_provider_config_id && videoGen.current_model_code) {
+                  this.videoModal.form.broll_provider_config_id = videoGen.current_provider_config_id;
+                  this.videoModal.form.broll_model_code = videoGen.current_model_code;
+                } else {
+                  const firstReal = this.videoModal.brollModelOptions.find(o => o.available);
+                  if (firstReal) {
+                    this.videoModal.form.broll_provider_config_id = firstReal.provider_config_id;
+                    this.videoModal.form.broll_model_code = firstReal.model_code;
+                  }
+                }
+              }
             }
             if (jr.ok) {
               this.videoModal.jobs = await jr.json();
@@ -1663,9 +1804,13 @@
           const cfg = m.providers.find(p => p.id === configId);
           if (!cfg) return;
 
-          // Pre-fill aspect_ratio from provider defaults
+          // Pre-fill aspect_ratio from provider defaults. ``square`` is no
+          // longer offered in the UI — coerce legacy values to ``portrait``
+          // so the toggle group always has a matching pressed state.
           if (cfg.defaults && cfg.defaults.aspect_ratio) {
-            m.form.aspect_ratio = cfg.defaults.aspect_ratio;
+            m.form.aspect_ratio = cfg.defaults.aspect_ratio === 'square'
+              ? 'portrait'
+              : cfg.defaults.aspect_ratio;
           }
 
           // ── Cache layer (localStorage, 12h TTL) ──
@@ -1841,6 +1986,16 @@
               // back to creation.structured_content.broll_plan otherwise.
               ...(m.form.broll && Array.isArray(m.form.broll_plan) && m.form.broll_plan.length
                 ? { broll_plan: m.form.broll_plan }
+                : {}),
+              // Per-job B-roll model override (provider+model picked in the
+              // toolbar selector). Omit when the user hasn't enabled B-roll
+              // or when no override is set — the resolver falls back to the
+              // video_gen capability default in that case.
+              ...(m.form.broll && m.form.broll_provider_config_id && m.form.broll_model_code
+                ? {
+                    broll_provider_config_id: m.form.broll_provider_config_id,
+                    broll_model_code: m.form.broll_model_code,
+                  }
                 : {}),
               name: this.videoModal.creation?.title || null,
               provider_extras: (avatar && avatar.extras) || {},

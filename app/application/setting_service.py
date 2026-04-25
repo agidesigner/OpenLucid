@@ -42,6 +42,59 @@ def _to_response(config: LLMConfig) -> LLMConfigResponse:
     )
 
 
+# Marker label so we can recognize the auto-managed mirror row vs. a row a
+# user might have hand-created (we never create one by hand today, but the
+# label keeps intent obvious in the DB).
+_GOOGLE_MIRROR_LABEL = "Google (linked from LLM Gemini)"
+
+
+async def _sync_google_media_mirror(db: AsyncSession) -> None:
+    """Mirror the user's Gemini LLM credential into a hidden ``google``
+    ``media_provider_configs`` row so Veo / Nano Banana show up as
+    image_gen / video_gen options without forcing the user to re-enter the
+    same key in two places. Idempotent — call it after any LLM CRUD that
+    touches a ``provider='gemini'`` row.
+
+    Picks the most recently updated gemini config when the user has more
+    than one (e.g. different model_name on the same key — they all share
+    the API key anyway). Caller is responsible for committing.
+    """
+    gemini_result = await db.execute(
+        select(LLMConfig)
+        .where(LLMConfig.provider == "gemini")
+        .order_by(LLMConfig.updated_at.desc())
+        .limit(1)
+    )
+    gemini = gemini_result.scalar_one_or_none()
+
+    mirror_result = await db.execute(
+        select(MediaProviderConfig).where(MediaProviderConfig.provider == "google")
+    )
+    mirror = mirror_result.scalar_one_or_none()
+
+    if gemini:
+        creds = {"api_key": gemini.api_key}
+        if mirror is None:
+            db.add(MediaProviderConfig(
+                provider="google",
+                label=_GOOGLE_MIRROR_LABEL,
+                credentials=creds,
+                defaults={"aspect_ratio": "portrait"},
+                is_active=True,
+            ))
+        else:
+            mirror.credentials = creds
+            mirror.is_active = True
+            # Refresh label only if it still matches the auto-managed marker —
+            # a human-edited label is left alone.
+            if mirror.label == _GOOGLE_MIRROR_LABEL:
+                mirror.label = _GOOGLE_MIRROR_LABEL
+    elif mirror is not None:
+        # No gemini LLM left — drop the mirror. FK cascade clears
+        # MediaCapabilityDefault rows that pointed at it.
+        await db.delete(mirror)
+
+
 async def list_llm_configs(db: AsyncSession) -> list[LLMConfigResponse]:
     result = await db.execute(select(LLMConfig).order_by(LLMConfig.created_at))
     configs = result.scalars().all()
@@ -63,6 +116,9 @@ async def create_llm_config(db: AsyncSession, data: LLMConfigCreate) -> LLMConfi
         is_active=True,
     )
     db.add(config)
+    await db.flush()  # need config.id before sync
+    if data.provider == "gemini":
+        await _sync_google_media_mirror(db)
     await db.commit()
     await db.refresh(config)
     return _to_response(config)
@@ -76,6 +132,10 @@ async def update_llm_config(
     if not config:
         raise HTTPException(status_code=404, detail="LLM config not found")
 
+    # Capture the *old* provider before mutating — needed so we re-sync
+    # the google mirror when the user flips a row away from gemini.
+    was_gemini = config.provider == "gemini"
+
     if data.label is not None:
         config.label = data.label
     if data.provider is not None:
@@ -87,6 +147,9 @@ async def update_llm_config(
     if data.model_name is not None:
         config.model_name = data.model_name
 
+    if was_gemini or config.provider == "gemini":
+        await db.flush()
+        await _sync_google_media_mirror(db)
     await db.commit()
     await db.refresh(config)
     return _to_response(config)
@@ -105,7 +168,11 @@ async def delete_llm_config(db: AsyncSession, config_id: uuid.UUID) -> None:
         if next_config:
             next_config.is_active = True
 
+    was_gemini = config.provider == "gemini"
     await db.delete(config)
+    if was_gemini:
+        await db.flush()
+        await _sync_google_media_mirror(db)
     await db.commit()
 
 
@@ -328,31 +395,62 @@ async def get_media_capability_configs(
         d.capability: d for d in defaults_result.scalars().all()
     }
 
+    # Friendly suffix appended to ghost (unconfigured) options so the
+    # dropdown communicates *why* the row is disabled at a glance.
+    unconfigured_suffix = " (not configured)" if is_en else "（未配置）"
+
     capabilities: list[MediaCapabilityConfig] = []
     for cap, meta in _CAPABILITY_META.items():
         options: list[MediaCapabilityOption] = []
         for provider_name, models in meta["models_by_provider"].items():
-            for p in providers_by_name.get(provider_name, []):
-                if cap == "tts":
-                    # TTS is "pick provider, voice chosen per-use" — label clarifies
-                    # this is a provider choice, not a model or voice selection
-                    options.append(MediaCapabilityOption(
-                        provider_config_id=str(p.id),
-                        provider=p.provider,
-                        provider_label=p.label,
-                        model_code=None,
-                        voice_id=None,
-                        display_label=f"{p.label}{tts_suffix}",
-                    ))
-                else:
-                    for code, title in models:
+            configured = providers_by_name.get(provider_name, [])
+            if configured:
+                for p in configured:
+                    if cap == "tts":
+                        # TTS is "pick provider, voice chosen per-use" — label clarifies
+                        # this is a provider choice, not a model or voice selection
                         options.append(MediaCapabilityOption(
                             provider_config_id=str(p.id),
                             provider=p.provider,
                             provider_label=p.label,
+                            model_code=None,
+                            voice_id=None,
+                            display_label=f"{p.label}{tts_suffix}",
+                        ))
+                    else:
+                        for code, title in models:
+                            options.append(MediaCapabilityOption(
+                                provider_config_id=str(p.id),
+                                provider=p.provider,
+                                provider_label=p.label,
+                                model_code=code,
+                                voice_id=None,
+                                display_label=pick_label(title, language),
+                            ))
+            else:
+                # No credential row for this provider — emit ghost options so
+                # users see the model exists but can't pick it. The UI must
+                # render these disabled.
+                if cap == "tts":
+                    options.append(MediaCapabilityOption(
+                        provider_config_id="",
+                        provider=provider_name,
+                        provider_label=provider_name,
+                        model_code=None,
+                        voice_id=None,
+                        display_label=f"{provider_name}{tts_suffix}{unconfigured_suffix}",
+                        available=False,
+                    ))
+                else:
+                    for code, title in models:
+                        options.append(MediaCapabilityOption(
+                            provider_config_id="",
+                            provider=provider_name,
+                            provider_label=provider_name,
                             model_code=code,
                             voice_id=None,
-                            display_label=pick_label(title, language),
+                            display_label=pick_label(title, language) + unconfigured_suffix,
+                            available=False,
                         ))
 
         d = defaults.get(cap)
@@ -519,6 +617,14 @@ def _pick_recommended(model_ids: list[str], provider: str) -> str:
         for m in model_ids:
             if m == "deepseek-chat":
                 return m
+    elif provider == "kimi":
+        for preferred in ("kimi-k2.6", "kimi-k2.5", "moonshot-v1-32k"):
+            if preferred in model_ids:
+                return preferred
+    elif provider == "grok":
+        for preferred in ("grok-4-latest", "grok-4-0709", "grok-3", "grok-3-mini"):
+            if preferred in model_ids:
+                return preferred
     elif provider == "ollama":
         for preferred in ("llama3.2:latest", "llama3:latest", "qwen2.5:latest", "mistral:latest"):
             if preferred in model_ids:

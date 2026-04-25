@@ -68,13 +68,19 @@ class EndpointModelsResponse(BaseModel):
 # ── Media capability defaults (image / video / TTS) ────────────────
 
 class MediaCapabilityOption(BaseModel):
-    """A selectable (provider + model/voice) combo for a capability dropdown."""
-    provider_config_id: str
-    provider: str            # chanjing | jogg
+    """A selectable (provider + model/voice) combo for a capability dropdown.
+
+    ``available=False`` means the provider behind this option isn't configured
+    yet (no API key on file). UIs should still surface it — disabled — so
+    users see what *could* be available; selection is blocked until they
+    set up the credential."""
+    provider_config_id: str   # empty string when ``available`` is False
+    provider: str             # chanjing | jogg | google
     provider_label: str
-    model_code: str | None   # for image_gen / video_gen
-    voice_id: str | None     # for tts
-    display_label: str       # "🎬 蝉镜 · Doubao-Seedance-1.0-pro"
+    model_code: str | None    # for image_gen / video_gen
+    voice_id: str | None      # for tts
+    display_label: str        # "🎬 蝉镜 · Doubao-Seedance-1.0-pro"
+    available: bool = True
 
 
 class MediaCapabilityConfig(BaseModel):
@@ -147,7 +153,7 @@ class LLMValidateRequest(BaseModel):
 class LLMFetchModelsRequest(BaseModel):
     api_key: str
     base_url: str
-    provider: str  # openai | minimax | anthropic | deepseek | custom
+    provider: str  # openai | minimax | anthropic | deepseek | kimi | grok | custom
 
 
 class LLMFetchModelsResponse(BaseModel):

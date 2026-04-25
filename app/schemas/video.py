@@ -28,6 +28,14 @@ class VideoGenerateRequest(BaseModel):
     #   {"type": "retention"|"illustrative", "insert_after_char": int,
     #    "duration_seconds": int, "prompt": str}
     broll_plan: list[dict] | None = None
+    # Per-job override for the B-roll video model. When both fields are set
+    # the resolver picks this provider/model instead of the global
+    # MediaCapabilityDefault(video_gen). Populated by the toolbar selector
+    # in creations.html "Generate Video"; absence falls back to the system
+    # default. Sent as a pair because model_code alone isn't enough to
+    # locate the credentials row (e.g. two providers proxying Veo).
+    broll_provider_config_id: str | None = None
+    broll_model_code: str | None = None
     name: str | None = None  # used by Jogg only
     # Opaque provider-specific hints captured from the avatar/voice list payload
     # (e.g. Chanjing requires `{"figure_type": "sit_body"|...}`).

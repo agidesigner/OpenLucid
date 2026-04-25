@@ -53,6 +53,73 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+_ERROR_MESSAGE_RE = __import__("re").compile(r'"message"\s*:\s*"((?:[^"\\]|\\.)*)"')
+
+
+def _extract_clean_cause(raw: str) -> str:
+    """Pull the human-readable bit out of a provider error string.
+
+    Provider exceptions surface in a few shapes that all look terrible if
+    rendered raw:
+      1. Python tuple-repr from ``str(AppError(code, msg, status))`` →
+         ``('VEO_SUBMIT_FAILED', "Veo submit returned 400: ...", 502)``
+         (quoting flips between ' and " depending on apostrophes inside)
+      2. JSON blob embedded in (1)'s message →
+         ``Veo submit returned 400: {\\n  "error": {\\n    "message": "...", ...}}``
+      3. Plain string (httpx connection errors etc.)
+
+    Tries (1) → (2) → (3) in order. Goal: one concise sentence that
+    explains *what went wrong* without leaking JSON braces or Python repr
+    quotes into the UI."""
+    import ast
+    s = raw.strip()
+    # 1. Strip tuple-repr — ast.literal_eval handles mixed quoting safely.
+    if s.startswith("(") and s.endswith(")"):
+        try:
+            parsed = ast.literal_eval(s)
+            if isinstance(parsed, tuple):
+                # Pick the longest string element — that's the human message
+                # (the code is short, status is an int).
+                strs = [x for x in parsed if isinstance(x, str)]
+                if strs:
+                    s = max(strs, key=len)
+        except (ValueError, SyntaxError):
+            pass
+    # 2. Pull the inner JSON ``message`` field if present (Veo / OpenAI / etc.)
+    jm = _ERROR_MESSAGE_RE.search(s)
+    if jm:
+        # Decode JSON-style escapes (\n, \", etc.) so the rendered text reads
+        # like a sentence not a literal escape sequence.
+        try:
+            s = jm.group(1).encode("utf-8").decode("unicode_escape", errors="replace")
+        except Exception:
+            s = jm.group(1)
+    # 3. Trim
+    # Don't strip backticks — they're often used as code-quoting around
+    # field/parameter names (e.g. ``numberOfVideos`` in Gemini errors) and
+    # losing them changes the meaning. Strip only stray surrounding quotes.
+    return s.strip().strip("'\"").strip()[:220]
+
+
+def _classify_broll_error(msg: str) -> str:
+    """Add a short human-readable cause prefix in front of the cleaned-up
+    provider error so the UI surface (job.error_message + params.broll_warnings)
+    tells the user *why* a shot failed without making them parse a stack
+    trace. Conservative substring match — when nothing matches, return just
+    the cleaned cause."""
+    cause = _extract_clean_cause(msg)
+    m = (msg + " " + cause).lower()
+    if any(s in m for s in ("insufficient", "credit", "balance", "quota", "exceed", "billing", " 402")):
+        return f"Insufficient credits / quota — {cause}"
+    if any(s in m for s in ("rate limit", "rate-limit", "too many request", " 429")):
+        return f"Rate-limited by provider — {cause}"
+    if any(s in m for s in ("unauthorized", "invalid_api_key", "authentication", "api key", " 401", " 403")):
+        return f"Authentication / permission denied — {cause}"
+    if any(s in m for s in ("timeout", "timed out", "deadline")):
+        return f"Provider timeout — {cause}"
+    return cause
+
+
 def _to_response(job: VideoGenerationJob) -> VideoJobResponse:
     return VideoJobResponse(
         id=str(job.id),
@@ -192,24 +259,13 @@ async def create_video_job(
         name=data.name,
         provider_extras=data.provider_extras or {},
     )
-    try:
-        provider_task_id = await video_provider.create_avatar_video(create_req)
-    except Exception as e:
-        # Persist failure on the job row before re-raising
-        logger.warning("create_avatar_video failed for job %s: %s", job.id, e)
-        job.status = "failed"
-        job.error_message = str(e)[:1000]
-        job.finished_at = _utcnow()
-        await db.commit()
-        await db.refresh(job)
-        raise
+    # NOTE: ``create_avatar_video`` is intentionally NOT called here. We
+    # submit B-roll FIRST (below) so that if the B-roll provider rejects
+    # every shot at submit time (auth/quota/rate-limit), we can abort the
+    # whole job before burning credits on the avatar provider. The actual
+    # avatar submit happens after the B-roll block, gated by its result.
 
-    # 6. Success — record provider_task_id and move to processing
-    job.provider_task_id = provider_task_id
-    job.status = "processing"
-    job.started_at = _utcnow()
-
-    # 7. If B-roll requested, use the AI-director's broll_plan from structured_content.
+    # 5. If B-roll requested, use the AI-director's broll_plan from structured_content.
     #    The LLM already decided WHERE and WHY to insert B-roll when writing the script.
     #    We just submit the generation tasks for each planned insert point.
     #
@@ -281,26 +337,42 @@ async def create_video_job(
         else:
             # Resolve an independent B-roll provider (avatar provider may be Jogg,
             # but Jogg doesn't expose submit_broll_clip — use video_gen default instead).
+            # Precedence: per-request override → MediaCapabilityDefault(video_gen) → fallback.
             broll_provider_config = None
             broll_model_code = None
             try:
-                from app.models.media_capability_default import MediaCapabilityDefault
-                cap_result = await db.execute(
-                    select(MediaCapabilityDefault).where(MediaCapabilityDefault.capability == "video_gen")
-                )
-                cap = cap_result.scalar_one_or_none()
-                if cap and cap.provider_config_id:
-                    broll_provider_config = await mp_repo.get_by_id(cap.provider_config_id)
+                if data.broll_provider_config_id and data.broll_model_code:
+                    override_uuid = uuid.UUID(data.broll_provider_config_id)
+                    broll_provider_config = await mp_repo.get_by_id(override_uuid)
                     if broll_provider_config:
-                        broll_model_code = cap.model_code or None
+                        broll_model_code = data.broll_model_code
                         logger.info(
-                            "B-roll: using provider=%s model=%s (avatar=%s)",
+                            "B-roll: per-request override provider=%s model=%s (avatar=%s)",
                             broll_provider_config.provider, broll_model_code, provider_config.provider,
                         )
                     else:
-                        logger.info("B-roll: video_gen default provider_config_id points at a missing row")
+                        logger.info(
+                            "B-roll: override provider_config_id %s missing — falling back to default",
+                            data.broll_provider_config_id,
+                        )
+                if broll_provider_config is None:
+                    from app.models.media_capability_default import MediaCapabilityDefault
+                    cap_result = await db.execute(
+                        select(MediaCapabilityDefault).where(MediaCapabilityDefault.capability == "video_gen")
+                    )
+                    cap = cap_result.scalar_one_or_none()
+                    if cap and cap.provider_config_id:
+                        broll_provider_config = await mp_repo.get_by_id(cap.provider_config_id)
+                        if broll_provider_config:
+                            broll_model_code = cap.model_code or None
+                            logger.info(
+                                "B-roll: using video_gen default provider=%s model=%s (avatar=%s)",
+                                broll_provider_config.provider, broll_model_code, provider_config.provider,
+                            )
+                        else:
+                            logger.info("B-roll: video_gen default provider_config_id points at a missing row")
             except Exception as e:
-                logger.warning("B-roll: failed to resolve video_gen default: %s", e)
+                logger.warning("B-roll: failed to resolve B-roll provider: %s", e)
 
             # If no independent B-roll provider but the avatar provider itself can do
             # B-roll (e.g. Chanjing avatar + Chanjing ai_creation), fall back to that.
@@ -418,6 +490,11 @@ async def create_video_job(
                 BROLL_SUBMIT_CONCURRENCY = 3
                 _sem = asyncio.Semaphore(BROLL_SUBMIT_CONCURRENCY)
 
+                # Captures failures from concurrent _submit_one calls so we
+                # can surface them on the job after gather() completes.
+                # Single-thread asyncio means list.append is safe here.
+                broll_failures: list[dict] = []
+
                 async def _submit_one(
                     idx: int, entry: dict, prompt: str, dur: int, submit_kwargs: dict
                 ) -> dict | None:
@@ -425,10 +502,13 @@ async def create_video_job(
                         try:
                             task_id = await broll_video_provider.submit_broll_clip(**submit_kwargs)
                         except Exception as e:
-                            # Per-item isolation: one failure must not sink
-                            # the batch. Matches the previous serial loop's
-                            # warn-and-continue behavior.
+                            err_str = str(e) or e.__class__.__name__
                             logger.warning("B-roll #%d submit failed: %s", idx, e)
+                            broll_failures.append({
+                                "idx": idx,
+                                "prompt": prompt[:80],
+                                "error": _classify_broll_error(err_str),
+                            })
                             return None
                         logger.info(
                             "B-roll #%d submitted via %s: type=%s char=%s task=%s",
@@ -459,6 +539,66 @@ async def create_video_job(
                     # Remember which provider to poll for the B-roll tasks — may differ from avatar provider
                     params["broll_provider_config_id"] = str(broll_provider_config.id)
                     job.params = params
+
+                # Surface broll submit failures on the job. Avatar generation
+                # continues either way — we don't want a quota / auth issue
+                # on the B-roll provider to drop the whole job — but the user
+                # MUST be told something was lost.
+                if broll_failures:
+                    params["broll_warnings"] = broll_failures
+                    params["broll_warning_provider"] = broll_provider_config.provider
+                    if not broll_tasks:
+                        # All shots failed → also bubble through error_message
+                        # so the existing red-text channel renders it without
+                        # any extra UI work, in addition to the structured
+                        # warnings list. Status stays as-is so the avatar can
+                        # still complete (broll is additive, not gating).
+                        first = broll_failures[0].get("error", "?")
+                        job.error_message = (
+                            f"B-roll generation failed for all {len(broll_failures)} shot(s) "
+                            f"via {broll_provider_config.provider}: {first}"
+                        )
+                        params["broll_status"] = "all_failed"
+                    else:
+                        params["broll_status"] = "partial"
+                    job.params = params
+
+                # Gate the avatar submit. If the user explicitly enabled
+                # B-roll AND the provider rejected every shot at submit
+                # (auth / out-of-credit / rate-limit), there's no point
+                # spending tokens on the talking-head — the user picked a
+                # specific B-roll provider expecting it to work. Bail out
+                # cleanly so they can fix the credit / key and retry.
+                if broll_specs and not broll_tasks and broll_failures:
+                    job.status = "failed"
+                    first = broll_failures[0].get("error", "?")
+                    job.error_message = (
+                        f"B-roll generation failed for all {len(broll_failures)} shot(s) "
+                        f"via {broll_provider_config.provider}: {first}. "
+                        "Avatar generation skipped to avoid wasting credits."
+                    )
+                    job.finished_at = _utcnow()
+                    await db.commit()
+                    await db.refresh(job)
+                    return _to_response(job)
+
+    # 6. Submit the avatar video — only reached when B-roll was either not
+    # requested, partially succeeded, or wasn't attempted (no plan / no
+    # broll-capable provider). All-failures bailed out above.
+    try:
+        provider_task_id = await video_provider.create_avatar_video(create_req)
+    except Exception as e:
+        logger.warning("create_avatar_video failed for job %s: %s", job.id, e)
+        job.status = "failed"
+        job.error_message = str(e)[:1000]
+        job.finished_at = _utcnow()
+        await db.commit()
+        await db.refresh(job)
+        raise
+
+    job.provider_task_id = provider_task_id
+    job.status = "processing"
+    job.started_at = _utcnow()
 
     await db.commit()
     await db.refresh(job)
@@ -564,6 +704,7 @@ async def _maybe_sync_status(
             all_done = True
             any_failed = False
             broll_clips: list[dict] = []
+            poll_failures: list[dict] = []  # captured for params.broll_warnings
             for bt in broll_tasks:
                 try:
                     br_status = await broll_video_provider.poll_broll_clip(bt["task_id"])
@@ -582,9 +723,40 @@ async def _maybe_sync_status(
                 elif br_status["status"] == "failed":
                     logger.warning("B-roll failed for %s: %s", bt.get("section_id") or bt.get("index"), br_status["error"])
                     any_failed = True
+                    poll_failures.append({
+                        "idx": bt.get("index", 0),
+                        "prompt": (bt.get("prompt") or "")[:80],
+                        "error": _classify_broll_error(str(br_status.get("error") or "unknown error")),
+                    })
                     # Continue without this clip — not fatal
                 else:
                     all_done = False
+
+            # Surface polling-time failures the same way as submit-time ones.
+            # They live in the same JSONB list so the UI doesn't need to know
+            # about the distinction; ``broll_status`` rolls up partial vs all.
+            # Dedupe by ``idx`` because the poll loop re-runs every status
+            # check — without this each failed shot would accumulate copies.
+            if poll_failures:
+                p = dict(job.params or {})
+                existing = list(p.get("broll_warnings") or [])
+                seen_idx = {w.get("idx") for w in existing}
+                for f in poll_failures:
+                    if f.get("idx") not in seen_idx:
+                        existing.append(f)
+                        seen_idx.add(f.get("idx"))
+                p["broll_warnings"] = existing
+                p.setdefault("broll_warning_provider", broll_provider_config.provider if broll_provider_config else "")
+                if all_done and not broll_clips:
+                    p["broll_status"] = "all_failed"
+                    if not job.error_message:
+                        first = poll_failures[0].get("error", "?")
+                        job.error_message = (
+                            f"B-roll generation failed for all {len(poll_failures)} shot(s): {first}"
+                        )
+                else:
+                    p["broll_status"] = "partial"
+                job.params = p
 
             if not all_done:
                 # Avatar done, B-roll still processing

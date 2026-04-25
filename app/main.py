@@ -182,6 +182,16 @@ async def _startup_recovery() -> None:
             for asset_id in stuck_ids:
                 asyncio.create_task(_parse_in_background(asset_id))
 
+        # 3. Reconcile the google media-provider mirror with the current
+        # gemini LLM config. The mirror is normally maintained by hooks in
+        # LLM CRUD, but pre-existing gemini rows (created before the hooks
+        # landed) need a one-shot backfill — and we run it every boot so
+        # operator edits straight into the DB don't leave the mirror stale.
+        async with async_session_factory() as session:
+            from app.application.setting_service import _sync_google_media_mirror
+            await _sync_google_media_mirror(session)
+            await session.commit()
+
     except Exception as e:
         logger.warning("Startup recovery encountered an error: %s", e, exc_info=True)
 

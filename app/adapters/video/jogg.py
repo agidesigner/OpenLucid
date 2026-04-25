@@ -182,6 +182,16 @@ class JoggVideoProvider:
                 logger.warning("Jogg avatar duplicate id %s, skipping", item_id)
                 continue
             seen_ids.add(item_id)
+            # Jogg returns ``aspect_ratio`` as an int code on each avatar
+            # (0 = portrait 9:16, 1 = landscape 16:9). Surface it on
+            # ``extras`` so the avatar picker can filter by the user's
+            # chosen format and only show templates that match.
+            extras: dict = {}
+            ratio_code = item.get("aspect_ratio")
+            if ratio_code == 0:
+                extras["aspect_ratio"] = "portrait"
+            elif ratio_code == 1:
+                extras["aspect_ratio"] = "landscape"
             avatars.append(
                 Avatar(
                     id=item_id,
@@ -190,6 +200,7 @@ class JoggVideoProvider:
                     preview_image_url=item.get("cover_url", ""),
                     preview_video_url=item.get("video_url"),
                     age=_normalize_age(item.get("age"), kind="avatar"),
+                    extras=extras,
                     raw=item,
                 )
             )
