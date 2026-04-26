@@ -41,6 +41,13 @@ services:
       FEEDBACK_TO_EMAIL: ${FEEDBACK_TO_EMAIL:-}
       FEEDBACK_FALLBACK_URL: ${FEEDBACK_FALLBACK_URL:-https://github.com/agidesigner/OpenLucid/issues/new}
       APP_URL: ${APP_URL:-http://localhost}
+      # Outbound HTTP proxy passthrough — httpx (used by URL extraction
+      # and most LLM SDKs) reads these env vars automatically. Empty
+      # default means "no proxy"; populate in .env when the deployment
+      # sits behind a corporate or regional firewall.
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres}
     depends_on:
       postgres:
         condition: service_healthy

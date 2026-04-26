@@ -109,13 +109,16 @@
             </template>
           </select>
         </div>
-        <!-- LLM model selector -->
-        <div class="flex items-center gap-2" x-show="llmConfigs.length > 0" x-cloak>
+        <!-- LLM model selector — composite (config_id::model_name) keys
+             so users can pick any model the endpoint actually serves,
+             not just the saved default. Populated by the shared
+             ``expandConfigsToModels`` helper after page load. -->
+        <div class="flex items-center gap-2" x-show="modelOptions.length > 0" x-cloak>
           <label class="text-sm text-gray-500 shrink-0" x-text="t('model_label')"></label>
-          <select x-model="configId" @change="onConfigChange()"
+          <select x-model="modelKey" @change="onModelChange()"
                   class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent min-w-[10rem]">
-            <template x-for="c in llmConfigs" :key="c.id">
-              <option :value="c.id" x-text="c.label + ' (' + c.model_name + ')'"></option>
+            <template x-for="m in modelOptions" :key="m.key">
+              <option :value="m.key" x-text="m.label"></option>
             </template>
           </select>
         </div>
@@ -234,6 +237,58 @@
                   </template>
                 </div>
               </div>
+
+              <!-- Hot-topic / external context panel (per-call, collapsible) -->
+              <details class="mb-4 border border-gray-200 rounded-lg overflow-hidden"
+                       :open="hotspotPanelOpen"
+                       @toggle="hotspotPanelOpen = $event.target.open">
+                <summary class="px-3 py-2 text-sm font-medium text-gray-700 cursor-pointer select-none hover:bg-gray-50 transition-colors flex items-center gap-2">
+                  <span x-text="t('hotspot_panel_label')"></span>
+                  <span class="text-xs text-gray-400 font-normal" x-text="t('hotspot_panel_optional')"></span>
+                  <span x-show="form.external_context_text" x-cloak
+                        class="ml-auto text-[11px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full font-medium"
+                        x-text="(form.external_context_text||'').length + ' chars'"></span>
+                </summary>
+                <div class="px-3 py-3 border-t border-gray-100 space-y-3">
+                  <p class="text-xs text-gray-500 leading-relaxed" x-text="t('hotspot_panel_hint')"></p>
+                  <!-- URL extract row -->
+                  <div>
+                    <label class="block text-xs text-gray-500 mb-1" x-text="t('hotspot_url_label')"></label>
+                    <div class="flex gap-2">
+                      <input x-model="form.external_context_url"
+                             type="url"
+                             :placeholder="t('hotspot_url_placeholder')"
+                             class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+                      <button type="button"
+                              @click="extractHotspotUrl()"
+                              :disabled="!form.external_context_url || hotspotExtracting"
+                              class="text-xs font-medium text-accent border border-accent/40 hover:bg-accent/5 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 shrink-0">
+                        <svg x-show="hotspotExtracting" class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                        <span x-text="hotspotExtracting ? t('hotspot_extracting') : t('hotspot_extract_btn')"></span>
+                      </button>
+                    </div>
+                  </div>
+                  <!-- Text area -->
+                  <div>
+                    <div class="flex items-center justify-between mb-1">
+                      <label class="block text-xs text-gray-500" x-text="t('hotspot_text_label')"></label>
+                      <button type="button" x-show="form.external_context_text"
+                              @click="form.external_context_text=''; form.external_context_url=''"
+                              class="text-[11px] text-gray-400 hover:text-gray-600"
+                              x-text="t('hotspot_clear')"></button>
+                    </div>
+                    <textarea x-model="form.external_context_text"
+                              rows="6"
+                              maxlength="8000"
+                              :placeholder="t('hotspot_text_placeholder')"
+                              class="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-700 font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent resize-y"></textarea>
+                    <div class="flex items-center justify-between text-[11px] mt-1">
+                      <span x-show="(form.external_context_text||'').length > 8000" class="text-red-500" x-text="t('hotspot_text_too_long')"></span>
+                      <span class="ml-auto text-gray-400 tabular-nums" x-text="(form.external_context_text||'').length + ' / 8000'"></span>
+                    </div>
+                  </div>
+                </div>
+              </details>
               <div class="flex items-end gap-5 flex-wrap">
                 <div>
                   <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('count_label')"></label>
@@ -264,6 +319,37 @@
 
             <!-- New Plans (just generated) -->
             <div x-show="newPlans.length > 0" x-cloak>
+              <!-- Hotspot summary (only when trend-bridge mode produced output) -->
+              <template x-if="genHotspot">
+                <div class="mb-4 bg-orange-50 border border-orange-200 rounded-lg p-4">
+                  <div class="flex items-center gap-2 mb-2">
+                    <span class="text-base">🔥</span>
+                    <h4 class="text-sm font-semibold text-orange-700" x-text="t('hotspot_summary_title')"></h4>
+                  </div>
+                  <div class="space-y-1.5 text-xs">
+                    <div x-show="genHotspot?.event">
+                      <span class="text-orange-600 font-medium" x-text="t('hotspot_event') + ': '"></span>
+                      <span class="text-gray-700" x-text="genHotspot?.event"></span>
+                    </div>
+                    <div x-show="genHotspot?.keywords?.length">
+                      <span class="text-orange-600 font-medium" x-text="t('hotspot_keywords') + ': '"></span>
+                      <template x-for="(kw, i) in (genHotspot?.keywords || [])" :key="'k'+i">
+                        <span class="inline-block bg-white text-orange-600 border border-orange-200 px-1.5 py-0.5 rounded mr-1 text-[11px]" x-text="kw"></span>
+                      </template>
+                    </div>
+                    <div x-show="genHotspot?.public_attention">
+                      <span class="text-orange-600 font-medium" x-text="t('hotspot_attention') + ': '"></span>
+                      <span class="text-gray-700" x-text="genHotspot?.public_attention"></span>
+                    </div>
+                    <div x-show="genHotspot?.risk_zones?.length">
+                      <span class="text-red-600 font-medium" x-text="t('hotspot_risk') + ': '"></span>
+                      <template x-for="(r, i) in (genHotspot?.risk_zones || [])" :key="'r'+i">
+                        <span class="inline-block bg-red-50 text-red-600 border border-red-200 px-1.5 py-0.5 rounded mr-1 text-[11px]" x-text="r"></span>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </template>
               <!-- Thinking (collapsible) -->
               <template x-if="genThinking">
                 <details class="mb-4 bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
@@ -295,7 +381,18 @@
                       </template>
                     </div>
                     <div class="flex items-center justify-between pt-2 border-t border-gray-50">
-                      <span class="text-[11px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-medium" x-text="p.angle || t('general_angle')"></span>
+                      <div class="flex items-center gap-1.5 flex-wrap">
+                        <span class="text-[11px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-medium" x-text="p.angle || t('general_angle')"></span>
+                        <!-- Trend-bridge tier chip (only when external_context was used) -->
+                        <span x-show="p.relevance_tier === 'strong'" class="text-[11px] bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full font-medium" x-text="'🎯 ' + t('tier_strong')"></span>
+                        <span x-show="p.relevance_tier === 'medium'" class="text-[11px] bg-yellow-50 text-yellow-700 border border-yellow-200 px-2 py-0.5 rounded-full font-medium" x-text="'· ' + t('tier_medium')"></span>
+                        <span x-show="p.relevance_tier === 'weak'" class="text-[11px] bg-gray-50 text-gray-500 border border-gray-200 px-2 py-0.5 rounded-full font-medium" x-text="'~ ' + t('tier_weak')"></span>
+                        <!-- Risk warning when bridge is stretched -->
+                        <span x-show="(p.risk_of_forced_relevance||0) > 0.7"
+                              :title="(p.do_not_associate||[]).join(' / ')"
+                              class="text-[11px] bg-red-50 text-red-600 border border-red-200 px-2 py-0.5 rounded-full font-medium cursor-help"
+                              x-text="'⚠ ' + t('risk_warn')"></span>
+                      </div>
                       <div class="flex items-center gap-1">
                         <span x-show="(p.score_conversion||0) >= 0.78" class="text-[11px] text-orange-500 flex items-center gap-0.5 font-medium mr-1">
                           <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clip-rule="evenodd"/></svg>
@@ -397,16 +494,18 @@
         strategyUnits: [],
         strategyUnitId: '',
 
-        // LLM model selector
-        llmConfigs: [],
-        configId: '',
+        // LLM model selector — see expandConfigsToModels in header-selectors.js
+        modelOptions: [],
+        modelKey: '',  // composite ``<config_id>::<model_name>``
 
         // Context panel
         context: null,
         loadingCtx: false,
 
         // Generate form
-        form: { count: 5, instruction: '' },
+        form: { count: 5, instruction: '', external_context_text: '', external_context_url: '' },
+        hotspotPanelOpen: false,
+        hotspotExtracting: false,
         get instructionExamples() {
           const isEn = (window._odLang || 'zh') === 'en';
           return isEn ? [
@@ -431,6 +530,7 @@
         // Results
         genThinking: null,
         newPlans: [],
+        genHotspot: null,
 
         // History
         historyPlans: [],
@@ -443,21 +543,32 @@
           const urlOfferId = params.get('offer_id') || '';
           const urlUnitId = params.get('strategy_unit_id') || '';
 
+          let llmConfigs = [];
           try {
             const [res, llmRes] = await Promise.all([
               fetch(`${API}/offers?page_size=100`),
               fetch(`${API}/settings/llm`).catch(() => null),
             ]);
             if (res.ok) this.offers = (await res.json()).items || [];
-            if (llmRes?.ok) this.llmConfigs = await llmRes.json();
+            llmConfigs = (llmRes?.ok ? await llmRes.json() : []) || [];
           } catch(e) { console.error('Failed to load offers', e); }
 
           // Standardised header-selector behaviour (v1.2.x).
+          // CRITICAL: do NOT await model expansion here. It calls each
+          // provider's /v1/models which can take 5-30s on cold caches and
+          // would otherwise block offerId selection — the page would sit
+          // on the "请选择商品" empty state until every upstream replied.
+          // Model dropdown is gated by ``modelOptions.length > 0`` so it
+          // simply appears once expansion finishes; page is usable now.
           await this.$nextTick();
-          this.offerId  = window.odHeaderSelectors.pickInitialOffer(this.offers, "topic", urlOfferId);
-          this.configId = window.odHeaderSelectors.pickInitialConfig(this.llmConfigs, "topic");
+          this.offerId = window.odHeaderSelectors.pickInitialOffer(this.offers, "topic", urlOfferId);
           window.odHeaderSelectors.rememberOffer("topic", this.offerId);
-          window.odHeaderSelectors.rememberConfig("topic", this.configId);
+
+          window.odHeaderSelectors.expandConfigsToModels(llmConfigs, API).then(opts => {
+            this.modelOptions = opts;
+            this.modelKey = window.odHeaderSelectors.pickInitialModelKey(opts, "topic");
+            window.odHeaderSelectors.rememberModelKey("topic", this.modelKey);
+          }).catch(e => console.error('Model expansion failed', e));
 
           if (this.offerId) {
             const name = this.offers.find(o => o.id === this.offerId)?.name || '';
@@ -475,14 +586,15 @@
           }
         },
 
-        onConfigChange() {
-          window.odHeaderSelectors.rememberConfig("topic", this.configId);
+        onModelChange() {
+          window.odHeaderSelectors.rememberModelKey("topic", this.modelKey);
         },
 
         async onOfferChange() {
           window.odHeaderSelectors.rememberOffer("topic", this.offerId);
           this.newPlans = [];
           this.genThinking = null;
+          this.genHotspot = null;
           this.historyPlans = [];
           this.historyPage = 1;
           this.strategyUnitId = '';
@@ -533,6 +645,34 @@
           finally { this.loadingCtx = false; }
         },
 
+        async extractHotspotUrl() {
+          // Pull text out of an external URL via the existing /ai/extract-text
+          // endpoint (already used by the offer-creation wizard). Backfills
+          // the textarea so the user can review/trim before generating.
+          if (!this.form.external_context_url || this.hotspotExtracting) return;
+          this.hotspotExtracting = true;
+          try {
+            const fd = new FormData();
+            fd.append('url', this.form.external_context_url.trim());
+            const res = await fetch(`${API}/ai/extract-text`, {
+              method: 'POST',
+              body: fd,
+            });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              toast.error(t('hotspot_extract_failed') + (err.detail ? ': ' + err.detail : ''));
+            } else {
+              const data = await res.json();
+              const text = (data.text || '').slice(0, 8000);
+              this.form.external_context_text = text;
+            }
+          } catch (e) {
+            console.error(e);
+            toast.error(t('hotspot_extract_failed'));
+          }
+          this.hotspotExtracting = false;
+        },
+
         async suggestInstruction() {
           // Reuse the shared suggest-topic endpoint (same idea — let the
           // LLM look at KB + offer and propose one concrete angle). The
@@ -541,10 +681,12 @@
           if (!this.offerId || this.suggestingInstruction) return;
           this.suggestingInstruction = true;
           try {
+            const sel = window.odHeaderSelectors.splitModelKey(this.modelKey);
             const suggestion = await window.odSuggestTopic({
               offer_id: this.offerId,
               strategy_unit_id: this.strategyUnitId || undefined,
-              config_id: this.configId || undefined,
+              config_id: sel.config_id || undefined,
+              model_override: sel.model_name || undefined,
             });
             if (suggestion) this.form.instruction = suggestion;
           } catch (e) {
@@ -555,11 +697,20 @@
         },
 
         _topicToUrl(basePath, plan) {
-          // Build URL for Script Writer / Content Studio with pre-filled topic + offer
+          // Build URL for Script Writer / Content Studio with the topic
+          // pre-filled. We pass BOTH:
+          //   - ``topic`` (title+hook): visible in the destination's
+          //     textarea so the user sees what came through.
+          //   - ``topic_plan_id``: lets the destination's backend pull
+          //     the plan's full structure from DB (angle + key_points
+          //     + target_audience + scenario), enriching the prompt
+          //     beyond the headline-only URL string. Without this, the
+          //     creation step loses the angle/key_points the topic-gen
+          //     LLM specifically chose for this topic.
           const p = new URLSearchParams();
           if (this.offerId) p.set('offer_id', this.offerId);
           if (this.strategyUnitId) p.set('strategy_unit_id', this.strategyUnitId);
-          // Compose topic text: title first, hook as context if present
+          if (plan.id) p.set('topic_plan_id', plan.id);
           const title = (plan.title || '').trim();
           const hook = (plan.hook || '').trim();
           const topicText = hook ? `${title}\n\n${hook}` : title;
@@ -582,58 +733,117 @@
 
         async generate() {
           this.generating = true;
-          this.genProgress = 0;
-          const steps = [
-            [10,  t('step_analyzing')],
-            [28,  t('step_reading_kb')],
-            [50,  t('step_planning')],
-            [72,  t('step_optimizing')],
-            [88,  t('step_finishing')],
-          ];
-          let si = 0;
-          const timer = setInterval(() => {
-            if (si < steps.length && this.genProgress >= (steps[si - 1]?.[0] ?? 0)) {
-              this.genStep = steps[si][1];
-              this.genProgress = steps[si][0];
-              si++;
-            } else if (this.genProgress < 88) {
-              this.genProgress = Math.min(this.genProgress + 0.5, 88);
-            }
-          }, 300);
+          this.genProgress = 5;
+          this.genHotspot = null;
+          this.genThinking = null;
+          this.newPlans = [];
+          this.genStep = t('step_analyzing');
 
           try {
+            const ext = (this.form.external_context_text || '').trim();
+            const sel = window.odHeaderSelectors.splitModelKey(this.modelKey);
             const body = {
               offer_id: this.offerId,
               count: this.form.count,
               channel: this.context?.channel || 'general',
               strategy_unit_id: this.strategyUnitId || undefined,
-              config_id: this.configId || undefined,
+              config_id: sel.config_id || undefined,
+              model_override: sel.model_name || undefined,
               language: getApiLang(),
               instruction: this.form.instruction?.trim() || undefined,
+              external_context_text: ext || undefined,
+              external_context_url: (ext && this.form.external_context_url?.trim()) || undefined,
             };
-            const res = await fetch(`${API}/apps/topic-studio/run`, {
+            const res = await fetch(`${API}/apps/topic-studio/run/stream`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body),
             });
-            if (res.ok) {
-              clearInterval(timer);
-              this.genProgress = 100;
-              this.genStep = t('done');
-              await new Promise(r => setTimeout(r, 400));
-              const resData = await res.json();
-              this.newPlans = resData.plans;
-              this.genThinking = resData.thinking || null;
-              this.historyPage = 1;
-              await this.fetchHistory(false);
-            } else {
+            if (!res.ok) {
               const err = await res.json().catch(() => ({}));
               const msg = err.detail || t('generate_failed_retry');
               toast.error(t('generate_failed') + (msg.length > 120 ? msg.slice(0, 120) + '…' : msg));
+              this.generating = false;
+              this.genProgress = 0;
+              return;
             }
-          } catch { toast.error(t('generate_failed_retry')); }
 
-          clearInterval(timer);
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            const expectedCount = this.form.count;
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const parts = buffer.split('\n\n');
+              buffer = parts.pop();
+              for (const part of parts) {
+                if (!part.trim()) continue;
+                const lines = part.trim().split('\n');
+                let eventType = 'message', data = '';
+                for (const line of lines) {
+                  if (line.startsWith('event: ')) eventType = line.slice(7);
+                  else if (line.startsWith('data: ')) data = line.slice(6);
+                }
+                try {
+                  if (eventType === 'started') {
+                    const evt = JSON.parse(data);
+                    if (evt.phase === 'preparing') {
+                      this.genStep = t('step_reading_kb');
+                      this.genProgress = Math.max(this.genProgress, 10);
+                    } else if (evt.phase === 'calling_llm') {
+                      this.genStep = t('step_planning');
+                      this.genProgress = Math.max(this.genProgress, 18);
+                    }
+                  } else if (eventType === 'thinking') {
+                    this.genThinking = (this.genThinking || '') + JSON.parse(data);
+                    // Cap displayed thinking at 4000 chars; the LLM's
+                    // reasoning can run to 10K+ which makes the panel
+                    // unscrollable.
+                    if (this.genThinking.length > 4000) {
+                      this.genThinking = this.genThinking.slice(-4000);
+                    }
+                    // First thinking token = LLM is actively producing.
+                    // Bump progress so the bar visibly advances even
+                    // before the first plan lands.
+                    if (this.genProgress < 22) this.genProgress = 22;
+                  } else if (eventType === 'hotspot') {
+                    this.genHotspot = JSON.parse(data);
+                    this.genProgress = Math.max(this.genProgress, 25);
+                    this.genStep = t('step_planning');
+                  } else if (eventType === 'plan') {
+                    this.newPlans.push(JSON.parse(data));
+                    // Each plan bumps the bar — gives a tactile "another one
+                    // landed" feel even when the LLM is still streaming.
+                    const slotProgress = 25 + (this.newPlans.length / expectedCount) * 70;
+                    this.genProgress = Math.max(this.genProgress, Math.min(slotProgress, 95));
+                    this.genStep = t('step_optimizing');
+                  } else if (eventType === 'done') {
+                    this.genProgress = 100;
+                    this.genStep = t('done');
+                  } else if (eventType === 'error') {
+                    const errData = JSON.parse(data);
+                    const msg = errData.message || t('generate_failed_retry');
+                    toast.error(t('generate_failed') + (msg.length > 120 ? msg.slice(0, 120) + '…' : msg));
+                  }
+                } catch (e) { console.error('SSE parse error', e, part); }
+              }
+            }
+
+            // Flush any tail event after stream close
+            if (buffer.trim()) {
+              // best-effort; ignore parse errors
+            }
+
+            this.historyPage = 1;
+            await this.fetchHistory(false);
+          } catch (e) {
+            console.error(e);
+            toast.error(t('generate_failed_retry'));
+          }
+
           this.generating = false;
           this.genProgress = 0;
           this.genStep = '';

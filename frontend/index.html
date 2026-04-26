@@ -403,14 +403,14 @@
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('name_label')"></label>
-                <input x-model="wizard.name" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none" :placeholder="t('name_placeholder')">
+                <input x-model="wizard.name" @input="_kickSpeculativeInfer()" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none" :placeholder="t('name_placeholder')">
               </div>
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-0.5" x-text="t('type_label')"></label>
                 <p class="text-xs text-gray-400 mb-1.5" x-text="t('type_hint')"></p>
                 <div class="grid grid-cols-4 gap-2">
                   <template x-for="tp in [{v:'product',k:'offer_type_product',d:'offer_type_product_desc',e:'📦'},{v:'service',k:'offer_type_service',d:'offer_type_service_desc',e:'🛎️'},{v:'bundle',k:'offer_type_bundle',d:'offer_type_bundle_desc',e:'📋'},{v:'solution',k:'offer_type_solution',d:'offer_type_solution_desc',e:'💡'}]">
-                    <button type="button" @click="wizard.offer_type = tp.v"
+                    <button type="button" @click="wizard.offer_type = tp.v; _kickSpeculativeInfer()"
                             :class="wizard.offer_type === tp.v ? 'border-accent bg-accent-light text-accent' : 'border-gray-200 text-gray-600 hover:border-gray-300'"
                             class="border rounded-lg py-2 px-1 text-center text-xs transition-colors">
                       <span x-text="tp.e" class="block text-base"></span>
@@ -432,7 +432,7 @@
                     <span class="text-xs text-gray-500" x-text="t('text_input')"></span>
                     <span class="text-[10px] bg-green-50 text-green-600 px-1.5 py-0.5 rounded font-medium" x-text="t('recommended')"></span>
                   </div>
-                  <textarea x-model="wizard.descText" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none resize-none"
+                  <textarea x-model="wizard.descText" @input="_kickSpeculativeInfer()" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none resize-none"
                             :placeholder="t('text_placeholder')"></textarea>
                   <p class="text-[11px] text-gray-400 mt-1" x-text="t('paste_tip')"></p>
                 </div>
@@ -596,7 +596,7 @@
         <button x-show="wizard.step > 0 && !wizard.inferring" @click="wizard.step--" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg" x-text="t('prev_step')"></button>
         <div x-show="wizard.step === 0 || wizard.inferring"></div>
         <div class="flex gap-3">
-          <button @click="wizard.open = false" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg" x-text="t('btn_cancel')"></button>
+          <button @click="closeWizard()" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg" x-text="t('btn_cancel')"></button>
 
           <!-- Step 0 → AI fill -->
           <template x-if="aiReady === false">
@@ -888,6 +888,11 @@
         },
 
         openWizard() {
+          // Abort any leftover speculative-inference fetch from a previous
+          // session (e.g. user closed and re-opened the wizard).
+          if (this.wizard && this.wizard.specAbort) {
+            try { this.wizard.specAbort.abort(); } catch {}
+          }
           this.wizard = {
             open: true, step: 0,
             name: '', offer_type: 'product',
@@ -896,7 +901,22 @@
             inferring: false, progress: 0, progressLabel: '',
             suggestions: null, aiDescription: '', thinkingText: '',
             creating: false,
+            // Speculative-inference state — populated as the user fills
+            // Step 0; consumed by startInfer() when the user clicks Next.
+            specHash: '',          // hash of inputs that produced specPromise
+            specPromise: null,     // Promise<{suggestions, description, thinking}>
+            specAbort: null,       // AbortController for the in-flight fetch
+            specError: null,       // last speculative error (suppressed in UI)
+            _specDebounce: null,   // setTimeout handle
           };
+        },
+
+        closeWizard() {
+          if (this.wizard.specAbort) {
+            try { this.wizard.specAbort.abort(); } catch {}
+          }
+          if (this.wizard._specDebounce) clearTimeout(this.wizard._specDebounce);
+          this.wizard.open = false;
         },
 
         // ── Text extraction ──
@@ -909,6 +929,7 @@
             if (!res.ok) { const e = await res.json(); toast.error(e.detail || t('extract_failed')); this.wizard.extracting = false; return; }
             const data = await res.json();
             this.wizard.descUrlText = data.text;
+            this._kickSpeculativeInfer();
           } catch { toast.error(t('extract_url_failed')); }
           this.wizard.extracting = false;
         },
@@ -925,12 +946,101 @@
             if (!res.ok) { const e = await res.json(); toast.error(e.detail || t('extract_failed')); this.wizard.extracting = false; return; }
             const data = await res.json();
             this.wizard.descFileText = data.text;
+            this._kickSpeculativeInfer();
           } catch { toast.error(t('file_parse_failed')); }
           this.wizard.extracting = false;
           event.target.value = '';
         },
 
         // ── AI inference with streaming thinking ──
+
+        // Hash the inputs that determine inference output. Used to dedupe
+        // speculative pre-fetches and to decide whether a buffered result
+        // can be adopted on Next-click.
+        _specInputsHash() {
+          return [this.wizard.name.trim(), this.wizard.offer_type, this.wizardDesc].join('\x1f');
+        },
+
+        // Speculative pre-fetch trigger. Called from Step-0 input handlers
+        // (debounced via the wizard._specDebounce timer). Starts the same
+        // ``infer-offer-knowledge-stream`` call early, while the user is
+        // still typing / reviewing extracted text — so by the time they
+        // click Next the response is already mostly (or fully) home.
+        // Cheap to call repeatedly; only fires a fetch when inputs change.
+        _kickSpeculativeInfer() {
+          if (this.wizard._specDebounce) clearTimeout(this.wizard._specDebounce);
+          this.wizard._specDebounce = setTimeout(() => {
+            const name = this.wizard.name.trim();
+            const desc = this.wizardDesc;
+            // Don't speculate on tiny inputs — wastes LLM calls on
+            // intermediate keystrokes the user will keep editing.
+            if (name.length < 2 || !this.wizard.offer_type || desc.length < 30) return;
+            const hash = this._specInputsHash();
+            if (hash === this.wizard.specHash && this.wizard.specPromise) return;
+            // Inputs changed — abort any in-flight, clear buffer, fire new.
+            if (this.wizard.specAbort) { try { this.wizard.specAbort.abort(); } catch {} }
+            const ctrl = new AbortController();
+            this.wizard.specAbort = ctrl;
+            this.wizard.specHash = hash;
+            this.wizard.specError = null;
+            // Accumulate thinking into a private buffer so we can transfer
+            // it onto wizard.thinkingText when the user finally clicks Next.
+            const thinkingBuf = { text: '' };
+            this.wizard.specPromise = this._runInferStream(
+              { name, offer_type: this.wizard.offer_type, description: desc },
+              ctrl.signal,
+              (chunk) => { thinkingBuf.text = (thinkingBuf.text + chunk).slice(-200); },
+            ).then(
+              (data) => ({ data, thinking: thinkingBuf.text }),
+              (err) => { this.wizard.specError = err; throw err; },
+            );
+          }, 600);
+        },
+
+        // Shared SSE streaming + parsing — used by both speculative and
+        // user-initiated paths. Returns a Promise<resultEvent>. Accepts an
+        // AbortSignal so callers can cancel mid-stream when inputs change.
+        async _runInferStream(payload, signal, onThinking) {
+          const res = await fetch(`${API}/ai/infer-offer-knowledge-stream`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal,
+          });
+          if (!res.ok) {
+            const err = new Error(`HTTP ${res.status}`);
+            err.status = res.status;
+            try { err.body = await res.json(); } catch {}
+            throw err;
+          }
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let data = null;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              try {
+                const evt = JSON.parse(line.slice(6));
+                if (evt.type === 'thinking') {
+                  if (onThinking) onThinking(evt.text || '');
+                } else if (evt.type === 'result') {
+                  data = evt;
+                } else if (evt.type === 'error') {
+                  throw new Error(evt.detail);
+                }
+              } catch (e) { if (e.message && !e.message.includes('JSON')) throw e; }
+            }
+          }
+          if (!data) throw new Error('No result received');
+          return data;
+        },
+
         async startInfer() {
           if (!this.wizard.name.trim()) { toast.error(t('fill_name')); return; }
           if (!this.wizard.offer_type) { toast.error(t('select_type')); return; }
@@ -957,7 +1067,6 @@
           const timer = setInterval(() => {
             const elapsed = Date.now() - startTime;
             this.wizard.progress = 98 * (1 - Math.exp(-elapsed / T));
-            // Update label based on progress
             while (currentLabelIdx < labels.length && this.wizard.progress >= labels[currentLabelIdx].at) {
               this.wizard.progressLabel = labels[currentLabelIdx].label;
               currentLabelIdx++;
@@ -967,62 +1076,37 @@
           this.wizard.progressLabel = labels[0].label;
           this.wizard.progress = 1;
 
+          // Adoption path: if a speculative fetch already covers the
+          // current inputs, await/reuse it instead of issuing a duplicate
+          // request. Saves the entire LLM round-trip in the happy case.
+          const currentHash = this._specInputsHash();
+          let usingSpeculative = (
+            this.wizard.specPromise &&
+            this.wizard.specHash === currentHash &&
+            !this.wizard.specError
+          );
+
           try {
-            const res = await fetch(`${API}/ai/infer-offer-knowledge-stream`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                name: this.wizard.name,
-                offer_type: this.wizard.offer_type,
-                description: this.wizardDesc,
-              }),
-            });
-
-            if (!res.ok) {
-              clearInterval(timer);
-              this.wizard.step = 0;
-              this.wizard.inferring = false;
-              if (res.status === 503) { this.aiReady = false; this.showNoLLMDialog = true; }
-              else if (res.status === 502) {
-                const err = await res.json().catch(() => ({}));
-                toast.error(t('ai_llm_error') + (err.detail || ''));
-              } else { toast.error(t('ai_infer_failed')); }
-              return;
-            }
-
-            // Read SSE stream
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-            let data = null;
-
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              buffer += decoder.decode(value, { stream: true });
-
-              const lines = buffer.split('\n');
-              buffer = lines.pop();  // keep incomplete line in buffer
-
-              for (const line of lines) {
-                if (!line.startsWith('data: ')) continue;
-                try {
-                  const evt = JSON.parse(line.slice(6));
-                  if (evt.type === 'thinking') {
-                    // Keep last ~200 chars of thinking for display
-                    this.wizard.thinkingText = (this.wizard.thinkingText + evt.text).slice(-200);
-                    if (this.wizard.progress < 95) this.wizard.progress += 0.2;
-                  } else if (evt.type === 'result') {
-                    data = evt;
-                  } else if (evt.type === 'error') {
-                    throw new Error(evt.detail);
-                  }
-                } catch (e) { if (e.message && !e.message.includes('JSON')) throw e; }
+            let data;
+            if (usingSpeculative) {
+              try {
+                const adopted = await this.wizard.specPromise;
+                data = adopted.data;
+                if (adopted.thinking) this.wizard.thinkingText = adopted.thinking;
+              } catch (e) {
+                // Speculation errored — silently fall back to a fresh fetch
+                usingSpeculative = false;
               }
+            }
+            if (!usingSpeculative) {
+              data = await this._runInferStream(
+                { name: this.wizard.name, offer_type: this.wizard.offer_type, description: this.wizardDesc },
+                undefined,
+                (chunk) => { this.wizard.thinkingText = (this.wizard.thinkingText + chunk).slice(-200); if (this.wizard.progress < 95) this.wizard.progress += 0.2; },
+              );
             }
 
             clearInterval(timer);
-            if (!data) throw new Error('No result received');
 
             this.wizard.progress = 100;
             this.wizard.progressLabel = t('done');
@@ -1030,16 +1114,32 @@
             for (const items of Object.values(data.suggestions))
               for (const item of items) { item._selected = true; item._editing = false; }
 
-            await new Promise(r => setTimeout(r, 400));
             this.wizard.suggestions = data.suggestions;
             if (data.description) this.wizard.aiDescription = data.description;
           } catch (e) {
             clearInterval(timer);
-            const detail = e.message || '';
-            toast.error(t('ai_infer_failed') + (detail ? '\n' + detail : ''));
+            // Map provider-error shapes to the same toasts the original
+            // synchronous path used to show.
+            if (e.status === 503) {
+              this.aiReady = false;
+              this.showNoLLMDialog = true;
+            } else if (e.status === 502) {
+              const detail = e.body?.detail || '';
+              toast.error(t('ai_llm_error') + detail);
+            } else {
+              const detail = e.message || '';
+              toast.error(t('ai_infer_failed') + (detail ? '\n' + detail : ''));
+            }
             this.wizard.step = 0;
+          } finally {
+            // Once consumed (or replaced), clear the speculative buffer so
+            // a re-entry into the wizard doesn't accidentally adopt stale
+            // results from a previous, mutated input set.
+            this.wizard.specPromise = null;
+            this.wizard.specHash = '';
+            this.wizard.specAbort = null;
+            this.wizard.inferring = false;
           }
-          this.wizard.inferring = false;
         },
 
         selectAllWizard() {

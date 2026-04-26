@@ -45,12 +45,75 @@
 (function () {
   const KEY_OFFER  = (appId) => `od_last_${appId}_offer`;
   const KEY_CONFIG = (appId) => `od_last_${appId}_config`;
+  // The model key is a composite `<config_id>::<model_name>` so users
+  // can pick any (provider, model) combo their saved configs can reach,
+  // not just the config's default model.
+  const KEY_MODEL  = (appId) => `od_last_${appId}_model_key`;
+  const SEP = "::";
 
   function _readKey(key) {
     try { return localStorage.getItem(key) || ''; } catch { return ''; }
   }
   function _writeKey(key, value) {
     try { localStorage.setItem(key, value); } catch { /* private mode */ }
+  }
+
+  /**
+   * Expand the flat ``/settings/llm`` list into one entry per
+   * (config, callable model) — fetching each config's available
+   * models in parallel via ``/settings/llm/{id}/models`` (server-side
+   * 5-min TTL cache, so repeat hits are cheap).
+   *
+   * Resilient by design: if ``/models`` fails for any reason (provider
+   * down, key invalid, no /v1/models endpoint), that config still
+   * contributes one entry — its saved default model. So the dropdown
+   * is never empty just because one upstream is flaky.
+   *
+   * @param {Array<{id, label, provider, model_name, is_active}>} llmConfigs
+   * @param {string} apiBase — usually "/api/v1"
+   * @returns {Promise<Array<{key, config_id, model_name, label, provider, is_active, is_default}>>}
+   *   ``key`` = ``<config_id>::<model_name>`` (use as ``<option value>``)
+   *   ``label`` = ``<config.label> / <model_name>``
+   *   ``is_default`` = the saved default for this config (preserves old UX)
+   */
+  async function expandConfigsToModels(llmConfigs, apiBase = '/api/v1') {
+    if (!Array.isArray(llmConfigs) || llmConfigs.length === 0) return [];
+
+    const fetched = await Promise.all(llmConfigs.map(async (cfg) => {
+      try {
+        const r = await fetch(`${apiBase}/settings/llm/${cfg.id}/models`);
+        if (!r.ok) return [cfg.model_name];
+        const body = await r.json();
+        const models = Array.isArray(body?.models) ? body.models : [];
+        if (models.length === 0) return [cfg.model_name];
+        // Always include the default first, dedup against fetched list.
+        const out = [cfg.model_name];
+        for (const m of models) {
+          if (m && m !== cfg.model_name) out.push(m);
+        }
+        return out;
+      } catch {
+        return [cfg.model_name];
+      }
+    }));
+
+    const out = [];
+    llmConfigs.forEach((cfg, i) => {
+      for (const modelName of fetched[i]) {
+        out.push({
+          key: `${cfg.id}${SEP}${modelName}`,
+          config_id: cfg.id,
+          model_name: modelName,
+          // ``Provider / model_name`` reads naturally and matches the
+          // existing config-label convention (which is the same shape).
+          label: `${cfg.provider || cfg.label || 'LLM'} / ${modelName}`,
+          provider: cfg.provider,
+          is_active: !!cfg.is_active,
+          is_default: modelName === cfg.model_name,
+        });
+      }
+    });
+    return out;
   }
 
   /**
@@ -93,10 +156,56 @@
     if (configId) _writeKey(KEY_CONFIG(appId), configId);
   }
 
+  /**
+   * Pick the initial model from the expanded options list.
+   * Priority: cached composite key > active config's default > first option.
+   * Back-compat: if ``KEY_CONFIG`` exists from before composite keys, treat
+   * it as "this config's default model" rather than ignoring the user's
+   * prior choice.
+   * @param {Array<{key, config_id, model_name, is_active, is_default}>} modelOptions
+   * @param {string} appId
+   * @returns {string} composite model key, or '' when no options
+   */
+  function pickInitialModelKey(modelOptions, appId) {
+    if (!Array.isArray(modelOptions) || modelOptions.length === 0) return '';
+    const cachedKey = _readKey(KEY_MODEL(appId));
+    if (cachedKey && modelOptions.find(m => m.key === cachedKey)) return cachedKey;
+    // Back-compat: previous UI only stored config_id. Resolve to that
+    // config's default model so old users don't get reset to a random pick.
+    const legacyConfig = _readKey(KEY_CONFIG(appId));
+    if (legacyConfig) {
+      const match = modelOptions.find(m => m.config_id === legacyConfig && m.is_default);
+      if (match) return match.key;
+    }
+    const active = modelOptions.find(m => m.is_active && m.is_default);
+    if (active) return active.key;
+    return modelOptions[0].key;
+  }
+
+  /** Persist the user's model pick (composite key). */
+  function rememberModelKey(appId, modelKey) {
+    if (modelKey) _writeKey(KEY_MODEL(appId), modelKey);
+  }
+
+  /** Parse a composite ``<config_id>::<model_name>`` key. */
+  function splitModelKey(modelKey) {
+    if (!modelKey || typeof modelKey !== 'string') return { config_id: '', model_name: '' };
+    const i = modelKey.indexOf(SEP);
+    if (i < 0) return { config_id: modelKey, model_name: '' };
+    return {
+      config_id: modelKey.slice(0, i),
+      model_name: modelKey.slice(i + SEP.length),
+    };
+  }
+
   window.odHeaderSelectors = {
     pickInitialOffer,
     pickInitialConfig,
     rememberOffer,
     rememberConfig,
+    expandConfigsToModels,
+    pickInitialModelKey,
+    rememberModelKey,
+    splitModelKey,
   };
 })();

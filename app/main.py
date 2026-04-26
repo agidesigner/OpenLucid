@@ -452,22 +452,30 @@ async def auth_middleware(request: Request, call_next):
     # Skipped when ``DISABLE_AUTH`` is explicitly False (via an env, for
     # hardened deployments — unaffected here since DISABLE_AUTH was
     # already handled above).
+    # IMPORTANT: scope this except to the DB lookup ONLY. Wrapping
+    # ``call_next(request)`` in the same try would swallow any downstream
+    # handler exception (e.g. an AttributeError in a service method) and
+    # convert it into a misleading 401 "Not authenticated" — that's how
+    # the v1.2.2-era OfferService.list indentation bug masqueraded as an
+    # auth problem for ~30 minutes of debugging.
+    open_access = False
     try:
-        import hashlib as _h  # noqa: F401 — for parity with bearer path
         from sqlalchemy import func, select
         from app.database import async_session_factory
         from app.models.mcp_token import McpToken
 
         async with async_session_factory() as session:
             token_count = await session.scalar(select(func.count()).select_from(McpToken))
-        if not token_count:
-            request.state.user_id = "no-auth"
-            request.state.is_guest = False
-            return await call_next(request)
+        open_access = not token_count
     except Exception:
-        # If the DB lookup fails we fall through to the hard 401 —
-        # better to reject than to accidentally open under an error path.
-        pass
+        # DB lookup failed — better to reject than to accidentally open
+        # under an error path.
+        open_access = False
+
+    if open_access:
+        request.state.user_id = "no-auth"
+        request.state.is_guest = False
+        return await call_next(request)
 
     return JSONResponse({"detail": "Not authenticated"}, status_code=401)
 

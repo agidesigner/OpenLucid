@@ -1,5 +1,4 @@
 import uuid
-from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -26,6 +25,10 @@ class TopicStudioRunRequest(BaseModel):
     language: str = "zh-CN"
     channel: str | None = None
     config_id: str | None = None
+    model_override: str | None = None
+    instruction: str | None = Field(None, max_length=1000)
+    external_context_text: str | None = Field(None, max_length=8000)
+    external_context_url: str | None = None
 
 
 class TopicStudioContextPreview(BaseModel):
@@ -63,6 +66,7 @@ class KBQAAskRequest(BaseModel):
     # that don't expose a language picker should omit this field.
     language: str | None = None
     config_id: str | None = None
+    model_override: str | None = None
 
 
 class KBQAReferencedKnowledge(BaseModel):
@@ -99,6 +103,15 @@ class ScriptWriterRequest(BaseModel):
     # Any string ('zh-CN' / 'en') overrides detection.
     language: str | None = None
     config_id: str | None = None
+    model_override: str | None = None
+    # ── Trend-bridge inputs (per-call, not persisted on Creation) ─
+    # Either populated directly by the user pasting a URL/text in the
+    # script-writer panel, or carried via ``topic_plan_id`` (in which
+    # case the backend resolves the persisted hotspot from the plan
+    # row). Both can coexist — direct text takes precedence as the
+    # most recent signal, inherited hotspot adds keywords/risk_zones.
+    external_context_text: str | None = Field(None, max_length=8000)
+    external_context_url: str | None = None
     # ── Composer dimensions (new) ─────────────────────────────────
     platform_id: str | None = None    # e.g. "douyin" — defaults to "douyin" if not set
     persona_id: str | None = None     # e.g. "tech_founder"

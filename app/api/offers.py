@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +11,7 @@ from sqlalchemy import text
 from app.api.deps import PaginationDep
 from app.application.context_service import ContextService
 from app.application.knowledge_inference_service import KnowledgeInferenceService
-from app.application.offer_service import OfferService
+from app.application.offer_service import OfferService, infer_offer_model_in_background
 from app.database import get_db
 from app.libs.lang_detect import cjk_ratio
 from app.models.knowledge_item import KnowledgeItem
@@ -24,9 +24,23 @@ router = APIRouter(prefix="/offers", tags=["offers"])
 
 
 @router.post("", response_model=OfferResponse, status_code=201)
-async def create_offer(data: OfferCreate, db: AsyncSession = Depends(get_db)):
+async def create_offer(
+    data: OfferCreate,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
     svc = OfferService(db)
-    return await svc.create(data)
+    offer = await svc.create(data)
+    # MUST commit before scheduling the bg task. FastAPI runs
+    # ``BackgroundTasks`` after the response is sent, and ``get_db``'s
+    # auto-commit also runs in that same after-response phase — the bg
+    # task's brand-new session then SELECTs in a fresh transaction that
+    # hasn't yet observed our INSERT, finds None, and logs "offer
+    # vanished" even though the row actually persists. Pinning the
+    # commit here makes the row visible the moment the bg task starts.
+    await db.commit()
+    background_tasks.add_task(infer_offer_model_in_background, offer.id)
+    return offer
 
 
 @router.get("/logos")

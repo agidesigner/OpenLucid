@@ -16,6 +16,8 @@ from app.adapters.prompt_builder import (
     format_offer_for_tagging,
     format_offer_summary,
     format_strategy_focus,
+    format_trend_system_block,
+    rank_knowledge_for_external_context,
     rank_knowledge_for_strategy,
 )
 
@@ -58,6 +60,46 @@ def _extract_thinking(text: str) -> tuple[str, str]:
     return thinking, remaining
 
 
+def _scan_complete_objects(buf: str, scan_start: int):
+    """Yield ``(start, end)`` byte ranges of every balanced top-level JSON
+    object in ``buf`` starting at ``scan_start``. Used by streaming
+    parsers to detect when an emitted object has finished landing.
+
+    Robust to:
+    - String literals (braces inside quoted strings don't count)
+    - Backslash-escaped chars in strings
+    - Whitespace between objects
+    - Trailing partial object that hasn't closed yet (just doesn't yield it)
+    """
+    depth = 0
+    in_str = False
+    esc = False
+    obj_start = -1
+    for i in range(scan_start, len(buf)):
+        ch = buf[i]
+        if esc:
+            esc = False
+            continue
+        if ch == "\\" and in_str:
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == "{":
+            if depth == 0:
+                obj_start = i
+            depth += 1
+        elif ch == "}":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and obj_start >= 0:
+                    yield obj_start, i + 1
+                    obj_start = -1
+
+
 def _build_infer_knowledge_system_prompt(language: str) -> str:
     is_en = language.startswith("en")
     if is_en:
@@ -65,12 +107,12 @@ def _build_infer_knowledge_system_prompt(language: str) -> str:
 
 First, write a cleaned-up product description in the "description" field: remove navigation menus, footers, ads, boilerplate, and irrelevant UI text, but KEEP all product-related details — features, specs, pricing, case studies, customer quotes, competitive advantages. Aim for comprehensive coverage within 2000 characters.
 
-Then generate 2-4 entries for each of the following 7 categories (EXCEPT faq, which has no upper bound — extract every factual question AND every procedural step mentioned in the input):
+Then generate 2-4 entries for each of the following 7 categories:
 1. selling_point: differentiators, technical highlights, user value — MUST be written as a Before-FABE causal chain (see below)
 2. audience: user personas, traits, purchase motivations
 3. scenario: use cases, discovery moments (objective contexts — the concrete "when/where")
 4. pain_point: usage pain + migration trigger (subjective suffering in those scenarios + why change now; distinct from purchase objection)
-5. faq: factual/informational questions customers ask (warranty, compatibility, pricing, service scope) AND every procedural/how-to operation mentioned in the input. Tutorial-style content ("how to use X", "how to enable Y", "how to set up Z") is a primary marketing asset — every distinct operation, setup step, or feature activation path must become its own FAQ entry, titled as "How do I X?" / "How to X" with content_raw listing the concrete steps. Do NOT skip procedural content as "too detailed" or "too operational" — if the input mentions a step, extract it
+5. faq: the most-asked factual / informational questions customers raise (warranty, compatibility, pricing, service scope) and the most-important how-to questions (account setup, primary usage, pricing change). Pick the highest-priority entries; do not exhaustively re-emit every procedural step from the source — that's the user manual's job, not the marketing KB.
 6. objection: emotional purchase hesitations (too expensive, untrusted, not-for-me) — answer with reframes + evidence; distinct from pain_point (usage pain) and from faq (factual questions)
 7. proof: verifiable trust endorsements reusable across all content — case studies, user data, awards, press mentions, certifications, celebrity/expert endorsements. Distinct from a selling_point's own "Evidence" line (which is scoped to supporting that single selling_point); proof entries are standalone assets any content piece can cite.
 
@@ -82,6 +124,13 @@ For the following three categories, if the input does NOT provide direct support
   c) Medical / anti-allergy / sun-protection / regulated efficacy claims — any claim that would normally require regulatory filing or medical substantiation (e.g., "SPF X", "clinically proven", "medical-grade", "hypoallergenic", "cures", "treats").
 
 Even when your general knowledge could provide a plausible answer, do NOT endorse unverified numbers or safety claims on the brand's behalf. Better to leave a gap than to mislead. If you choose to include such a FAQ at all, the answer must explicitly defer to the brand.
+
+ARCHITECTURE-LAYER FACTS — preserve, don't abstract away (CRITICAL for downstream trend-bridging):
+When the source mentions specific external tool / brand / tech-stack / integration names, KEEP them in selling_point or proof entries — don't generalise away into bland phrases like "AI tool" / "third-party service".
+- DO write: "Multi-LLM scripting (DeepSeek / Kimi / Grok options)", "Native iOS + Android shipping", "Designed for Shopify and WooCommerce stores"
+- DO write: positioning facts ("AI digital-human short-video tool"), industry category ("AI marketing workflow product"), and long-term capability boundaries
+- DO NOT write: version numbers or time-bound claims ("Uses DeepSeek V4", "GPT-5 powered"), unverified partnerships ("Officially partnered with X"), or anything that will go stale or trip a compliance review
+This rule lets the KB carry "what we are / what we use" as a stable anchor that downstream trend-riding can latch onto, without committing the brand to ephemeral facts.
 
 Before-FABE STRUCTURE FOR selling_point (IMPORTANT):
 Each selling_point's `content_raw` MUST follow this 5-line causal chain so downstream content generators can reason about the "before → after" transformation:
@@ -145,12 +194,12 @@ Rules:
 
 首先，在 "description" 字段中写一段清洗后的商品描述：去掉导航、页脚、广告、模板化文案和无关界面文字，但要保留所有与商品有关的关键信息，例如功能、规格、价格、案例、用户评价、竞争优势等。尽量完整，控制在 2000 字符以内。
 
-然后为以下 7 类知识分别生成 2-4 条候选（**除 faq 之外** —— faq 没有上限，输入中提到的每个事实性问题 + 每个操作步骤都要单独抽一条）：
+然后为以下 7 类知识分别生成 2-4 条候选：
 1. selling_point：差异化卖点、技术亮点、用户价值 —— **必须写成 Before-FABE 因果链结构**（见下文）
 2. audience：目标人群画像、特征、购买动机
 3. scenario：使用场景、发现时刻（客观语境 —— 具体"何时何地"）
 4. pain_point：使用痛点 + 变革动机（在该场景下的主观痛苦 + 为什么现在必须改；**和 objection 不同**，objection 是购买决策异议，pain_point 是使用本身的痛）
-5. faq：事实型常见问题（保修、兼容性、价格、服务范围等）**以及输入中提到的每一个具体操作 / 使用步骤 / 启用方式**。教程类内容（"X 怎么用"、"如何开启 Y"、"X 怎么设置"）是内容营销的核心选题资产之一 —— 每一个独立的操作、设置步骤、功能启用路径都要作为一条 FAQ 抽取，title 写成"如何 X"或"X 怎么用"，content_raw 写完整步骤。**不要因为觉得"太细节"或"太操作"就跳过** —— 只要输入里提到了某个步骤，就抽一条
+5. faq：用户**最常问**的事实型问题（保修、兼容性、价格、服务范围等）**以及最重要的操作型问题**（账号开通、主要功能怎么用、如何升级套餐）。挑最高优先级的几条入库；**不要把源文档里每一步操作都重抄一遍** —— 那是用户手册的事，不是营销 KB 的事。
 6. objection：情绪型购买异议（"太贵了"、"怕上当"、"不适合我"）—— 用重构 + 证据作答；**和 pain_point 区分**（pain_point 是使用痛），**也和 faq 区分**（faq 是找信息）
 7. proof：可跨内容复用的信任背书 —— 案例、用户数据、奖项、权威媒体报道、资质认证、专家/明星代言等。**与 selling_point 内部的 Evidence 行不同**：Evidence 只支撑某一个具体卖点，proof 是独立资产，任何文案都可引用。
 
@@ -162,6 +211,13 @@ Rules:
   c) 医疗 / 抗敏 / 防晒 / 法规宣称：需要监管备案或医学证据支持的任何宣称（如"SPF 多少""临床验证""医学级""低敏""治疗""修复损伤"等）
 
 **宁可留白，也不要误导**。如果你选择保留这类 FAQ，答案必须明确写成"请咨询品牌方 / 参考产品说明书"，不得自行补充具体建议或具体数字。
+
+**架构层事实 —— 保留具体名字，不要抽象掉**（对下游"趁热点"桥接极其关键）：
+当源材料里出现具体的外部工具名 / 品牌名 / 技术栈名 / 集成关系时，请在 selling_point 或 proof 里**保留这些名字**，**不要**泛化成"AI 工具""第三方服务"这种空话。
+- ✅ 要写：「多 LLM 脚本生成（DeepSeek / Kimi / Grok 任选）」、「iOS + Android 双端原生」、「为 Shopify 与 WooCommerce 商家设计」
+- ✅ 要写：定位事实（「AI 数字人短视频工具」）、行业归属（「AI 营销工作流产品」）、长期能力边界
+- ❌ 不要写：版本号或时效性宣称（「使用 DeepSeek V4」「GPT-5 加持」）、未公开合作（「与 X 公司战略合作」），以及任何会过期或可能被合规挑战的细节
+这条规则让 KB 把"我们是谁 / 我们用什么"作为长期稳定的锚点保留下来，未来"趁热点"模式可以自然桥接，又不会绑死品牌于会过期的事实。
 
 **selling_point 的 Before-FABE 结构（重要）**：
 每条 selling_point 的 `content_raw` 字段**必须**按下面 5 行因果链写，以便下游内容生成器能做"之前 → 之后"对比叙事：
@@ -247,11 +303,19 @@ class AIAdapter(ABC):
         disliked_titles: list[dict[str, str]] | None = None,
         user_instruction: str | None = None,
         brand_voice: str | None = None,
+        external_context_text: str | None = None,
     ) -> list[dict[str, Any]]:
         """Generate topic plan candidates. Each dict should contain:
         title, angle, hook, key_points, target_audience, target_scenario,
         channel, source_mode, score_relevance, score_conversion, score_asset_readiness,
         recommended_asset_ids.
+
+        When ``external_context_text`` is provided, the adapter switches to
+        trend-bridge mode and may prepend a leading dict ``{"__hotspot__":
+        {event, keywords, public_attention, risk_zones}}`` summarizing how
+        the model parsed the external context. Each plan dict in this mode
+        should also carry ``relevance_tier`` (strong/medium/weak),
+        ``risk_of_forced_relevance`` (0-1), and ``do_not_associate`` (list).
         """
 
     @abstractmethod
@@ -328,6 +392,7 @@ class StubAIAdapter(AIAdapter):
         disliked_titles: list[dict[str, str]] | None = None,
         user_instruction: str | None = None,
         brand_voice: str | None = None,  # stub ignores — deterministic templates
+        external_context_text: str | None = None,  # stub ignores
     ) -> list[dict[str, Any]]:
         offer = offer_context.get("offer", {})
         offer_name = offer.get("name", "Product")
@@ -739,6 +804,7 @@ class OpenAICompatibleAdapter(AIAdapter):
         disliked_titles: list[dict[str, str]] | None = None,
         user_instruction: str | None = None,
         brand_voice: str | None = None,
+        external_context_text: str | None = None,
     ) -> list[dict[str, Any]]:
         offer = offer_context.get("offer", {})
         offer_name = offer.get("name", "商品")
@@ -759,6 +825,8 @@ class OpenAICompatibleAdapter(AIAdapter):
 
         lang_instruction = "All output text (title, hook, key_points, etc.) MUST be in English." if is_en else "所有输出文本（title、hook、key_points 等）必须使用中文。"
 
+        trend_mode = bool((external_context_text or "").strip())
+
         if is_en:
             viral_signals_block = """
 
@@ -778,6 +846,102 @@ class OpenAICompatibleAdapter(AIAdapter):
 - 避免：标准营销话术、官腔、形容词堆砌
 - 每个标题至少含 1 个具象画面或情绪词"""
 
+        # Trend-bridge mode adds (a) a hotspot extraction step, (b) four-tier
+        # relevance rules, and (c) the "solution naturally appears" stance
+        # so topics ride the trend without feeling forced. The full prompt
+        # text lives in ``prompt_builder.format_trend_system_block`` so the
+        # script-writer path can reuse the same stance instructions with
+        # different output expectations.
+        trend_bridge_block = format_trend_system_block(mode="topic_gen", language=language) if trend_mode else ""
+
+        # JSON output shape differs: trend-bridge returns a wrapper object
+        # ({hotspot, plans}) so we can validate that the model actually did
+        # the structured extraction; classic mode keeps the array shape for
+        # backward compatibility.
+        if trend_mode and is_en:
+            # NB: f-string with literal ``{{``/``}}`` for the JSON braces.
+            # Pyflakes flags "no placeholders" — that's a stylistic
+            # nitpick; switching to a plain string would require
+            # un-doubling every brace, with no functional benefit.
+            json_format_block = f"""Return a strict JSON OBJECT with this shape:
+{{
+  "hotspot": {{
+    "event": "one-sentence factual summary",
+    "keywords": ["...", "..."],
+    "public_attention": "what the audience actually cares about",
+    "risk_zones": ["claim to avoid", "regulatory zone"]
+  }},
+  "plans": [
+    {{
+      "title": "topic title",
+      "angle": "selling point showcase / scenario / pain point / comparison / real experience",
+      "hook": "opening hook",
+      "key_points": ["point 1", "point 2", "point 3"],
+      "target_audience": ["audience"],
+      "target_scenario": ["scenario"],
+      "channel": "channel",
+      "source_mode": "trend_bridge",
+      "score_relevance": 0.85,
+      "score_conversion": 0.75,
+      "score_asset_readiness": 0.5,
+      "relevance_tier": "strong",
+      "risk_of_forced_relevance": 0.2,
+      "do_not_associate": ["angle to skip"]
+    }}
+  ]
+}}"""
+        elif trend_mode:
+            json_format_block = f"""返回严格 JSON 对象，结构如下：
+{{
+  "hotspot": {{
+    "event": "一句话事实摘要",
+    "keywords": ["...", "..."],
+    "public_attention": "大众真正在意的是什么",
+    "risk_zones": ["避免的宣称", "合规雷区"]
+  }},
+  "plans": [
+    {{
+      "title": "选题标题",
+      "angle": "卖点呈现 / 场景种草 / 痛点 / 对比 / 真实经验",
+      "hook": "开场钩子",
+      "key_points": ["要点1", "要点2", "要点3"],
+      "target_audience": ["人群"],
+      "target_scenario": ["场景"],
+      "channel": "渠道",
+      "source_mode": "trend_bridge",
+      "score_relevance": 0.85,
+      "score_conversion": 0.75,
+      "score_asset_readiness": 0.5,
+      "relevance_tier": "strong",
+      "risk_of_forced_relevance": 0.2,
+      "do_not_associate": ["刻意避开的角度"]
+    }}
+  ]
+}}"""
+        else:
+            json_format_block = """Return a strict JSON array. Each element:
+{
+  "title": "topic title",
+  "angle": "approach (e.g. selling point showcase / scenario seeding / pain point / comparison / real experience)",
+  "hook": "opening hook",
+  "key_points": ["point 1", "point 2", "point 3"],
+  "target_audience": ["audience"],
+  "target_scenario": ["scenario"],
+  "channel": "channel",
+  "source_mode": "kb",
+  "score_relevance": 0.85,
+  "score_conversion": 0.75,
+  "score_asset_readiness": 0.5
+}"""
+
+        return_only = (
+            "Return JSON object only, no other text."
+            if trend_mode and is_en else
+            "只返回 JSON 对象，不要输出其他文字。"
+            if trend_mode else
+            "Return JSON array only, no other text."
+        )
+
         system = f"""You are a senior short-video content director skilled at planning viral content topics for products/services.
 Generate highly relevant content topic plans based on the product info and strategy focus provided.
 
@@ -790,25 +954,12 @@ Requirements:
 6. If existing topics are provided below, you MUST avoid repeating similar titles or angles — find fresh perspectives
 7. If liked topics (👍) are provided, learn from their style, angle, and tone — generate more topics like them
 8. If disliked topics (👎) are provided, avoid their style, angle, and approach
-{viral_signals_block}
+{viral_signals_block}{trend_bridge_block}
 
-Return a strict JSON array. Each element:
-{{
-  "title": "topic title",
-  "angle": "approach (e.g. selling point showcase / scenario seeding / pain point / comparison / real experience)",
-  "hook": "opening hook",
-  "key_points": ["point 1", "point 2", "point 3"],
-  "target_audience": ["audience"],
-  "target_scenario": ["scenario"],
-  "channel": "channel",
-  "source_mode": "kb",
-  "score_relevance": 0.85,
-  "score_conversion": 0.75,
-  "score_asset_readiness": 0.5
-}}
+{json_format_block}
 
 {lang_instruction}
-Return JSON array only, no other text."""
+{return_only}"""
 
         # Use strategy unit's linked knowledge items if provided, else all offer knowledge
         ki_list = su.get("knowledge_items") or knowledge_items
@@ -819,6 +970,16 @@ Return JSON array only, no other text."""
                 marketing_objective=su.get("marketing_objective"),
                 audience_segment=focused_audience,
                 scenario=focused_scenario,
+            )
+        # Trend-bridge mode: drop KB items unrelated to the external trend
+        # (token-overlap rank, top 18). Keeps "what we are" anchors that
+        # don't keyword-match by giving every item a 0.4 floor — the cap
+        # is what saves token budget, not aggressive pruning.
+        if trend_mode and ki_list:
+            ki_list = rank_knowledge_for_external_context(
+                ki_list,
+                external_context_text or "",
+                max_items=18,
             )
         knowledge_text = format_knowledge_flat(ki_list, language=language)
 
@@ -867,10 +1028,24 @@ Generate {count} topic plans that honor the Creative Brief above. The brief shou
 
         if user_instruction:
             tail = instruction_outro
+        elif trend_mode and is_en:
+            tail = f"\nGenerate up to {count} topic plans that bridge the External Trend above to the product KB. If you cannot find a credible bridge for a slot, omit it (fewer is better than forced). Do the hotspot extraction step first, populate the wrapper-object format exactly."
+        elif trend_mode:
+            tail = f"\n请生成不超过 {count} 个能把上方「外部热点」与商品 KB 自然桥接的选题。如果某个槽位找不到可信桥接，宁可空掉也不要硬造。先做 hotspot 提取，再严格按 wrapper-object 格式输出。"
         elif is_en:
             tail = f"\nGenerate {count} content topic plans that closely match the strategy focus above."
         else:
             tail = f"\n请生成 {count} 个高度契合以上策略聚焦的内容选题方案。"
+
+        # External context block: placed right after KB so the model has
+        # the product anchors fresh in context when reading the trend.
+        external_context_block = ""
+        if trend_mode:
+            ctx_text = (external_context_text or "").strip()
+            if is_en:
+                external_context_block = f"\n\n## External Trend (transient, must bridge naturally — NOT product info)\n{ctx_text}\n"
+            else:
+                external_context_block = f"\n\n## 外部热点（一次性，必须自然桥接 —— 不是产品信息本身）\n{ctx_text}\n"
 
         user = f"""{instruction_intro}{"Product: " if is_en else "商品名称："}{offer_name}
 {"Core selling points: " if is_en else "核心卖点："}{', '.join(selling_points) if selling_points else na}
@@ -878,7 +1053,7 @@ Generate {count} topic plans that honor the Creative Brief above. The brief shou
 {"Scenarios: " if is_en else "适用场景："}{', '.join(scenarios) if scenarios else na}
 {channel_desc}{strategy_focus}
 {knowledge_text}
-{asset_text}
+{asset_text}{external_context_block}
 {self._format_existing_titles(existing_titles, is_en)}{self._format_rated_titles(liked_titles, disliked_titles, is_en)}{tail}"""
 
         # Brand voice overlay — applied to system prompt so the LLM's choice of
@@ -898,7 +1073,7 @@ Generate {count} topic plans that honor the Creative Brief above. The brief shou
         thinking, clean_result = _extract_thinking(result)
         self.last_thinking = thinking or None
         try:
-            plans = self._parse_json_response(clean_result)
+            parsed = self._parse_json_response(clean_result)
         except (json.JSONDecodeError, ValueError):
             logger.error(
                 "Failed to parse LLM topic plans response (len=%d) head=%r tail=%r",
@@ -906,11 +1081,460 @@ Generate {count} topic plans that honor the Creative Brief above. The brief shou
             )
             raise ValueError(f"LLM returned unparseable topic plans for offer '{offer_name}'")
 
+        # Trend-bridge mode: expect {hotspot, plans} wrapper. Tolerate the
+        # model occasionally falling back to a bare array — extract what
+        # we can and synthesize an empty hotspot rather than failing.
+        hotspot_payload: dict | None = None
+        if trend_mode:
+            if isinstance(parsed, dict):
+                hotspot_payload = parsed.get("hotspot") if isinstance(parsed.get("hotspot"), dict) else None
+                plans = parsed.get("plans") if isinstance(parsed.get("plans"), list) else []
+            elif isinstance(parsed, list):
+                logger.warning("Trend-bridge: model returned bare array (no hotspot wrapper) for offer '%s'", offer_name)
+                plans = parsed
+            else:
+                plans = []
+        else:
+            plans = parsed if isinstance(parsed, list) else []
+
         for plan in plans:
             if not plan.get("channel"):
                 plan["channel"] = effective_channel or "general"
 
-        return plans[:count]
+        plans = plans[:count]
+
+        # Sentinel-prepend the hotspot so the service layer can extract it
+        # without needing a new return signature on the adapter abstract.
+        if trend_mode and hotspot_payload is not None:
+            plans = [{"__hotspot__": hotspot_payload}] + plans
+        return plans
+
+    async def generate_topic_plans_stream(
+        self,
+        offer_context: dict[str, Any],
+        count: int = 5,
+        channel: str | None = None,
+        language: str = "zh-CN",
+        strategy_unit_context: dict[str, Any] | None = None,
+        existing_titles: list[str] | None = None,
+        liked_titles: list[dict[str, str]] | None = None,
+        disliked_titles: list[dict[str, str]] | None = None,
+        user_instruction: str | None = None,
+        brand_voice: str | None = None,
+        external_context_text: str | None = None,
+    ):
+        """Streaming variant of ``generate_topic_plans``.
+
+        Yields ``(event_type, payload)`` tuples:
+          - ``("thinking", str)`` — incremental reasoning tokens (DeepSeek
+            v4-pro / Qwen / R1 emit these via reasoning_content)
+          - ``("hotspot", dict)`` — the structured hot-topic read (only
+            when external_context_text is provided)
+          - ``("plan", dict)`` — one fully-formed topic plan as it
+            completes mid-stream
+          - ``("done", None)`` — emitted exactly once at the end
+
+        The LLM is instructed to emit objects with a ``_kind`` discriminator
+        (``"hotspot"`` or ``"plan"``) one after another so we route
+        unambiguously without depending on emission order or marker
+        delimiters. Brace-balanced incremental parsing detects each
+        complete object as it lands.
+        """
+        offer = offer_context.get("offer", {})
+        offer_name = offer.get("name", "商品")
+        selling_points = offer_context.get("selling_points", [])
+        knowledge_items = offer_context.get("knowledge_items", [])
+
+        su = strategy_unit_context or {}
+        focused_audience = su.get("audience_segment")
+        focused_scenario = su.get("scenario")
+        effective_channel = su.get("channel") or channel
+
+        audiences = [focused_audience] if focused_audience else offer_context.get("target_audiences", [])
+        scenarios = [focused_scenario] if focused_scenario else offer_context.get("target_scenarios", [])
+
+        is_en = language.startswith("en")
+        channel_desc = (f"Target platform: {effective_channel}" if is_en else f"目标平台：{effective_channel}") if effective_channel and effective_channel != "general" else ("General platform" if is_en else "通用平台")
+        strategy_focus = format_strategy_focus(su, language=language)
+
+        lang_instruction = "All output text (title, hook, key_points, etc.) MUST be in English." if is_en else "所有输出文本（title、hook、key_points 等）必须使用中文。"
+        trend_mode = bool((external_context_text or "").strip())
+
+        if is_en:
+            viral_signals_block = """
+
+## Viral Signals (Always Apply)
+- Titles should NOT read like instructional copy ("How to X", "Tips for X") — write like a viral creator post
+- Hooks must grab attention in the first 3 seconds — never neutral statements
+- Prefer: contrast, suspense, emotion, numbers, comparison, first-person mistakes
+- Avoid: standard marketing speak, official tone, adjective stacking
+- Each title should contain a concrete visual or emotional cue"""
+        else:
+            viral_signals_block = """
+
+## 网感要求（默认开启）
+- title 不要写「教你 X」「分享 X」这种说明文风——要写成像朋友圈/小红书爆款标题
+- hook 必须是前 3 秒能勾住的话，不能是中性陈述
+- 优先使用：反差、悬念、情绪、数字、对比、第一人称踩坑
+- 避免：标准营销话术、官腔、形容词堆砌
+- 每个标题至少含 1 个具象画面或情绪词"""
+
+        if trend_mode and is_en:
+            trend_bridge_block = """
+
+## Trend-Bridge Mode (External Context Provided)
+The user has supplied external context. Guiding principle:
+
+> Don't shove the product into the trend. Find what the audience really cares about behind the trend, then let the product appear as a solution naturally.
+
+Step 1 — Extract a structured read of the trend:
+- event: one-sentence factual summary
+- keywords: 3-7 keywords readers would search
+- public_attention: what the wider audience really cares about
+- risk_zones: angles to avoid (false claims, regulatory issues)
+
+Step 2 — Per-topic relevance tier (one of strong/medium/weak):
+- strong: the offer is a direct beneficiary of this trend → product can be named in-frame
+- medium: industry-level resonance; product appears at the end as one of several answers
+- weak: pure opinion piece; product not pushed
+- Reject "no relation". If you can't find a credible KB anchor, EMIT FEWER plans.
+
+Step 3 — Per-topic risk audit:
+- risk_of_forced_relevance: 0-1 (>0.7 means the bridge feels stretched)
+- do_not_associate: list any angles you intentionally avoided
+
+Step 4 — Stance: practitioner / user-of-the-tech voice. Never bystander voice.
+"""
+        elif trend_mode:
+            trend_bridge_block = """
+
+## 趁热点模式（用户提供了外部上下文）
+原则：
+
+> 不是把产品硬塞进热点，而是找到热点背后用户正在关心的问题，再让产品作为解决方案自然出现。
+
+第 1 步 —— 结构化提取热点：
+- event：一句话事实摘要
+- keywords：3-7 个关键词
+- public_attention：大众真正在意的是什么
+- risk_zones：哪些角度不要碰
+
+第 2 步 —— 关联度分级（strong/medium/weak）：
+- strong：产品是热点的直接受益方 → 可正面点名
+- medium：行业层共鸣；产品在结尾作为答案之一出现
+- weak：纯观点输出；产品不强带
+- 绝不出现 "no relation"，找不到桥就少出选题
+
+第 3 步 —— 风险自检：
+- risk_of_forced_relevance：0-1（>0.7 表示桥接已牵强）
+- do_not_associate：列出刻意避开的角度
+
+第 4 步 —— 视角：从业者口吻。绝不路人腔。
+"""
+        else:
+            trend_bridge_block = ""
+
+        # Streaming format: emit standalone JSON objects back-to-back, each
+        # with a ``_kind`` discriminator. NOT wrapped in an array, NOT
+        # comma-separated. The server brace-parses each object as it
+        # completes and routes by ``_kind``.
+        if trend_mode and is_en:
+            json_format_block = f"""STREAMING OUTPUT FORMAT — EMIT ONE JSON OBJECT AT A TIME, BACK-TO-BACK (no array wrapper, no commas between objects):
+
+First, emit the hotspot:
+{{
+  "_kind": "hotspot",
+  "event": "one-sentence factual summary",
+  "keywords": ["..."],
+  "public_attention": "what the audience actually cares about",
+  "risk_zones": ["..."]
+}}
+
+Then emit each plan, one at a time, as a complete JSON object:
+{{
+  "_kind": "plan",
+  "title": "topic title",
+  "angle": "selling point / scenario / pain point / comparison / real experience",
+  "hook": "opening hook",
+  "key_points": ["..."],
+  "target_audience": ["..."],
+  "target_scenario": ["..."],
+  "channel": "channel",
+  "source_mode": "trend_bridge",
+  "score_relevance": 0.85,
+  "score_conversion": 0.75,
+  "score_asset_readiness": 0.5,
+  "relevance_tier": "strong",
+  "risk_of_forced_relevance": 0.2,
+  "do_not_associate": ["..."]
+}}"""
+        elif trend_mode:
+            json_format_block = f"""流式输出格式 —— 一次输出一个完整 JSON 对象，对象之间直接相接（不要用数组包裹，不要用逗号分隔）：
+
+先输出 hotspot：
+{{
+  "_kind": "hotspot",
+  "event": "一句话事实摘要",
+  "keywords": ["..."],
+  "public_attention": "大众真正在意的是什么",
+  "risk_zones": ["..."]
+}}
+
+然后逐个输出选题，每条选题一个独立的 JSON 对象：
+{{
+  "_kind": "plan",
+  "title": "选题标题",
+  "angle": "卖点 / 场景 / 痛点 / 对比 / 真实经验",
+  "hook": "开场钩子",
+  "key_points": ["..."],
+  "target_audience": ["..."],
+  "target_scenario": ["..."],
+  "channel": "渠道",
+  "source_mode": "trend_bridge",
+  "score_relevance": 0.85,
+  "score_conversion": 0.75,
+  "score_asset_readiness": 0.5,
+  "relevance_tier": "strong",
+  "risk_of_forced_relevance": 0.2,
+  "do_not_associate": ["..."]
+}}"""
+        elif is_en:
+            json_format_block = """STREAMING OUTPUT FORMAT — EMIT ONE JSON OBJECT AT A TIME, BACK-TO-BACK (no array wrapper, no commas):
+
+{
+  "_kind": "plan",
+  "title": "topic title",
+  "angle": "selling point / scenario / pain point / comparison / real experience",
+  "hook": "opening hook",
+  "key_points": ["..."],
+  "target_audience": ["..."],
+  "target_scenario": ["..."],
+  "channel": "channel",
+  "source_mode": "kb",
+  "score_relevance": 0.85,
+  "score_conversion": 0.75,
+  "score_asset_readiness": 0.5
+}"""
+        else:
+            json_format_block = """流式输出格式 —— 每次输出一个完整的 JSON 对象，对象之间直接相接（不要用数组包裹，不要用逗号分隔）：
+
+{
+  "_kind": "plan",
+  "title": "选题标题",
+  "angle": "卖点 / 场景 / 痛点 / 对比 / 真实经验",
+  "hook": "开场钩子",
+  "key_points": ["..."],
+  "target_audience": ["..."],
+  "target_scenario": ["..."],
+  "channel": "渠道",
+  "source_mode": "kb",
+  "score_relevance": 0.85,
+  "score_conversion": 0.75,
+  "score_asset_readiness": 0.5
+}"""
+
+        return_only = (
+            "Emit objects back-to-back, no extra prose, no fences."
+            if is_en else
+            "对象一个接一个直接输出，不要多余文字，不要 ``` 包裹。"
+        )
+
+        system = f"""You are a senior short-video content director skilled at planning viral content topics for products/services.
+Generate highly relevant content topic plans based on the product info and strategy focus provided.
+
+Requirements:
+1. Each topic must have a unique angle — no duplicates
+2. The hook must be attention-grabbing
+3. key_points are production/shooting notes
+4. Stay strictly aligned with the provided target audience and marketing objectives
+5. Provide score_relevance (relevance to the product, 0-1) and score_conversion (estimated conversion potential, 0-1)
+6. If existing topics are provided below, you MUST avoid repeating similar titles or angles — find fresh perspectives
+7. If liked topics (👍) are provided, learn from their style, angle, and tone — generate more topics like them
+8. If disliked topics (👎) are provided, avoid their style, angle, and approach
+{viral_signals_block}{trend_bridge_block}
+
+{json_format_block}
+
+{lang_instruction}
+{return_only}"""
+
+        # Reuse the same KB ranking + format pipeline as non-streaming.
+        ki_list = su.get("knowledge_items") or knowledge_items
+        if su and ki_list:
+            ki_list = rank_knowledge_for_strategy(
+                ki_list,
+                marketing_objective=su.get("marketing_objective"),
+                audience_segment=focused_audience,
+                scenario=focused_scenario,
+            )
+        if trend_mode and ki_list:
+            ki_list = rank_knowledge_for_external_context(
+                ki_list,
+                external_context_text or "",
+                max_items=18,
+            )
+        knowledge_text = format_knowledge_flat(ki_list, language=language)
+
+        asset_items = offer_context.get("assets", [])
+        asset_text = format_asset_context(asset_items, language=language)
+
+        na = "N/A" if is_en else "暂无"
+
+        instruction_intro = ""
+        instruction_outro = ""
+        if user_instruction:
+            if is_en:
+                instruction_intro = f"""## Creative Brief
+{user_instruction}
+
+This brief is the primary intent of this request — it should shape the topics, not be treated as a side note.
+
+---
+
+"""
+                instruction_outro = f"""
+
+Generate {count} topic plans that honor the Creative Brief above."""
+            else:
+                instruction_intro = f"""## 创意指令
+{user_instruction}
+
+这条指令是本次请求的核心意图，应该塑造选题的主轴。
+
+---
+
+"""
+                instruction_outro = f"""
+
+请生成 {count} 个能体现上方「创意指令」的选题方案。"""
+
+        if user_instruction:
+            tail = instruction_outro
+        elif trend_mode and is_en:
+            tail = f"\nGenerate up to {count} topic plans that bridge the External Trend above to the product KB. If you cannot find a credible bridge, omit (fewer is better than forced). Emit hotspot first, then each plan as a separate JSON object."
+        elif trend_mode:
+            tail = f"\n请生成不超过 {count} 个能把上方「外部热点」与商品 KB 自然桥接的选题。找不到可信桥接就少出。先输出 hotspot，再逐个输出每条选题（每个一个独立的 JSON 对象）。"
+        elif is_en:
+            tail = f"\nGenerate {count} content topic plans, one JSON object at a time, back-to-back."
+        else:
+            tail = f"\n请生成 {count} 个选题方案，每个一个独立的 JSON 对象，对象之间直接相接。"
+
+        external_context_block = ""
+        if trend_mode:
+            ctx_text = (external_context_text or "").strip()
+            if is_en:
+                external_context_block = f"\n\n## External Trend (transient, must bridge naturally — NOT product info)\n{ctx_text}\n"
+            else:
+                external_context_block = f"\n\n## 外部热点（一次性，必须自然桥接 —— 不是产品信息本身）\n{ctx_text}\n"
+
+        user = f"""{instruction_intro}{"Product: " if is_en else "商品名称："}{offer_name}
+{"Core selling points: " if is_en else "核心卖点："}{', '.join(selling_points) if selling_points else na}
+{"Target audience: " if is_en else "目标人群："}{', '.join(audiences) if audiences else na}
+{"Scenarios: " if is_en else "适用场景："}{', '.join(scenarios) if scenarios else na}
+{channel_desc}{strategy_focus}
+{knowledge_text}
+{asset_text}{external_context_block}
+{self._format_existing_titles(existing_titles, is_en)}{self._format_rated_titles(liked_titles, disliked_titles, is_en)}{tail}"""
+
+        from app.adapters.prompt_builder import format_brand_voice_layer
+        system += format_brand_voice_layer(brand_voice, language)
+
+        logger.info(
+            "Streaming %d topic plans for offer '%s'%s via %s%s",
+            count, offer_name,
+            f" (strategy_unit={su.get('name', su.get('id', ''))})" if su else "",
+            self.provider,
+            " [trend_bridge]" if trend_mode else "",
+        )
+
+        # Stream parsing state
+        json_buffer = ""        # accumulated content with thinking blocks stripped
+        scan_idx = 0            # next index in json_buffer to scan for object boundaries
+        plans_emitted = 0
+        thinking_chunks: list[str] = []
+
+        # <think> boundary state — _chat_stream synthesizes <think>...</think>
+        # for reasoning_content, so we must strip them out of json_buffer.
+        in_think = False
+        carry = ""  # leftover at end of last token that might span a tag boundary
+
+        async for token in self._chat_stream(system, user, temperature=0.7):
+            if not token:
+                continue
+            buf = carry + token
+            carry = ""
+
+            # Process the token while watching for <think> / </think> markers.
+            i = 0
+            while i < len(buf):
+                if in_think:
+                    end = buf.find("</think>", i)
+                    if end == -1:
+                        # Whole rest of buf is thinking
+                        chunk = buf[i:]
+                        thinking_chunks.append(chunk)
+                        yield ("thinking", chunk)
+                        i = len(buf)
+                    else:
+                        chunk = buf[i:end]
+                        if chunk:
+                            thinking_chunks.append(chunk)
+                            yield ("thinking", chunk)
+                        in_think = False
+                        i = end + len("</think>")
+                else:
+                    start = buf.find("<think>", i)
+                    if start == -1:
+                        # Stash trailing partial-tag bytes (handles a <think> straddling tokens)
+                        keep_back = max(0, len(buf) - 8)
+                        if buf[keep_back:].endswith(("<", "<t", "<th", "<thi", "<thin", "<think")):
+                            json_buffer += buf[i:keep_back]
+                            carry = buf[keep_back:]
+                            i = len(buf)
+                        else:
+                            json_buffer += buf[i:]
+                            i = len(buf)
+                    else:
+                        json_buffer += buf[i:start]
+                        in_think = True
+                        i = start + len("<think>")
+
+            # Find any newly-completed top-level JSON objects in json_buffer.
+            for obj_start, obj_end in _scan_complete_objects(json_buffer, scan_idx):
+                chunk = json_buffer[obj_start:obj_end]
+                try:
+                    obj = json.loads(chunk)
+                except json.JSONDecodeError:
+                    # Try with trailing-comma fix (LLM occasionally emits these)
+                    import re as _re
+                    fixed = _re.sub(r",(\s*[}\]])", r"\1", chunk)
+                    try:
+                        obj = json.loads(fixed)
+                    except json.JSONDecodeError:
+                        scan_idx = obj_end
+                        continue
+                scan_idx = obj_end
+
+                kind = obj.pop("_kind", None) if isinstance(obj, dict) else None
+                if kind == "hotspot":
+                    yield ("hotspot", obj)
+                elif kind == "plan" or (kind is None and isinstance(obj, dict) and "title" in obj):
+                    if not obj.get("channel"):
+                        obj["channel"] = effective_channel or "general"
+                    if trend_mode and not obj.get("source_mode"):
+                        obj["source_mode"] = "trend_bridge"
+                    yield ("plan", obj)
+                    plans_emitted += 1
+                    if plans_emitted >= count:
+                        break
+
+            if plans_emitted >= count:
+                break
+
+        # Capture full thinking text for last_thinking parity with non-stream path
+        self.last_thinking = "".join(thinking_chunks) or None
+
+        yield ("done", None)
 
     @staticmethod
     def _format_existing_titles(titles: list[str] | None, is_en: bool) -> str:
@@ -1478,8 +2102,15 @@ def _fix_docker_url(url: str) -> str:
     return url
 
 
-async def get_ai_adapter(db=None, scene_key: str | None = None, model_type: str = "text_llm", config_id: str | None = None) -> AIAdapter:
-    """Factory: explicit config_id → scene config → active config → StubAIAdapter (no AI configured)."""
+async def get_ai_adapter(db=None, scene_key: str | None = None, model_type: str = "text_llm", config_id: str | None = None, model_override: str | None = None) -> AIAdapter:
+    """Factory: explicit config_id → scene config → active config → StubAIAdapter (no AI configured).
+
+    ``model_override`` lets the caller swap out the resolved config's
+    ``model_name`` AFTER endpoint resolution — used by app headers that
+    let users pick any (provider, model) the endpoint can serve, not
+    just the config's saved default. The override is applied in-memory
+    only and never written back to the LLMConfig row.
+    """
     if db is not None:
         try:
             config = None
@@ -1501,6 +2132,12 @@ async def get_ai_adapter(db=None, scene_key: str | None = None, model_type: str 
                 if config:
                     logger.info("AI adapter: no scene config, using active default → %s/%s", config.provider, config.model_name)
             if config:
+                if model_override and model_override != config.model_name:
+                    logger.info(
+                        "AI adapter: model_override applied %s → %s (provider=%s)",
+                        config.model_name, model_override, config.provider,
+                    )
+                    config.model_name = model_override
                 fixed_url = _fix_docker_url(config.base_url)
                 provider = getattr(config, "provider", None) or getattr(config, "label", "LLM")
                 if provider == "anthropic":

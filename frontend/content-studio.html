@@ -28,6 +28,7 @@
   <script src="/js/feedback.js"></script>
   <script src="/js/apps-shared.js"></script>
   <script src="/js/header-selectors.js"></script>
+  <script src="/js/trend-panel.js"></script>
   <script src="/js/shared.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
@@ -110,13 +111,13 @@
             </template>
           </select>
         </div>
-        <!-- LLM model -->
-        <div class="flex items-center gap-2" x-show="llmConfigs.length > 0" x-cloak>
+        <!-- LLM model — composite (config_id::model_name) keys -->
+        <div class="flex items-center gap-2" x-show="modelOptions.length > 0" x-cloak>
           <label class="text-sm text-gray-500 shrink-0" x-text="t('model_label')"></label>
-          <select x-model="configId" @change="onConfigChange()"
+          <select x-model="modelKey" @change="onModelChange()"
                   class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent min-w-[10rem]">
-            <template x-for="c in llmConfigs" :key="c.id">
-              <option :value="c.id" x-text="c.label + ' (' + c.model_name + ')'"></option>
+            <template x-for="m in modelOptions" :key="m.key">
+              <option :value="m.key" x-text="m.label"></option>
             </template>
           </select>
         </div>
@@ -173,6 +174,81 @@
 
         <!-- Composer -->
         <div class="bg-white rounded-xl border p-5 mb-4">
+          <!-- Trend-bridge — inherited banner (when arriving via topic_plan_id) -->
+          <div x-show="trendInherited" x-cloak
+               class="mb-3 bg-orange-50 border border-orange-200 rounded-lg p-3">
+            <div class="text-xs text-orange-700 font-medium flex items-center gap-1.5">
+              <span>🔥</span>
+              <span x-text="t('trend_inherited_banner')"></span>
+              <span class="text-orange-600 font-normal" x-text="trendInherited?.event"></span>
+            </div>
+            <details class="mt-1.5">
+              <summary class="text-[11px] text-orange-600 cursor-pointer hover:text-orange-800" x-text="t('trend_details')"></summary>
+              <div class="text-[11px] text-orange-700 mt-1 space-y-0.5 pl-1">
+                <div x-show="trendInherited?.keywords?.length">
+                  <span class="opacity-70" x-text="t('trend_keywords') + ':'"></span>
+                  <span x-text="(trendInherited?.keywords || []).join('、')"></span>
+                </div>
+                <div x-show="trendInherited?.public_attention">
+                  <span class="opacity-70" x-text="t('trend_attention') + ':'"></span>
+                  <span x-text="trendInherited?.public_attention"></span>
+                </div>
+                <div x-show="trendInherited?.risk_zones?.length">
+                  <span class="opacity-70" x-text="t('trend_risks') + ':'"></span>
+                  <ul class="list-disc list-inside ml-1">
+                    <template x-for="r in (trendInherited?.risk_zones || [])" :key="r"><li x-text="r"></li></template>
+                  </ul>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <!-- Trend-bridge — direct input panel (collapsible) -->
+          <details class="mb-4 border border-gray-200 rounded-lg overflow-hidden"
+                   :open="trendPanelOpen"
+                   @toggle="trendPanelOpen = $event.target.open">
+            <summary class="px-3 py-2 text-sm font-medium text-gray-700 cursor-pointer select-none hover:bg-gray-50 transition-colors flex items-center gap-2">
+              <span x-text="t('hotspot_panel_label')"></span>
+              <span class="text-xs text-gray-400 font-normal" x-text="t('hotspot_panel_optional')"></span>
+              <span x-show="trendText" x-cloak
+                    class="ml-auto text-[11px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full font-medium"
+                    x-text="(trendText||'').length + ' chars'"></span>
+            </summary>
+            <div class="px-3 py-3 border-t border-gray-100 space-y-3">
+              <p class="text-xs text-gray-500 leading-relaxed" x-text="t('hotspot_panel_hint')"></p>
+              <div>
+                <label class="block text-xs text-gray-500 mb-1" x-text="t('hotspot_url_label')"></label>
+                <div class="flex gap-2">
+                  <input x-model="trendUrl" type="url"
+                         :placeholder="t('hotspot_url_placeholder')"
+                         class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+                  <button type="button"
+                          @click="trendExtract()"
+                          :disabled="!trendUrl || trendExtracting"
+                          class="text-xs font-medium text-accent border border-accent/40 hover:bg-accent/5 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 shrink-0">
+                    <svg x-show="trendExtracting" class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                    <span x-text="trendExtracting ? t('hotspot_extracting') : t('hotspot_extract_btn')"></span>
+                  </button>
+                </div>
+              </div>
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="block text-xs text-gray-500" x-text="t('hotspot_text_label')"></label>
+                  <button type="button" x-show="trendText"
+                          @click="trendText=''; trendUrl=''"
+                          class="text-[11px] text-gray-400 hover:text-gray-600"
+                          x-text="t('hotspot_clear')"></button>
+                </div>
+                <textarea x-model="trendText" rows="6" maxlength="8000"
+                          :placeholder="t('hotspot_text_placeholder')"
+                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-700 font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent resize-y"></textarea>
+                <div class="flex items-center justify-between text-[11px] mt-1">
+                  <span class="ml-auto text-gray-400 tabular-nums" x-text="(trendText||'').length + ' / 8000'"></span>
+                </div>
+              </div>
+            </div>
+          </details>
+
           <div class="mb-4">
             <div class="flex items-center justify-between mb-1.5">
               <label class="text-xs font-medium text-gray-600" x-text="t('topic_label')"></label>
@@ -298,13 +374,20 @@
   <script>
     function contentStudioPage() {
       return {
+        // Trend-bridge panel — see frontend/js/trend-panel.js.
+        ...window.odTrendPanel.makeState(),
+
         offers: [],
         offerId: '',
         strategyUnits: [],
         strategyUnitId: '',
         selectedUnit: null,
-        llmConfigs: [],
-        configId: '',
+        modelOptions: [],
+        modelKey: '',
+        // When arriving from Topic Studio, carries the source plan's
+        // UUID so the backend can enrich the prompt with its full
+        // structured fields (angle + key_points).
+        topicPlanId: '',
         platforms: [],
         platformId: '',
         personas: [],
@@ -334,7 +417,9 @@
               fetch(`${API}/apps/script-writer/goals?lang=${lang}`),
             ]);
             if (offersRes.ok) this.offers = (await offersRes.json()).items || [];
-            if (llmRes.ok) this.llmConfigs = await llmRes.json();
+            // Model expansion runs in the background — see topic-studio.html
+            // for the full rationale (don't block offerId on /v1/models).
+            this._llmConfigs = (llmRes.ok ? await llmRes.json() : []) || [];
             if (platformsRes.ok) {
               const all = await platformsRes.json();
               this.platforms = all.filter(p => p.content_type !== 'video');
@@ -353,7 +438,14 @@
           const params = new URLSearchParams(location.search);
           const urlOffer = params.get('offer_id');
           const urlTopic = params.get('topic');
+          const urlTopicPlanId = params.get('topic_plan_id');
           if (urlTopic && !this.topic) this.topic = urlTopic;
+          if (urlTopicPlanId) {
+            this.topicPlanId = urlTopicPlanId;
+            // Surface the plan's persisted hotspot in the inherited
+            // banner so the user knows the prompt rides the same trend.
+            this.trendLoadInherited(urlTopicPlanId);
+          }
 
           // When arriving from "Open in Creator" in Creations, pre-fill topic from the reference.
           const refCreationId = params.get('ref_creation_id');
@@ -369,10 +461,14 @@
           }
           // Standardised header-selector behaviour (v1.2.x).
           await this.$nextTick();
-          this.offerId  = window.odHeaderSelectors.pickInitialOffer(this.offers, "cs", urlOffer);
-          this.configId = window.odHeaderSelectors.pickInitialConfig(this.llmConfigs, "cs");
+          this.offerId = window.odHeaderSelectors.pickInitialOffer(this.offers, "cs", urlOffer);
           window.odHeaderSelectors.rememberOffer("cs", this.offerId);
-          window.odHeaderSelectors.rememberConfig("cs", this.configId);
+
+          window.odHeaderSelectors.expandConfigsToModels(this._llmConfigs || [], API).then(opts => {
+            this.modelOptions = opts;
+            this.modelKey = window.odHeaderSelectors.pickInitialModelKey(opts, "cs");
+            window.odHeaderSelectors.rememberModelKey("cs", this.modelKey);
+          }).catch(e => console.error('Model expansion failed', e));
 
           const urlUnit = params.get('strategy_unit_id') || '';
           if (this.offerId) {
@@ -386,8 +482,8 @@
           }
         },
 
-        onConfigChange() {
-          window.odHeaderSelectors.rememberConfig("cs", this.configId);
+        onModelChange() {
+          window.odHeaderSelectors.rememberModelKey("cs", this.modelKey);
         },
 
         async onOfferChange() {
@@ -437,10 +533,12 @@
           if (!this.offerId || this.suggestingTopic) return;
           this.suggestingTopic = true;
           try {
+            const sel = window.odHeaderSelectors.splitModelKey(this.modelKey);
             this.topic = await window.odSuggestTopic({
               offer_id: this.offerId,
               goal: this.goalId,
-              config_id: this.configId || undefined,
+              config_id: sel.config_id || undefined,
+              model_override: sel.model_name || undefined,
             });
           } catch(e) { console.error(e); toast.error(e.message); }
           this.suggestingTopic = false;
@@ -455,16 +553,21 @@
           this.copied = false;
 
           try {
+            const sel = window.odHeaderSelectors.splitModelKey(this.modelKey);
             const res = await fetch('/api/v1/apps/script-writer/generate/stream', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 offer_id: this.offerId,
                 strategy_unit_id: this.strategyUnitId || undefined,
+                topic_plan_id: this.topicPlanId || undefined,
+                // Trend-bridge panel state → external_context_text/url.
+                ...window.odTrendPanel.toBody(this),
                 topic: this.topic.trim(),
                 goal: this.goalId,
                 language: getApiLang(),
-                config_id: this.configId || undefined,
+                config_id: sel.config_id || undefined,
+                model_override: sel.model_name || undefined,
                 platform_id: this.platformId || undefined,
                 persona_id: this.personaId || undefined,
                 goal_id: this.goalId,
@@ -480,6 +583,7 @@
             const decoder = new TextDecoder();
             let buffer = '';
             let content = '';
+            let sawTerminal = false;  // saw a clean done OR error event
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
@@ -498,12 +602,31 @@
                   content += JSON.parse(data);
                   this.scriptResult = content;
                 } else if (eventType === 'done') {
+                  sawTerminal = true;
                   const result = JSON.parse(data);
                   if (result.script) this.scriptResult = result.script;
                   if (result.structured_content) this.structuredContent = result.structured_content;
                   if (result.creation_id) this.creationId = result.creation_id;
+                } else if (eventType === 'error') {
+                  // Backend signaled a failure (LLM timeout / connect
+                  // error / rate limit). Show the message — without
+                  // this the spinner just stops with no explanation.
+                  sawTerminal = true;
+                  try {
+                    const errData = JSON.parse(data);
+                    toast.error(t('generate_failed') + (errData.message || ''));
+                  } catch {
+                    toast.error(t('generate_failed'));
+                  }
                 }
+                // ignore 'thinking' / 'thinking_done' / 'started' — purely informational
               }
+            }
+            // Connection closed without a done OR error event = abrupt
+            // disconnection (network drop, server crash). Surface it
+            // rather than leaving the user wondering.
+            if (!sawTerminal && !content) {
+              toast.error(t('generate_failed_retry') || t('generate_failed'));
             }
           } catch(e) { console.error(e); toast.error(e.message); }
           this.loading = false;

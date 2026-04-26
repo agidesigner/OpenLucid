@@ -25,26 +25,18 @@ class OfferService:
         self.session = session
 
     async def create(self, data: OfferCreate) -> Offer:
+        # NOTE: ``offer_model`` (the derived 6-class enum) is **not** inferred
+        # synchronously here. Doing so used to add a 0.5–1s LLM round-trip on
+        # every create, which the wizard pays end-to-end. We now schedule
+        # ``infer_offer_model_in_background`` from the route handler via
+        # FastAPI ``BackgroundTasks`` so the response returns as soon as the
+        # row is persisted; the model column is back-filled within ~1s.
         merchant = await self.merchant_repo.get_by_id(data.merchant_id)
         if not merchant:
             raise NotFoundError("Merchant", str(data.merchant_id))
         offer = await self.repo.create(**data.model_dump())
-        await self._infer_and_set_offer_model(offer)
         return offer
 
-    async def _infer_and_set_offer_model(self, offer: Offer) -> None:
-        try:
-            from app.adapters.ai import get_ai_adapter
-            ai = await get_ai_adapter(self.session, scene_key="offer_model")
-            model = await ai.infer_offer_model(
-                name=offer.name,
-                description=offer.description or "",
-                offer_type=offer.offer_type,
-            )
-            await self.repo.update(offer, offer_model=model)
-            logger.info("Inferred offer_model='%s' for offer '%s'", model, offer.name)
-        except Exception:
-            logger.warning("Failed to infer offer_model for offer '%s'", offer.name, exc_info=True)
 
     async def get(self, offer_id: uuid.UUID) -> Offer:
         offer = await self.repo.get_by_id(offer_id)
@@ -133,3 +125,35 @@ class OfferService:
             "by_source": by_source,
             "last_used_at": last_used_at.isoformat() if last_used_at else None,
         }
+
+
+async def infer_offer_model_in_background(offer_id: uuid.UUID) -> None:
+    """Run the ``offer_model`` LLM classifier with its own DB session.
+
+    Designed for FastAPI ``BackgroundTasks`` — the request session is
+    already closed by the time we run, so we open a fresh one. Errors are
+    swallowed (logged warn) on purpose: the offer row is already correct
+    without ``offer_model``, this is purely a derived column.
+    """
+    from app.adapters.ai import get_ai_adapter
+    from app.database import async_session_factory
+
+    async with async_session_factory() as session:
+        try:
+            offer = await session.get(Offer, offer_id)
+            if offer is None:
+                logger.warning("offer_model bg: offer %s vanished before inference", offer_id)
+                return
+            ai = await get_ai_adapter(session, scene_key="offer_model")
+            model = await ai.infer_offer_model(
+                name=offer.name,
+                description=offer.description or "",
+                offer_type=offer.offer_type,
+            )
+            offer.offer_model = model
+            await session.commit()
+            logger.info("Inferred offer_model='%s' for offer '%s' (bg)", model, offer.name)
+        except Exception:
+            logger.warning(
+                "Failed to infer offer_model for offer %s (bg)", offer_id, exc_info=True,
+            )

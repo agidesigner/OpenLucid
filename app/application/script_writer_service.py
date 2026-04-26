@@ -372,12 +372,27 @@ def _structured_content_to_plain_text_with_metadata(sc: dict) -> str:
     return "\n\n".join(parts)
 
 
+_INLINE_JSON_ARTIFACT_RE = _re.compile(
+    # Match the typical Claude / OpenAI-compat JSON-mode confusion artifact:
+    # ``...prose```json\n{\n``  →  prose then a half-attempted JSON opening.
+    # Also matches the closing variant ``\n}\n```\n``.
+    # Optional whitespace and {/} around the fence so we tolerate model variants.
+    r'```\s*(?:json)?\s*\n?\{?\s*\n?|\n?\s*\}?\s*\n?```',
+    flags=_re.IGNORECASE,
+)
+
+
 def _scrub_json_artifacts(text: str) -> str:
     """Final safety net: never let raw JSON-looking text reach Creation.content.
 
-    1. Strip markdown code fences (```json ... ```)
-    2. If it still looks like a JSON object, attempt heuristic extraction
-    3. Return fence-stripped text as last resort
+    1. Strip a leading ```json…``` markdown fence (whole-string fence).
+    2. If the body still looks like a JSON object, run the heuristic to
+       pull narration text out of ``"text": "..."`` fields.
+    3. Strip *inline* ```json {`` artifacts — the typical Claude JSON-mode
+       failure where the model wrote prose, then a half-attempted JSON
+       opening, then more prose. Split on the artifact and keep the
+       longest narrative chunk (usually the more polished retry).
+    4. Final fallback: trimmed text.
     """
     if not text:
         return text
@@ -391,7 +406,22 @@ def _scrub_json_artifacts(text: str) -> str:
     if stripped.startswith("{") and '"text"' in stripped:
         extracted = _heuristic_narration_from_json_string(stripped)
         if extracted:
-            return extracted
+            stripped = extracted
+    if "```" in stripped:
+        # Inline JSON fence cleanup. We split on the artifact and keep
+        # the longest meaningful piece — both halves are usually drafts
+        # of the same narration, picking the longer one gives the user
+        # the most complete version.
+        chunks = _INLINE_JSON_ARTIFACT_RE.split(stripped)
+        chunks = [c.strip() for c in chunks if c and c.strip()]
+        narrative = [
+            c for c in chunks
+            # Drop pieces that are JSON scaffolding only (braces /
+            # whitespace / commas).
+            if not _re.fullmatch(r'[\s{}\[\],]+', c) and len(c) >= 20
+        ]
+        if narrative:
+            stripped = max(narrative, key=len)
     return stripped
 
 
@@ -425,7 +455,10 @@ class ScriptWriterService:
         """
         if not self.ai:
             self.ai = await get_ai_adapter(
-                self.session, scene_key="script_writer", config_id=request.config_id
+                self.session,
+                scene_key="script_writer",
+                config_id=request.config_id,
+                model_override=request.model_override,
             )
 
         logger.info(
@@ -485,30 +518,74 @@ class ScriptWriterService:
             context.assets, language=request.language
         )
 
-        # If topic is empty but a topic_plan_id was provided, compose topic text
-        # from the plan's title/angle/hook/key_points. Gives the prompt rich
-        # direction without the agent needing to paste fields manually.
-        if request.topic_plan_id and not (request.topic or "").strip():
+        # When a topic_plan_id is provided (typically arriving from Topic
+        # Studio's "做视频"/"写文案" links), enrich the prompt with the
+        # plan's structural fields (angle, key_points, audience, scenario).
+        # The user's typed topic stays as the headline; metadata follows.
+        # Trend signals (hotspot, do_not_associate, relevance_tier) are
+        # handled separately below by ``resolve_trend_context`` so they
+        # work for both the topic_plan_id-inheritance path AND the
+        # direct external_context_text path (user's own trend input).
+        if request.topic_plan_id:
             try:
                 from app.models.topic_plan import TopicPlan
                 plan = await self.session.get(TopicPlan, request.topic_plan_id)
                 if plan:
                     parts: list[str] = []
-                    if plan.title:
-                        parts.append(f"选题标题: {plan.title}")
+                    base = (request.topic or "").strip()
+                    if base:
+                        parts.append(base)
+                    else:
+                        if plan.title:
+                            parts.append(f"选题标题: {plan.title}")
+                        if plan.hook:
+                            parts.append(f"开场钩子: {plan.hook}")
                     if plan.angle:
                         parts.append(f"切入角度: {plan.angle}")
-                    if plan.hook:
-                        parts.append(f"开场钩子: {plan.hook}")
                     if plan.key_points_json:
                         kp = plan.key_points_json if isinstance(plan.key_points_json, list) else []
                         if kp:
                             parts.append("要点:\n- " + "\n- ".join(str(p) for p in kp))
+                    if plan.target_audience_json:
+                        ta = plan.target_audience_json if isinstance(plan.target_audience_json, list) else []
+                        if ta:
+                            parts.append("目标人群: " + ", ".join(str(p) for p in ta))
+                    if plan.target_scenario_json:
+                        ts = plan.target_scenario_json if isinstance(plan.target_scenario_json, list) else []
+                        if ts:
+                            parts.append("适用场景: " + ", ".join(str(p) for p in ts))
                     if parts:
                         request.topic = "\n".join(parts)
-                        logger.info("ScriptWriter: injected topic from plan %s", request.topic_plan_id)
+                        logger.info(
+                            "ScriptWriter: enriched topic from plan %s (had_user_topic=%s, source_mode=%s)",
+                            request.topic_plan_id, bool(base), plan.source_mode,
+                        )
             except Exception as e:
                 logger.warning("ScriptWriter: failed to load topic_plan %s: %s", request.topic_plan_id, e)
+
+        # Trend-bridge resolution — unified for direct input AND inherited
+        # from topic_plan_id. Direct text wins when both are present, but
+        # the inherited hotspot still feeds keywords / public_attention /
+        # risk_zones into the prompt so the LLM has a structured
+        # trend read alongside whatever raw text the user pasted.
+        from app.adapters.prompt_builder import (
+            format_trend_system_block,
+            format_trend_user_block,
+            resolve_trend_context,
+        )
+        trend = await resolve_trend_context(
+            self.session,
+            topic_plan_id=request.topic_plan_id,
+            external_context_text=request.external_context_text,
+            external_context_url=request.external_context_url,
+        )
+        trend_user_block = ""
+        if trend.is_active:
+            trend_user_block = format_trend_user_block(trend, language=request.language)
+            logger.info(
+                "ScriptWriter: trend-bridge active (direct=%s, inherited_hotspot=%s)",
+                bool(trend.external_context_text), bool(trend.hotspot),
+            )
 
         user_message = _build_user_message(
             request,
@@ -516,6 +593,8 @@ class ScriptWriterService:
             strategy_text=strategy_text,
             asset_text=asset_text,
         )
+        if trend_user_block:
+            user_message = user_message + "\n" + trend_user_block
 
         # Build system prompt: use Composer when any dimension is specified,
         # otherwise fall back to the legacy system_prompt field.
@@ -540,6 +619,15 @@ class ScriptWriterService:
             system_prompt = request.system_prompt or (
                 DEFAULT_SYSTEM_PROMPT_ZH if not request.language.startswith("en")
                 else DEFAULT_SYSTEM_PROMPT_EN
+            )
+
+        # Append the trend-bridge system block when trend is active. Goes
+        # AFTER the brand voice / composer instructions so the trend
+        # stance ("solution naturally appears") is the last thing the
+        # model reads before output — sandwich-anchor pattern.
+        if trend.is_active:
+            system_prompt = system_prompt + format_trend_system_block(
+                mode="script_gen", language=request.language
             )
 
         return self.ai, system_prompt, user_message, len(knowledge_items), platform, structure
@@ -638,13 +726,17 @@ class ScriptWriterService:
         goal: str = "reach_growth",
         language: str | None = None,
         config_id: str | None = None,
+        model_override: str | None = None,
     ) -> str:
         """Use LLM to suggest a topic based on knowledge base + strategy context."""
         import uuid as _uuid
 
         if not self.ai:
             self.ai = await get_ai_adapter(
-                self.session, scene_key="script_writer", config_id=config_id
+                self.session,
+                scene_key="script_writer",
+                config_id=config_id,
+                model_override=model_override,
             )
 
         goal_zh, goal_en = _GOAL_LABELS.get(goal, ("其他", "Other"))
@@ -784,40 +876,63 @@ class ScriptWriterService:
             yield f"event: done\ndata: {json.dumps(result, ensure_ascii=False)}\n\n"
             return
 
-        # Stream tokens
+        # Stream tokens — wrap the LLM call so any failure (timeout,
+        # connect error, rate limit) becomes a terminal SSE error event
+        # the frontend can render. Without this, an exception drops the
+        # stream silently and the user sees a stuck spinner with no
+        # explanation.
         full_output = ""
         state = "before_think"  # before_think → in_think → after_think / no_think
+        try:
+            async for token in adapter._chat_stream(
+                system_prompt, user_message, temperature=0.8, timeout=600
+            ):
+                full_output += token
 
-        async for token in adapter._chat_stream(
-            system_prompt, user_message, temperature=0.8, timeout=600
-        ):
-            full_output += token
+                if state == "before_think":
+                    if "<think>" in full_output:
+                        state = "in_think"
+                        after_tag = full_output.split("<think>", 1)[1]
+                        if after_tag:
+                            yield f"event: thinking\ndata: {json.dumps(after_tag, ensure_ascii=False)}\n\n"
+                    elif len(full_output) > 20 and "<" not in full_output:
+                        state = "no_think"
+                        yield f"event: token\ndata: {json.dumps(full_output, ensure_ascii=False)}\n\n"
 
-            if state == "before_think":
-                if "<think>" in full_output:
-                    state = "in_think"
-                    after_tag = full_output.split("<think>", 1)[1]
-                    if after_tag:
-                        yield f"event: thinking\ndata: {json.dumps(after_tag, ensure_ascii=False)}\n\n"
-                elif len(full_output) > 20 and "<" not in full_output:
-                    state = "no_think"
-                    yield f"event: token\ndata: {json.dumps(full_output, ensure_ascii=False)}\n\n"
+                elif state == "in_think":
+                    if "</think>" in full_output:
+                        before_close = token.split("</think>")[0]
+                        if before_close:
+                            yield f"event: thinking\ndata: {json.dumps(before_close, ensure_ascii=False)}\n\n"
+                        state = "after_think"
+                        yield "event: thinking_done\ndata: {}\n\n"
+                        after_close = token.split("</think>")[-1] if "</think>" in token else ""
+                        if after_close.strip():
+                            yield f"event: token\ndata: {json.dumps(after_close, ensure_ascii=False)}\n\n"
+                    else:
+                        yield f"event: thinking\ndata: {json.dumps(token, ensure_ascii=False)}\n\n"
 
-            elif state == "in_think":
-                if "</think>" in full_output:
-                    before_close = token.split("</think>")[0]
-                    if before_close:
-                        yield f"event: thinking\ndata: {json.dumps(before_close, ensure_ascii=False)}\n\n"
-                    state = "after_think"
-                    yield "event: thinking_done\ndata: {}\n\n"
-                    after_close = token.split("</think>")[-1] if "</think>" in token else ""
-                    if after_close.strip():
-                        yield f"event: token\ndata: {json.dumps(after_close, ensure_ascii=False)}\n\n"
-                else:
-                    yield f"event: thinking\ndata: {json.dumps(token, ensure_ascii=False)}\n\n"
-
-            elif state in ("after_think", "no_think"):
-                yield f"event: token\ndata: {json.dumps(token, ensure_ascii=False)}\n\n"
+                elif state in ("after_think", "no_think"):
+                    yield f"event: token\ndata: {json.dumps(token, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            # Reach here on LLM timeout / proxy error / rate limit etc.
+            # Surface a structured error to the client so the spinner
+            # stops and the toast tells the user what went wrong.
+            logger.exception("ScriptWriter stream: LLM call failed")
+            detail = str(e)
+            resp = getattr(e, "response", None)
+            if resp is not None:
+                try:
+                    body = resp.json()
+                    err = body.get("error")
+                    if isinstance(err, dict) and err.get("message"):
+                        detail = err["message"]
+                    else:
+                        detail = body.get("message") or body.get("detail") or detail
+                except Exception:
+                    pass
+            yield f"event: error\ndata: {json.dumps({'message': detail[:500]}, ensure_ascii=False)}\n\n"
+            return
 
         elapsed = time.monotonic() - t0
         if state == "in_think":

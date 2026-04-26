@@ -7,7 +7,284 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+import uuid as _uuid
+from dataclasses import dataclass
+from typing import Any, Literal
+
+
+@dataclass
+class ResolvedTrendContext:
+    """All trend signals available for one creation request, normalized.
+
+    Three inputs converge here:
+      - ``external_context_text`` — raw text the user pasted (or extracted
+        from a URL) directly in this app's panel
+      - ``hotspot`` — structured trend read inherited from a topic-studio
+        plan via ``topic_plan_id`` (already extracted, persisted on the
+        plan row's ``hotspot_json``)
+      - ``do_not_associate`` / ``relevance_tier`` — per-plan guardrails
+        from the same inheritance path; missing for direct-input flow
+
+    A request can have any combination of direct + inherited signals;
+    the format helpers handle the merge."""
+
+    external_context_text: str | None = None
+    external_context_url: str | None = None
+    hotspot: dict | None = None
+    do_not_associate: list[str] | None = None
+    relevance_tier: str | None = None
+
+    @property
+    def is_active(self) -> bool:
+        """True iff at least one trend signal is present — caller uses
+        this to decide whether to inject any block at all."""
+        return bool(self.external_context_text or self.hotspot)
+
+
+async def resolve_trend_context(
+    session,
+    *,
+    topic_plan_id: _uuid.UUID | str | None = None,
+    external_context_text: str | None = None,
+    external_context_url: str | None = None,
+) -> ResolvedTrendContext:
+    """Merge direct trend input with the topic-plan-inherited signals.
+
+    Direct input wins on conflict (user just pasted is the freshest
+    signal); inherited hotspot is preserved as supplementary context so
+    the prompt can still reference event/keywords even when the user
+    pasted their own variant of the same trend.
+
+    Returns a struct that's safe to pass to ``format_*_trend_*_block``
+    helpers — they no-op when ``is_active`` is False.
+    """
+    text = (external_context_text or "").strip() or None
+    url = (external_context_url or "").strip() or None
+
+    hotspot = None
+    do_not_associate = None
+    relevance_tier = None
+    if topic_plan_id:
+        from app.models.topic_plan import TopicPlan
+        try:
+            pid = topic_plan_id if isinstance(topic_plan_id, _uuid.UUID) else _uuid.UUID(str(topic_plan_id))
+            plan = await session.get(TopicPlan, pid)
+            if plan:
+                if isinstance(plan.hotspot_json, dict):
+                    hotspot = plan.hotspot_json
+                if isinstance(plan.do_not_associate_json, list):
+                    do_not_associate = plan.do_not_associate_json
+                if plan.relevance_tier:
+                    relevance_tier = plan.relevance_tier
+        except (ValueError, TypeError):
+            pass
+
+    return ResolvedTrendContext(
+        external_context_text=text,
+        external_context_url=url,
+        hotspot=hotspot,
+        do_not_associate=do_not_associate,
+        relevance_tier=relevance_tier,
+    )
+
+
+# Topic-generation system block — used by topic_studio to instruct the
+# LLM to (a) extract a structured hotspot, (b) tag each topic with a
+# four-tier relevance score, (c) audit per-topic risk, (d) adopt the
+# practitioner stance. Must remain byte-identical to the prior inline
+# version to preserve topic_studio quality.
+_TREND_SYSTEM_TOPIC_GEN_EN = """
+
+## Trend-Bridge Mode (External Context Provided)
+The user has supplied external context (a news article / release note / trend write-up). Your guiding principle:
+
+> Don't shove the product into the trend. Find what the audience really cares about behind the trend, then let the product appear as a solution naturally.
+
+**TEMPORAL ANCHOR — the trend is happening RIGHT NOW**:
+Treat the external context as a CURRENT / RECENT event, not a memory. Do NOT use retrospective framing: "back when X launched", "last year when we started using X", "I've been using X for months". You may not have "experienced" the trend yet — you and the audience are both reacting to it as it lands. This rule overrides any pull toward reminiscent storytelling that "feels more credible". Authentic NOW > fake retrospective.
+
+Step 1 — Extract a structured read of the trend:
+- event: one-sentence factual summary
+- keywords: 3-7 keywords readers would search
+- public_attention: what the wider audience really cares about (not the press release angle)
+- risk_zones: angles to avoid (false claims, regulatory issues, awkward over-association)
+
+Step 2 — For each topic, judge KB-to-trend relevance and tag one of:
+- strong: the offer is a direct beneficiary or capable participant of this trend → product can be named in-frame
+- medium: industry-level resonance; product appears at the end as one of several answers, not the headline
+- weak: pure opinion piece; product not pushed (may not even be mentioned)
+- (Reject "no relation" — never generate a topic where the connection is forced)
+
+If you can't find a credible KB anchor for a given trend angle, emit FEWER topics rather than fabricate one. Quality over count.
+
+Step 3 — Per-topic risk audit:
+- risk_of_forced_relevance: 0-1 score (>0.7 means the bridge feels stretched)
+- do_not_associate: list any angles you intentionally avoided and why
+
+Step 4 — Pick a stance:
+- Practitioner / user-of-the-tech voice = **a current participant in this industry reacting to the news AS IT HAPPENS** ("I just read X, here's what I'm thinking about")
+- NOT retrospective voice ("back when X launched, I was already using it")
+- NOT bystander voice ("X just launched, isn't that exciting, btw buy our thing")
+"""
+
+_TREND_SYSTEM_TOPIC_GEN_ZH = """
+
+## 趁热点模式（用户提供了外部上下文）
+用户给了一段外部文本（新闻 / 发布说明 / 行业动态）。你的工作原则：
+
+> 不是把产品硬塞进热点，而是找到热点背后用户正在关心的问题，再让产品作为解决方案自然出现。
+
+**时间锚点 —— 这个热点正在"当下"发生**：
+把外部上下文当作**当下 / 最近**发生的事，不是回忆。**绝对不要**用回顾式框架："那时候/去年冬天/几年前 X 发布的时候"、"我已经用 X 三个月了"、"记得 X 刚出来时" —— 你和受众都还**没有**用过这个热点本身（它刚发生），你们是**在新闻落地的当下做出反应**。这条规则**优先于**任何"回忆叙事更可信"的写作惯性。**真实的当下 > 编造的回忆**。
+
+第 1 步 —— 先做一次结构化提取，理解这个热点本身：
+- event：一句话事实摘要
+- keywords：3-7 个真正会被搜索的关键词
+- public_attention：大众真正在意的是什么（不是新闻通稿的角度）
+- risk_zones：哪些角度不要碰（虚假宣传 / 合规风险 / 强行蹭关联）
+
+第 2 步 —— 对每个选题，判断 KB 与热点的关联度，标记其中一个：
+- strong：产品是这个热点的直接受益方/能力参与者 → 可以正面点名产品
+- medium：行业层共鸣；产品只在结尾作为几种答案之一出现，不抢镜
+- weak：纯观点输出；产品不强带（甚至可以完全不提）
+- （绝不出现 "no relation" 强行硬接 —— 找不到桥就少出选题）
+
+如果某个热点角度找不到可信的 KB 锚点，**宁可少出选题，也不要硬造**。质量优先。
+
+第 3 步 —— 对每条选题做风险自检：
+- risk_of_forced_relevance：0-1 评分（>0.7 表示桥接已经牵强）
+- do_not_associate：列出你刻意避开的角度，简要说明原因
+
+第 4 步 —— 选择叙述视角：
+- 从业者 / 使用者口吻 = **当下身处这个行业的人，刚看到这条新闻在做出反应**（"我刚刷到 X，我在想……"、"这事挺有意思，我准备……"）
+- ❌ 不要回顾视角（"那时候 X 刚发布，我已经用上了"、"还记得 X 刚出来时……"）
+- ❌ 不要路人腔（"X 来了好厉害，顺便买我们家的"）
+"""
+
+# Script / content-generation system block — single bridge instruction
+# instead of the multi-step topic_gen scaffold. The LLM writes ONE
+# script that bridges the user's chosen topic with the trend; no
+# multi-plan tier scoring, no JSON wrapper. The "solution naturally
+# appears" stance is identical so creator voice stays consistent across
+# the generation pipeline.
+_TREND_SYSTEM_SCRIPT_GEN_EN = """
+
+## Trend-Bridge Mode (External Context Provided)
+The user has supplied external context (article / release note / trend write-up). Your guiding principle:
+
+> Don't shove the product into the trend. Find what the audience really cares about behind the trend, then let the product appear as a solution naturally.
+
+**TEMPORAL ANCHOR — the trend is happening RIGHT NOW**:
+Treat the external context as a CURRENT / RECENT event, not a memory. Do NOT use retrospective framing like "back when X launched", "last winter when I started using X", "I've been using X for months / for years". You may not have "experienced" the trend yet — you and the audience are both reacting to it as it lands. This rule **overrides** any pull toward reminiscent storytelling, even if "I remember when..." would feel more credible. **Authentic NOW > fake retrospective.** A practitioner reacting to today's news is more believable than a fabricated past.
+
+Bridge requirements:
+- The hook must reference the trend explicitly within the first 3 seconds, but the body must pivot to the audience's real pain — not stay on the news.
+- Practitioner / user-of-the-tech voice = **a current participant in the affected industry reacting to the news AS IT HAPPENS** ("I just read X, here's what I'm noticing", "this just dropped, and it makes me think about Y"). NOT a retrospective veteran ("back in those days"). NOT a news commenter.
+- If the prompt below carries a ``do_not_associate`` list or trend ``risk_zones``, those are HARD constraints — do not violate them even if the user's topic invites it.
+- If a ``relevance_tier`` is provided: ``strong`` → the product can be named directly in the body; ``medium`` → product appears at the end as one of several answers; ``weak`` → product mention is restrained or omitted entirely.
+"""
+
+_TREND_SYSTEM_SCRIPT_GEN_ZH = """
+
+## 趁热点模式（用户提供了外部上下文）
+用户提供了一段外部文本（文章 / 发布说明 / 行业动态）。你的工作原则：
+
+> 不是把产品硬塞进热点，而是找到热点背后用户正在关心的问题，再让产品作为解决方案自然出现。
+
+**时间锚点 —— 这个热点正在"当下"发生**：
+把外部上下文当作**当下 / 最近**发生的事，**不是回忆**。**绝对不要**用回顾式框架：
+- ❌ "去年冬天 X 刚发布的时候，我已经用上了"
+- ❌ "那时候 X 出来，我接了几个项目"
+- ❌ "我用 X 三个月了 / 用 X 半年了"
+- ❌ "记得 X 刚出来时"
+
+你和受众都还**没有真正"用过"这个热点本身**（它刚发生），你们是**在新闻落地的当下做出反应**。这条规则**优先于**任何"回忆叙事更可信"的写作惯性 —— 哪怕"我记得当年……"听起来更有从业者味道，**真实的当下永远比编造的过去更可信**。一个"刚刷到这条新闻的从业者在思考"比"已经用了 X 半年的虚构资深用户"更有说服力。
+
+桥接硬要求：
+- 钩子前 3 秒必须明确点到热点，但主体段必须**转向受众的真实痛点**，不要停留在新闻本身。
+- 从业者 / 使用者口吻 = **当下身处这个行业的人，刚看到这条新闻在做出反应**（"我刚刷到 X，我在想……"、"这事让我想到一个一直没解决的问题……"、"这个能力如果稳定下来，我准备拿它做……"）。**不是回忆派老兵**（"那年我已经在用了"），**不是新闻评论员**。
+- 如果下方上下文中给了 ``do_not_associate`` 列表或 ``risk_zones``，**这些是硬约束**，即便用户的选题邀请你触碰也不要触碰。
+- 如果给出了 ``relevance_tier``：``strong`` → 产品可以正面点名；``medium`` → 产品只在结尾作为几种答案之一出现；``weak`` → 产品克制或完全不提。
+"""
+
+
+def format_trend_system_block(
+    mode: Literal["topic_gen", "script_gen"],
+    *,
+    language: str = "zh-CN",
+) -> str:
+    """Return the system-prompt addendum that turns on trend-bridge mode.
+
+    Caller appends to the system prompt unconditionally — the helper is
+    a pure function of ``mode`` + ``language``, doesn't read state.
+    Caller is responsible for only invoking when trend is actually
+    present (``ResolvedTrendContext.is_active``).
+    """
+    is_en = language.startswith("en")
+    if mode == "topic_gen":
+        return _TREND_SYSTEM_TOPIC_GEN_EN if is_en else _TREND_SYSTEM_TOPIC_GEN_ZH
+    if mode == "script_gen":
+        return _TREND_SYSTEM_SCRIPT_GEN_EN if is_en else _TREND_SYSTEM_SCRIPT_GEN_ZH
+    raise ValueError(f"unknown trend-bridge mode: {mode!r}")
+
+
+def format_trend_user_block(
+    trend: ResolvedTrendContext,
+    *,
+    language: str = "zh-CN",
+) -> str:
+    """Return the user-message addendum describing the trend itself.
+
+    Two information sources weave together:
+      - Inherited ``hotspot`` (event / keywords / public_attention /
+        risk_zones) — already structured, render as labeled bullets.
+      - ``external_context_text`` — raw user paste, render as a quoted
+        block so the LLM can read it directly.
+      - ``do_not_associate`` (per-topic) and ``relevance_tier`` —
+        downstream guardrails, surface as HARD constraints.
+
+    Empty string when ``trend.is_active`` is False — caller can safely
+    concatenate without branching.
+    """
+    if not trend.is_active:
+        return ""
+
+    is_en = language.startswith("en")
+    parts: list[str] = []
+
+    header = "## External Trend (transient, must bridge naturally — NOT product info)" if is_en else "## 外部热点（一次性，必须自然桥接 —— 不是产品信息本身）"
+    parts.append("\n" + header)
+
+    if trend.hotspot:
+        h = trend.hotspot
+        if h.get("event"):
+            parts.append(f"- **event**: {h['event']}")
+        if h.get("keywords"):
+            kw = h["keywords"] if isinstance(h["keywords"], list) else []
+            if kw:
+                parts.append(f"- **keywords**: {', '.join(str(k) for k in kw)}")
+        if h.get("public_attention"):
+            label = "audience really cares about" if is_en else "大众真正关心的"
+            parts.append(f"- **{label}**: {h['public_attention']}")
+        if h.get("risk_zones"):
+            rz = h["risk_zones"] if isinstance(h["risk_zones"], list) else []
+            if rz:
+                label = "risk zones (HARD avoid)" if is_en else "风险点（硬性回避）"
+                parts.append(f"- **{label}**:\n  - " + "\n  - ".join(str(r) for r in rz))
+
+    if trend.external_context_text:
+        label = "Raw external context" if is_en else "外部原文"
+        parts.append(f"\n### {label}\n{trend.external_context_text}")
+
+    if trend.do_not_associate:
+        label = "do_not_associate (HARD avoid these angles)" if is_en else "do_not_associate（硬性回避以下角度）"
+        parts.append(f"\n### {label}\n- " + "\n- ".join(str(d) for d in trend.do_not_associate))
+
+    if trend.relevance_tier:
+        label = "Product mention strength" if is_en else "产品出场强度"
+        parts.append(f"\n### {label}: {trend.relevance_tier}")
+
+    return "\n".join(parts) + "\n"
 
 
 def format_brand_voice_layer(brand_voice: str | None, language: str = "zh-CN") -> str:
@@ -240,6 +517,47 @@ def rank_knowledge_for_strategy(
                 text_bonus = min(overlap / max(len(context_tokens), 1) * 0.5, 0.5)
 
         scored.append((base_score + text_bonus, -idx, ki))  # -idx for stable sort
+
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [item for _, _, item in scored[:max_items]]
+
+
+def rank_knowledge_for_external_context(
+    knowledge_items: list[dict[str, Any]],
+    external_context_text: str,
+    *,
+    max_items: int = 18,
+) -> list[dict[str, Any]]:
+    """Rank KB items by token overlap with an external trend / hot-topic
+    blob. Used by topic_studio's trend-bridge mode so we don't ship every
+    KB row to the LLM when only a third of them connect to the trend.
+
+    No-op (returns the input) when context is empty or the list is
+    already short enough — the caller doesn't need to branch.
+
+    The 0.4 floor on the overlap multiplier means even items that don't
+    match a single trend keyword still rank by recency (preserves stable
+    sort fallback) — important so the LLM still has anchor diversity if
+    the keyword overlap is sparse.
+    """
+    ctx = (external_context_text or "").strip()
+    if not ctx or not knowledge_items or len(knowledge_items) <= max_items:
+        return knowledge_items
+
+    ctx_tokens = _tokenize(ctx)
+    if not ctx_tokens:
+        return knowledge_items[:max_items]
+
+    scored: list[tuple[float, int, dict]] = []
+    for idx, ki in enumerate(knowledge_items):
+        item_text = f"{ki.get('title', '')} {ki.get('content_raw', '')}"
+        item_tokens = _tokenize(item_text)
+        if not item_tokens:
+            score = 0.4
+        else:
+            overlap = len(ctx_tokens & item_tokens)
+            score = 0.4 + min(overlap / max(len(ctx_tokens), 1), 1.0) * 0.6
+        scored.append((score, -idx, ki))
 
     scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
     return [item for _, _, item in scored[:max_items]]

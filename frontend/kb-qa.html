@@ -98,13 +98,13 @@
             </template>
           </select>
         </div>
-        <div class="flex items-center gap-2" x-show="llmConfigs.length > 0" x-cloak>
+        <div class="flex items-center gap-2" x-show="modelOptions.length > 0" x-cloak>
           <label class="text-sm text-gray-500 shrink-0" x-text="t('model_label')"></label>
-          <select x-model="configId"
+          <select x-model="modelKey"
                   class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent min-w-[10rem]">
             <option value="" x-text="t('model_default')"></option>
-            <template x-for="c in llmConfigs" :key="c.id">
-              <option :value="c.id" x-text="c.label + ' (' + c.model_name + ')'"></option>
+            <template x-for="m in modelOptions" :key="m.key">
+              <option :value="m.key" x-text="m.label"></option>
             </template>
           </select>
         </div>
@@ -285,9 +285,11 @@
         knowledgeByType: {},
         loadingCtx: false,
 
-        // LLM model selector
-        llmConfigs: [],
-        configId: '',
+        // LLM model selector — composite (config_id::model_name) keys.
+        // Empty modelKey means "follow scene default" (kb-qa always
+        // exposes a "Default" option, unlike topic-studio).
+        modelOptions: [],
+        modelKey: '',
 
         // Styles
         styles: [],
@@ -318,7 +320,12 @@
 
           if (offersRes?.ok) this.offers = (await offersRes.json()).items || [];
           if (stylesRes?.ok) this.styles = await stylesRes.json();
-          if (llmRes?.ok) this.llmConfigs = await llmRes.json();
+          // Model expansion runs in the background — see topic-studio.html
+          // for the full rationale (don't block page on /v1/models).
+          const llmConfigs = (llmRes?.ok ? await llmRes.json() : []) || [];
+          window.odHeaderSelectors.expandConfigsToModels(llmConfigs, API).then(opts => {
+            this.modelOptions = opts;
+          }).catch(e => console.error('Model expansion failed', e));
 
           // Determine offer (priority: URL > last used), wait for <option>s to render
           let targetOffer = this._urlOfferId || localStorage.getItem('od_last_kbqa_offer') || '';
@@ -387,6 +394,7 @@
           this.answerStyleId = this.styleId;
 
           try {
+            const sel = window.odHeaderSelectors.splitModelKey(this.modelKey);
             const res = await fetch(`${API}/apps/kb-qa/ask/stream`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -394,7 +402,8 @@
                 offer_id: this.offerId,
                 question: this.question.trim(),
                 style_id: this.styleId,
-                config_id: this.configId || undefined,
+                config_id: sel.config_id || undefined,
+                model_override: sel.model_name || undefined,
                 language: getApiLang(),
               }),
             });
@@ -409,6 +418,7 @@
             const reader = res.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
+            let sawTerminal = false;  // saw a clean result OR error event
 
             while (true) {
               const { done, value } = await reader.read();
@@ -447,14 +457,30 @@
                     if (el) el.open = false;
                   });
                 } else if (eventType === 'result') {
+                  sawTerminal = true;
                   const result = JSON.parse(data);
                   this.answer = result.answer;
                   this.answerStyleId = result.style_id || this.styleId;
                   this.referencedKnowledge = result.referenced_knowledge || [];
                   this.knowledgeCount = result.knowledge_count || 0;
                   this.hasRelevantKnowledge = result.has_relevant_knowledge;
+                } else if (eventType === 'error') {
+                  // Backend signaled an LLM failure (timeout / proxy /
+                  // rate limit). Surface the detail — otherwise the
+                  // spinner stops silently.
+                  sawTerminal = true;
+                  try {
+                    const errData = JSON.parse(data);
+                    toast.error(t('ask_failed') + (errData.message || ''));
+                  } catch {
+                    toast.error(t('ask_failed'));
+                  }
                 }
               }
+            }
+            if (!sawTerminal) {
+              // Connection closed with no terminal event = abrupt drop.
+              toast.error(t('ask_failed_retry'));
             }
           } catch(e) {
             console.error(e);

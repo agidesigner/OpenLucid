@@ -66,11 +66,13 @@ async def generate_topics_for_unit(
         count=data.count,
     )
     svc = TopicPlanService(db)
-    plans = await svc.generate(request)
+    plans, thinking, hotspot = await svc.generate(request)
     return TopicPlanGenerateResponse(
         offer_id=coverage.offer_id,
         count=len(plans),
         plans=plans,
+        thinking=thinking,
+        hotspot=hotspot,
     )
 
 

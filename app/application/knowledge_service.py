@@ -18,11 +18,14 @@ class KnowledgeService:
         return await self.repo.create(**data.model_dump())
 
     async def batch_create(self, items: list[KnowledgeItemCreate]) -> list[KnowledgeItem]:
-        results = []
-        for data in items:
-            item = await self.repo.create(**data.model_dump())
-            results.append(item)
-        return results
+        # Single ``session.add_all`` + one ``flush`` lets SQLAlchemy batch the
+        # writes into a single multi-row INSERT (insertmanyvalues), instead
+        # of N sequential round-trips. Wizard-generated KB batches are
+        # typically 10–25 items, so this is the dominant path.
+        models = [KnowledgeItem(**data.model_dump()) for data in items]
+        self.repo.session.add_all(models)
+        await self.repo.session.flush()
+        return models
 
     async def batch_upsert(self, items: list[KnowledgeItemCreate]) -> dict:
         updated, created, results = 0, 0, []

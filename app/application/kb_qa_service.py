@@ -83,7 +83,12 @@ class KBQAService:
         Returns (adapter, knowledge_items, all_items, style_prompt, context).
         """
         if not self.ai:
-            self.ai = await get_ai_adapter(self.session, scene_key="kb_qa", config_id=request.config_id)
+            self.ai = await get_ai_adapter(
+                self.session,
+                scene_key="kb_qa",
+                config_id=request.config_id,
+                model_override=request.model_override,
+            )
 
         logger.info("KB QA: using adapter %s/%s for offer %s",
                      getattr(self.ai, 'provider', '?'), getattr(self.ai, 'model', '?'), request.offer_id)
@@ -183,36 +188,54 @@ class KBQAService:
         system = adapter._build_kb_qa_prompt(knowledge_items, style_prompt, language=request.language)
         system += format_brand_voice_layer(brand_voice, request.language)
 
-        # Stream tokens from LLM, detecting <think>...</think> boundaries
+        # Stream tokens from LLM, detecting <think>...</think> boundaries.
+        # Wrap the LLM iteration in try/except so any failure (timeout,
+        # connect error, rate limit, insufficient balance) becomes a
+        # terminal SSE error event the frontend can render. Without
+        # this, an exception drops the stream silently and the user
+        # sees a stuck spinner with no explanation. Mirror the pattern
+        # used by topic_studio + script_writer streaming endpoints.
         full_output = ""
-        # States: "before_think" → "in_think" → "after_think" (or "no_think" if never enters)
-        state = "before_think"
+        state = "before_think"  # before_think → in_think → after_think (or no_think)
 
-        async for token in adapter._chat_stream(system, request.question, temperature=0.3):
-            full_output += token
+        try:
+            async for token in adapter._chat_stream(system, request.question, temperature=0.3):
+                full_output += token
 
-            if state == "before_think":
-                # Wait until we see <think> or enough content to know there's none
-                if "<think>" in full_output:
-                    state = "in_think"
-                    # Emit whatever came after <think>
-                    after_tag = full_output.split("<think>", 1)[1]
-                    if after_tag:
-                        yield f"event: thinking\ndata: {json.dumps(after_tag, ensure_ascii=False)}\n\n"
-                elif len(full_output) > 20 and "<" not in full_output:
-                    # LLM is outputting content without thinking
-                    state = "no_think"
+                if state == "before_think":
+                    if "<think>" in full_output:
+                        state = "in_think"
+                        after_tag = full_output.split("<think>", 1)[1]
+                        if after_tag:
+                            yield f"event: thinking\ndata: {json.dumps(after_tag, ensure_ascii=False)}\n\n"
+                    elif len(full_output) > 20 and "<" not in full_output:
+                        state = "no_think"
 
-            elif state == "in_think":
-                if "</think>" in full_output:
-                    # Send the portion of this token before </think>
-                    before_close = token.split("</think>")[0]
-                    if before_close:
-                        yield f"event: thinking\ndata: {json.dumps(before_close, ensure_ascii=False)}\n\n"
-                    state = "after_think"
-                    yield "event: thinking_done\ndata: {}\n\n"
-                else:
-                    yield f"event: thinking\ndata: {json.dumps(token, ensure_ascii=False)}\n\n"
+                elif state == "in_think":
+                    if "</think>" in full_output:
+                        before_close = token.split("</think>")[0]
+                        if before_close:
+                            yield f"event: thinking\ndata: {json.dumps(before_close, ensure_ascii=False)}\n\n"
+                        state = "after_think"
+                        yield "event: thinking_done\ndata: {}\n\n"
+                    else:
+                        yield f"event: thinking\ndata: {json.dumps(token, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            logger.exception("KB QA stream: LLM call failed")
+            detail = str(e)
+            resp = getattr(e, "response", None)
+            if resp is not None:
+                try:
+                    body = resp.json()
+                    err = body.get("error")
+                    if isinstance(err, dict) and err.get("message"):
+                        detail = err["message"]
+                    else:
+                        detail = body.get("message") or body.get("detail") or detail
+                except Exception:
+                    pass
+            yield f"event: error\ndata: {json.dumps({'message': detail[:500]}, ensure_ascii=False)}\n\n"
+            return
 
         elapsed = time.monotonic() - t0
 

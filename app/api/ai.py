@@ -200,9 +200,18 @@ def _extract_pdf_text(content: bytes) -> str:
 
 
 def _strip_jina_metadata(text: str) -> str:
-    """Strip Jina Reader metadata headers. Leave content as-is — LLM handles markdown fine."""
+    """Strip Jina Reader's own metadata + warning lines. Leave content
+    as-is — LLM handles markdown fine.
+
+    Jina prepends ``Title:`` / ``URL Source:`` / ``Published Time:`` /
+    ``Markdown Content:`` lines, and on JS-rendered SPAs it also leaks
+    ``Warning: This page contains iframe...`` / ``Warning: This is a
+    cached snapshot...`` etc. Both are diagnostic noise that should not
+    reach the LLM as if they were product copy.
+    """
     import re
     text = re.sub(r"^(Title|URL Source|Published Time|Markdown Content):.*$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^Warning:.*$", "", text, flags=re.MULTILINE)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
@@ -327,15 +336,46 @@ async def _extract_url_text(url: str) -> str:
         raw_html = ""
     metadata_prefix = _harvest_structured_metadata(raw_html)
 
+    # Jina Reader does the heavy lifting (JS-render + content extraction).
+    # Headers we add (per https://jina.ai/reader docs):
+    #   X-Return-Format: markdown  — structured output instead of raw text
+    #     dump; preserves headings/lists so downstream LLM can read hierarchy
+    #   X-Retain-Images: none      — drop ![alt](url) markdown image refs;
+    #     OpenLucid's KB inference uses text only, image links are noise
+    #
+    # NOT setting X-Remove-Selector. Tried it (nav/footer/aside/[role=*]
+    # to drop boilerplate); it cleaned ~17% off privacycrop.com but
+    # *destroyed* chanjing.cc — chanjing wraps real product features in
+    # ``<nav>`` and ``[role=navigation]``-style landmarks, so our generic
+    # boilerplate selector sliced into the actual content. Trusting Jina's
+    # default extraction is safer than imposing our own structural
+    # heuristic across heterogeneous sites.
     jina_url = f"https://r.jina.ai/{url}"
+    jina_headers = {
+        "Accept": "text/plain",
+        "X-Return-Format": "markdown",
+        "X-Retain-Images": "none",
+    }
     jina_error = None
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=45) as client:
-            resp = await client.get(jina_url, headers={"Accept": "text/plain"})
+            resp = await client.get(jina_url, headers=jina_headers)
             resp.raise_for_status()
             text = _strip_jina_metadata(resp.text)
-            if text:
+            # Quality threshold mirrors the fallback path's: under 200
+            # chars usually means Jina hit a JS-only SPA and could only
+            # extract the <title>. Letting that through would feed the
+            # KB-inference LLM ~30 chars of nothing and produce shallow
+            # output. Fall through to the raw-HTML fallback (which often
+            # at least has marketing copy in the initial HTML payload),
+            # and if THAT also comes up dry, raise the existing "please
+            # paste content directly" message.
+            if text and len(text) >= 200:
                 return metadata_prefix + text
+            logger.info(
+                "Jina returned thin content for %s (%d chars after strip) — trying direct-fetch fallback",
+                url, len(text),
+            )
     except Exception as e:
         jina_error = str(e)
         logger.warning("Jina Reader failed for %s: %s, falling back to direct fetch", url, jina_error)
@@ -550,6 +590,17 @@ async def extract_text_from_source(
         return normalized, "file", file.filename
 
     if url:
+        # Normalize: users routinely paste ``privacycrop.com`` or
+        # ``www.privacycrop.com`` without a scheme. Prepend ``https://`` so
+        # httpx accepts the URL; if the host doesn't resolve the user will
+        # get a real DNS error instead of the confusing "missing protocol"
+        # message. Protocol-relative URLs (``//host/path``) keep their path.
+        import re as _re_url
+        url = url.strip()
+        if url.startswith("//"):
+            url = "https:" + url
+        elif not _re_url.match(r"^https?://", url, _re_url.IGNORECASE):
+            url = "https://" + url
         if url.lower().endswith((".pdf", ".docx", ".doc")):
             try:
                 async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:

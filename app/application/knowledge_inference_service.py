@@ -219,23 +219,25 @@ class KnowledgeInferenceService:
                 model_label=f"{adapter.provider}/{adapter.model}",
             )
 
-        # Persist. The (scope_type, scope_id, knowledge_type, title)
-        # unique constraint (uq_knowledge_title) means re-inferring an
-        # offer that already has KB rows is safe — same-titled rows
-        # get their content/confidence/source updated, new ones get
-        # inserted. No row duplication.
-        written = updated = 0
-        by_type: dict[str, int] = {}
+        # Persist. The ``(scope_type, scope_id, knowledge_type, title)``
+        # unique constraint (``uq_knowledge_title``) lets us upsert the
+        # whole batch in one PG ``INSERT ... ON CONFLICT DO UPDATE`` —
+        # was N×2 sequential round-trips per item (find_by_title + then
+        # update/create), now a single statement. ``confidence`` is
+        # ``COALESCE(EXCLUDED.confidence, current)``-merged in the repo
+        # helper so an LLM run that returns no score preserves the
+        # prior one.
         source_ref = f"auto-infer:{trigger}:{offer_id}"
+        rows: list[dict] = []
+        by_type: dict[str, int] = {}
 
         for kt in _KNOWLEDGE_TYPES:
             for item in raw.get(kt) or []:
                 if not isinstance(item, dict):
                     continue
                 title = (item.get("title") or "").strip()
-                content_raw = item.get("content_raw") or ""
                 if not title:
-                    continue  # adapter returned a malformed entry — skip
+                    continue  # malformed — skip
 
                 confidence = item.get("confidence")
                 try:
@@ -243,41 +245,20 @@ class KnowledgeInferenceService:
                 except (TypeError, ValueError):
                     confidence = None
 
-                existing = await self.kb_repo.find_by_title(
-                    "offer", offer_id, kt, title,
-                )
-                if existing:
-                    # KnowledgeItemRepository.update filters None
-                    # kwargs (a v1.1.5-class bug not yet fixed for
-                    # this repo). Build kwargs explicitly without
-                    # confidence when the LLM didn't supply one — so
-                    # an "AI returned no confidence" run preserves
-                    # the prior confidence rather than depending on
-                    # the repo's filter.
-                    update_kwargs = {
-                        "content_raw": content_raw,
-                        "source_type": "ai_inferred",
-                        "source_ref": source_ref,
-                        "language": lang,
-                    }
-                    if confidence is not None:
-                        update_kwargs["confidence"] = confidence
-                    await self.kb_repo.update(existing, **update_kwargs)
-                    updated += 1
-                else:
-                    await self.kb_repo.create(
-                        scope_type="offer",
-                        scope_id=offer_id,
-                        knowledge_type=kt,
-                        title=title,
-                        content_raw=content_raw,
-                        source_type="ai_inferred",
-                        source_ref=source_ref,
-                        confidence=confidence,
-                        language=lang,
-                    )
-                    written += 1
+                rows.append({
+                    "scope_type": "offer",
+                    "scope_id": offer_id,
+                    "knowledge_type": kt,
+                    "title": title,
+                    "content_raw": item.get("content_raw") or "",
+                    "source_type": "ai_inferred",
+                    "source_ref": source_ref,
+                    "language": lang,
+                    "confidence": confidence,
+                })
                 by_type[kt] = by_type.get(kt, 0) + 1
+
+        written, updated, _ids = await self.kb_repo.upsert_many_full(rows)
 
         return KnowledgeInferenceReport(
             success=True, offer_id=offer_id,

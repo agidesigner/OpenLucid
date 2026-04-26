@@ -28,3 +28,26 @@ class TopicPlan(BaseModel):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
     user_rating: Mapped[int | None] = mapped_column(nullable=True)  # 1=like, -1=dislike, NULL=unrated
     strategy_unit_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+
+    # Trend-bridge persistence — populated only when the plan was
+    # generated from external_context_text (source_mode=trend_bridge).
+    # Without these, the script-writer step has no way to know what
+    # trend the topic was riding, and copy reverts to generic KB output.
+    hotspot_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    do_not_associate_json: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    relevance_tier: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    risk_of_forced_relevance: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Pydantic-friendly aliases — TopicPlanResponse uses ``hotspot`` and
+    # ``do_not_associate`` (without the ``_json`` suffix the column name
+    # carries). ``from_attributes=True`` reads via getattr, so a property
+    # plus a same-named instance attribute (set after repo.create) both
+    # resolve. Property is the read-side default; service code may also
+    # set ``self.do_not_associate = ...`` directly to override.
+    @property
+    def hotspot(self) -> dict | None:
+        return self.hotspot_json
+
+    @property
+    def do_not_associate(self) -> list | None:
+        return self.do_not_associate_json

@@ -111,6 +111,39 @@ async def topic_studio_context_preview(
     )
 
 
+@router.post("/topic-studio/run/stream")
+async def topic_studio_run_stream(
+    data: TopicStudioRunRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """SSE variant of topic-studio/run. Emits ``hotspot``, ``plan``,
+    ``thinking``, ``done``, and ``error`` events. Each plan event is
+    persisted before being streamed, so what the user sees in the
+    grid is always real DB rows (page refresh shows them in history).
+
+    The non-streaming endpoint stays available for MCP / programmatic
+    callers that prefer a single JSON response.
+    """
+    svc = TopicPlanService(db)
+    request = TopicPlanGenerateRequest(
+        offer_id=data.offer_id,
+        strategy_unit_id=data.strategy_unit_id,
+        count=data.count,
+        language=data.language,
+        channel=data.channel,
+        config_id=data.config_id,
+        model_override=data.model_override,
+        instruction=data.instruction,
+        external_context_text=data.external_context_text,
+        external_context_url=data.external_context_url,
+    )
+    return StreamingResponse(
+        svc.generate_stream(request),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/topic-studio/run", response_model=TopicPlanGenerateResponse, status_code=201)
 async def topic_studio_run(
     data: TopicStudioRunRequest,
@@ -124,9 +157,13 @@ async def topic_studio_run(
         language=data.language,
         channel=data.channel,
         config_id=data.config_id,
+        model_override=data.model_override,
+        instruction=data.instruction,
+        external_context_text=data.external_context_text,
+        external_context_url=data.external_context_url,
     )
     try:
-        plans, thinking = await svc.generate(request)
+        plans, thinking, hotspot = await svc.generate(request)
     except Exception as e:
         # Extract readable message from upstream LLM errors (e.g. httpx, openai)
         detail = str(e)
@@ -143,6 +180,7 @@ async def topic_studio_run(
         count=len(plans),
         plans=plans,
         thinking=thinking,
+        hotspot=hotspot,
     )
 
 
@@ -326,6 +364,7 @@ async def script_writer_suggest_topic(
             # Omit/null ``language`` → service follows KB detection.
             language=data.get("language") or None,
             config_id=data.get("config_id"),
+            model_override=data.get("model_override"),
         )
     except Exception as e:
         logger.exception("suggest_topic failed")

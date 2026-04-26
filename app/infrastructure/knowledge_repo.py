@@ -1,6 +1,7 @@
 import uuid
 
-from sqlalchemy import delete, select, func
+from sqlalchemy import delete, select, func, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.knowledge_item import KnowledgeItem
@@ -15,6 +16,52 @@ class KnowledgeItemRepository:
         self.session.add(item)
         await self.session.flush()
         return item
+
+    async def upsert_many_full(
+        self, items: list[dict]
+    ) -> tuple[int, int, list[uuid.UUID]]:
+        """Bulk upsert via the ``uq_knowledge_title`` unique constraint
+        (``scope_type, scope_id, knowledge_type, title``). Designed for the
+        AI-inference persist path: when a row with the same title already
+        exists, the new ``content_raw / source_type / source_ref / language``
+        overwrite it; ``confidence`` only overwrites when the new payload
+        actually carries one (``COALESCE(EXCLUDED.confidence, current)``)
+        so a re-run that omits confidence doesn't wipe a prior score.
+
+        Returns ``(created, updated, ids)``. The created/updated split comes
+        from PostgreSQL's ``xmax = 0`` trick on ``RETURNING`` — newly-inserted
+        rows have ``xmax = 0``, conflict-updated rows have a non-zero ``xmax``.
+
+        Each item dict MUST include: ``scope_type, scope_id, knowledge_type,
+        title, content_raw, source_type, source_ref, language``. Optional:
+        ``confidence`` (float | None).
+        """
+        if not items:
+            return 0, 0, []
+        stmt = pg_insert(KnowledgeItem).values(items)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["scope_type", "scope_id", "knowledge_type", "title"],
+            set_={
+                "content_raw": stmt.excluded.content_raw,
+                "source_type": stmt.excluded.source_type,
+                "source_ref": stmt.excluded.source_ref,
+                "language": stmt.excluded.language,
+                "confidence": func.coalesce(
+                    stmt.excluded.confidence, KnowledgeItem.confidence
+                ),
+                "updated_at": func.now(),
+            },
+        ).returning(
+            KnowledgeItem.id,
+            text("(xmax = 0) AS inserted"),
+        )
+        result = await self.session.execute(stmt)
+        rows = result.all()
+        ids = [r[0] for r in rows]
+        created = sum(1 for r in rows if r[1])
+        updated = len(rows) - created
+        await self.session.flush()
+        return created, updated, ids
 
     async def get_by_id(self, item_id: uuid.UUID) -> KnowledgeItem | None:
         return await self.session.get(KnowledgeItem, item_id)

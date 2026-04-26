@@ -1536,6 +1536,8 @@ async def run_app(
     structure_id: str | None = None,
     goal_id: str | None = None,
     topic_plan_id: str | None = None,
+    external_context_text: str | None = None,
+    external_context_url: str | None = None,
 ) -> str:
     """Run an AI app grounded in an offer's knowledge base — the main workhorse
     for generating marketing content, answering brand questions, writing video
@@ -1657,6 +1659,11 @@ async def run_app(
                     goal_id=goal_id,
                     # Topic plan linkage
                     topic_plan_id=uuid.UUID(topic_plan_id) if topic_plan_id else None,
+                    # Trend-bridge inputs — agents can paste a trend
+                    # article URL/text directly without going through
+                    # topic_studio first.
+                    external_context_text=external_context_text or None,
+                    external_context_url=external_context_url or None,
                     # MCP-originated creations are tagged distinctly so Settings
                     # and analytics can separate agent output from WebUI output.
                     source_app="mcp:external",
@@ -1681,10 +1688,12 @@ async def run_app(
                 language=language,
                 config_id=config_id,
             )
-            plans, thinking = await svc.generate(req)
+            plans, thinking, hotspot = await svc.generate(req)
             await session.commit()
             serialized = [TopicPlanResponse.model_validate(p, from_attributes=True).model_dump(mode="json") for p in plans]
             result = {"plans": serialized, "thinking": thinking}
+            if hotspot is not None:
+                result["hotspot"] = hotspot.model_dump(mode="json", exclude_none=True)
             return json.dumps(result, ensure_ascii=False, indent=2, default=str)
 
     elif app_id == "content_studio":
@@ -1723,6 +1732,8 @@ async def run_app(
                 structure_id=structure_id,
                 goal_id=goal_id,
                 topic_plan_id=uuid.UUID(topic_plan_id) if topic_plan_id else None,
+                external_context_text=external_context_text or None,
+                external_context_url=external_context_url or None,
                 source_app="mcp:external",
             )
             result = await svc.generate(req)
