@@ -18,6 +18,76 @@ AspectRatio = Literal["portrait", "landscape", "square"]
 JobStatus = Literal["pending", "processing", "completed", "failed"]
 
 
+# ── Reference-image domain types ─────────────────────────────────────
+#
+# Two distinct semantic categories of "reference image" — confusing them
+# is what produced the chanjing 50000 "aspect ratio out of range" bug.
+#
+#   StyleReference  — Class A. "Make the video look like this." Soft.
+#                     Auto-sourced from the offer's KB by default.
+#                     Provider may DROP this silently if it has no
+#                     native style-reference field (chanjing/Doubao,
+#                     Veo as of Apr 2026), and optionally fall back to
+#                     prompt augmentation if ``description`` is set.
+#                     Aspect ratio is loose; no hard validation.
+#
+#   FirstFrame      — Class B-start. "Video begins exactly with this
+#                     frame." Hard. User explicitly uploads in the UI
+#                     for this purpose; never auto-sourced from KB.
+#                     Provider MUST raise UnsupportedReferenceMode if
+#                     it cannot honor this — silently dropping would
+#                     violate the user's explicit intent. Aspect ratio
+#                     must match the output video's aspect.
+#
+#   LastFrame       — Class B-end. Mirror of FirstFrame.
+#
+# Why this split: a StyleReference being silently dropped on chanjing
+# is the right behavior (user wanted a hint, the model couldn't take
+# it — no harm done). A FirstFrame being silently dropped on a model
+# that doesn't support i2v would mean the user uploaded a precise
+# starting frame and got back a video that ignored it — silent, hidden
+# product bug. The two semantics CANNOT share a single ``ref_img_url``
+# parameter; that's what we had before and it's why chanjing's
+# ref_img_url (a Class B field per its API contract) was being fed
+# Class A images from the offer KB.
+
+
+@dataclass(frozen=True)
+class StyleReference:
+    """Soft visual anchor — 'make it LOOK like this'.
+
+    Provider may drop this silently if unsupported. The optional
+    ``description`` lets the provider fall back to text-prompt
+    augmentation when native style-ref isn't available.
+    """
+    url: str
+    description: str | None = None
+    weight: float = 1.0  # relative importance when multiple are passed
+
+
+@dataclass(frozen=True)
+class FirstFrame:
+    """Hard temporal anchor — 'video starts exactly with this frame'.
+
+    Provider MUST raise on unsupported. Aspect must match output video."""
+    url: str
+
+
+@dataclass(frozen=True)
+class LastFrame:
+    """Hard temporal anchor — 'video ends exactly on this frame'.
+
+    Provider MUST raise on unsupported. Aspect must match output video."""
+    url: str
+
+
+class UnsupportedReferenceMode(Exception):
+    """Raised when a provider receives a hard reference (FirstFrame /
+    LastFrame) it cannot honor. Should bubble up to the user as a
+    config error, not a silent ignore. StyleReference does NOT raise
+    this — it's soft."""
+
+
 @dataclass
 class Avatar:
     """A digital avatar/person that can speak a script.

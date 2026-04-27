@@ -339,6 +339,19 @@ ADMIN_ALL_PREFIXES: tuple[str, ...] = ("/api/v1/settings/",)
 ADMIN_WRITE_PREFIXES: tuple[str, ...] = ("/api/v1/brandkits/", "/api/v1/knowledge/")
 ADMIN_WRITE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
+# Whitelist exceptions inside ADMIN_ALL_PREFIXES: GET access is allowed
+# because the endpoint's response is already sanitized (no api_key, no
+# base_url, no other secrets). Writes to the same path stay admin-only.
+#
+# /settings/media-capabilities — returns the dropdown options for the
+# image/video/tts capability pickers. Guest mode needs to read this so
+# the "B-roll model" picker on creations.html can populate; pre-v1.3.5
+# guests saw "视频模型未设" when models actually existed because the
+# whole /settings/ tree was admin-locked.
+ADMIN_GET_WHITELIST: frozenset[str] = frozenset({
+    "/api/v1/settings/media-capabilities",
+})
+
 
 def _path_matches_prefix(path: str, prefix: str) -> bool:
     """True if ``path`` is governed by ``prefix`` —— either the
@@ -362,8 +375,16 @@ def _is_admin_path(method: str, path: str) -> bool:
     Used by BOTH guest-cookie and open-access middleware branches —
     a single source of truth so adding a sensitive endpoint to the
     list applies uniformly to every non-owner identity.
+
+    GET-whitelist exception: a few /settings/ endpoints are pure
+    sanitized projections (e.g. media-capabilities returns dropdown
+    metadata with no api_key) and need to be reachable by guests for
+    the creation UIs to populate model pickers. The whitelist applies
+    only to GET — writes to the same path stay admin-locked.
     """
     if any(_path_matches_prefix(path, p) for p in ADMIN_ALL_PREFIXES):
+        if method == "GET" and path in ADMIN_GET_WHITELIST:
+            return False
         return True
     if method in ADMIN_WRITE_METHODS and any(_path_matches_prefix(path, p) for p in ADMIN_WRITE_PREFIXES):
         return True

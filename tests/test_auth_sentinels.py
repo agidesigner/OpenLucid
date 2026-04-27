@@ -266,6 +266,42 @@ def test_llm_options_endpoint_strips_secret_fields():
     assert "base_url" not in fields, "base_url MUST NOT leak via /apps/llm-options"
 
 
+def test_media_capabilities_get_whitelisted_for_guests():
+    """``GET /api/v1/settings/media-capabilities`` returns dropdown
+    metadata for the image/video/tts capability pickers — provider
+    label, model_code, display label, but NO api_key. Guest mode
+    needs read access for the creation UIs to populate (the B-roll
+    model picker on creations.html). Pre-v1.3.5 the whole /settings/
+    tree was locked, so guests saw "视频模型未设" when models existed.
+
+    The PUT must STILL be admin-only — the read carries no secrets,
+    but writes change deployment-wide defaults.
+    """
+    from app.main import _is_admin_path
+
+    # GET is allowed for guests / no-auth
+    assert _is_admin_path("GET", "/api/v1/settings/media-capabilities") is False
+    # Writes still admin-locked
+    for method in ("PUT", "POST", "PATCH", "DELETE"):
+        assert _is_admin_path(method, "/api/v1/settings/media-capabilities") is True
+    # Subpaths under /settings/media-capabilities/* (none currently,
+    # but if added later they default back to admin-locked unless
+    # explicitly added to the whitelist)
+    assert _is_admin_path("GET", "/api/v1/settings/media-capabilities/edit") is True
+
+
+def test_media_capabilities_response_carries_no_secrets():
+    """Pinning the schema: the GET response shape must not include
+    api_key / base_url / token. If a refactor accidentally adds one,
+    the GET-whitelist becomes a leak vector."""
+    from app.schemas.setting import MediaCapabilityOption
+
+    forbidden = {"api_key", "base_url", "token", "secret"}
+    fields = set(MediaCapabilityOption.model_fields.keys())
+    leaked = forbidden & fields
+    assert not leaked, f"MediaCapabilityOption must not expose {leaked}"
+
+
 def test_llm_options_path_not_admin_locked():
     """The new endpoint sits at ``/api/v1/apps/llm-options`` —
     deliberately OUTSIDE the ``/api/v1/settings/`` prefix that

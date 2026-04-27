@@ -341,8 +341,14 @@ _CAPABILITY_META = {
             "chanjing": [
                 ("Doubao-Seedance-1.0-pro",     ("Seedance 1.0 Pro · 字节 (推荐)", "Seedance 1.0 Pro · ByteDance (recommended)")),
                 ("doubao-seedance-1.0-lite-i2v",("Seedance 1.0 Lite · 字节",       "Seedance 1.0 Lite · ByteDance")),
+                # Chanjing's Kling model_code naming is INCONSISTENT
+                # across versions. Verify each new entry against the
+                # version-specific doc page before adding — guessing
+                # the format produces 50000 "模型不存在" in production.
+                #   v2.1  → tx_kling-v2-1-master   (doc: video-kling2.1)
+                #   v2.5  → kling2.5               (doc: video-kling2.5)
                 ("tx_kling-v2-1-master",        ("Kling v2.1 Master · 快手",       "Kling v2.1 Master · Kuaishou")),
-                ("kling-2.5",                   ("Kling 2.5 · 快手",               "Kling 2.5 · Kuaishou")),
+                ("kling2.5",                    ("Kling 2.5 · 快手",               "Kling 2.5 · Kuaishou")),
                 ("MiniMax-Hailuo-02",           ("Hailuo 02 · MiniMax",            "Hailuo 02 · MiniMax")),
                 ("viduq1",                      ("Vidu Q1",                        "Vidu Q1")),
             ],

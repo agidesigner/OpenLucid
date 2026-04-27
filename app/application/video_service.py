@@ -120,6 +120,26 @@ def _classify_broll_error(msg: str) -> str:
     return cause
 
 
+def _is_hard_provider_error(classified_error: str) -> bool:
+    """True iff the broll-submit failure is one of the four "operator
+    must intervene" classes: insufficient credits, rate-limit, auth,
+    timeout. Hard errors mean retrying any shot would also fail —
+    skipping the talking-head avatar avoids spending more credits on
+    a job the user can't actually receive. Soft errors (parameter
+    rejections, unsupported references, malformed prompts) are
+    per-shot issues; the avatar should still proceed because narration
+    is independent of B-roll."""
+    return any(
+        classified_error.startswith(prefix)
+        for prefix in (
+            "Insufficient credits",
+            "Rate-limited",
+            "Authentication",
+            "Provider timeout",
+        )
+    )
+
+
 def _to_response(job: VideoGenerationJob) -> VideoJobResponse:
     return VideoJobResponse(
         id=str(job.id),
@@ -474,10 +494,28 @@ async def create_video_job(
                         )
                         prompt = retention_prefix + prompt
                     dur = max(5, min(entry.get("duration_seconds") or 5, 10))
-                    ref_img = asset_urls[idx % len(asset_urls)] if asset_urls else None
+                    # KB assets → StyleReference (Class A: "look like
+                    # this"). Soft hint — providers without a native
+                    # style channel (chanjing/Doubao, Veo 3.x) drop
+                    # these silently rather than misuse them as
+                    # first-frame anchors (the v1.3.x bug). When we
+                    # later add Kling / Runway / Sora — which DO have
+                    # reference_images channels — they consume these
+                    # automatically without any service-layer change.
+                    #
+                    # FirstFrame / LastFrame are intentionally NOT
+                    # set here: per the product decision, those are
+                    # explicit user-uploaded inputs (a future UI),
+                    # never auto-sourced from KB.
+                    from app.adapters.video.base import StyleReference
+                    style_refs = (
+                        [StyleReference(url=u) for u in asset_urls]
+                        if asset_urls else None
+                    )
                     submit_kwargs: dict = dict(
                         prompt=prompt, duration=dur,
-                        aspect_ratio=ar, ref_img_url=ref_img,
+                        aspect_ratio=ar,
+                        style_references=style_refs,
                     )
                     if broll_model_code:
                         submit_kwargs["model_code"] = broll_model_code
@@ -565,22 +603,42 @@ async def create_video_job(
 
                 # Gate the avatar submit. If the user explicitly enabled
                 # B-roll AND the provider rejected every shot at submit
-                # (auth / out-of-credit / rate-limit), there's no point
-                # spending tokens on the talking-head — the user picked a
-                # specific B-roll provider expecting it to work. Bail out
-                # cleanly so they can fix the credit / key and retry.
+                # AND the failure looks like a hard provider issue
+                # (auth / out-of-credit / rate-limit / timeout) — there's
+                # no point spending tokens on the talking-head; bail.
+                #
+                # SOFT failures (param rejections, unsupported references,
+                # ratio out-of-range, etc.) are per-shot issues that the
+                # avatar generation is independent of. We log them in
+                # ``broll_warnings`` for the UI, but still let the
+                # talking-head avatar proceed — narration is the
+                # primary deliverable, B-roll is additive. Pre-v1.3.5
+                # this gate was unconditional and a single misconfigured
+                # reference image silently killed the avatar too.
                 if broll_specs and not broll_tasks and broll_failures:
-                    job.status = "failed"
-                    first = broll_failures[0].get("error", "?")
-                    job.error_message = (
-                        f"B-roll generation failed for all {len(broll_failures)} shot(s) "
-                        f"via {broll_provider_config.provider}: {first}. "
-                        "Avatar generation skipped to avoid wasting credits."
+                    all_hard = all(
+                        _is_hard_provider_error(f.get("error", ""))
+                        for f in broll_failures
                     )
-                    job.finished_at = _utcnow()
-                    await db.commit()
-                    await db.refresh(job)
-                    return _to_response(job)
+                    if all_hard:
+                        job.status = "failed"
+                        first = broll_failures[0].get("error", "?")
+                        job.error_message = (
+                            f"B-roll generation failed for all {len(broll_failures)} shot(s) "
+                            f"via {broll_provider_config.provider}: {first}. "
+                            "Avatar generation skipped to avoid wasting credits."
+                        )
+                        job.finished_at = _utcnow()
+                        await db.commit()
+                        await db.refresh(job)
+                        return _to_response(job)
+                    # Soft failures — log them (already in broll_warnings)
+                    # and let the avatar pipeline run normally.
+                    logger.info(
+                        "B-roll: all %d shots failed but errors look soft (per-shot); "
+                        "proceeding with avatar generation.",
+                        len(broll_failures),
+                    )
 
     # 6. Submit the avatar video — only reached when B-roll was either not
     # requested, partially succeeded, or wasn't attempted (no plan / no
@@ -690,6 +748,7 @@ async def _maybe_sync_status(
             # Resolve the B-roll provider (may differ from avatar provider).
             broll_provider_config_id = (job.params or {}).get("broll_provider_config_id")
             broll_video_provider = video_provider  # fall back to avatar provider
+            broll_cfg = None  # noqa: F841 (referenced in the warnings block below)
             if broll_provider_config_id:
                 try:
                     broll_cfg = await mp_repo.get_by_id(uuid.UUID(broll_provider_config_id))
@@ -746,7 +805,19 @@ async def _maybe_sync_status(
                         existing.append(f)
                         seen_idx.add(f.get("idx"))
                 p["broll_warnings"] = existing
-                p.setdefault("broll_warning_provider", broll_provider_config.provider if broll_provider_config else "")
+                # Resolve broll provider name for the UI breadcrumb.
+                # The local variable is ``broll_cfg`` (loaded at the top
+                # of this function), not ``broll_provider_config`` (which
+                # is the parameter name in ``create_video_job`` — this
+                # function is the poll path and uses different names).
+                # Mixing the two produced ``NameError: name
+                # 'broll_provider_config' is not defined`` on every poll
+                # of a job whose B-roll had any failure.
+                broll_provider_name = (
+                    broll_cfg.provider if broll_cfg
+                    else (provider_config.provider if provider_config else "")
+                )
+                p.setdefault("broll_warning_provider", broll_provider_name)
                 if all_done and not broll_clips:
                     p["broll_status"] = "all_failed"
                     if not job.error_message:

@@ -657,14 +657,52 @@ class ChanjingVideoProvider:
         duration: int = 6,
         aspect_ratio: str = "9:16",
         model_code: str = "Doubao-Seedance-1.0-pro",
-        ref_img_url: str | None = None,
+        *,
+        style_references: list["StyleReference"] | None = None,
+        first_frame: "FirstFrame | None" = None,
+        last_frame: "LastFrame | None" = None,
     ) -> str:
         """Submit an AI video generation task for a B-roll clip.
 
-        Uses the AI Creation API (creation_type=4 = video).
-        If ref_img_url is provided, uses image-to-video mode (much more accurate).
-        Returns the unique_id for polling.
+        Reference handling per chanjing API capability:
+
+          - ``style_references`` (Class A, soft) — chanjing's ai_creation
+            endpoint has NO native style-reference field. We DROP these
+            silently. If a reference carries a ``description``, we may
+            optionally append a hint to the prompt (currently disabled
+            to keep behavior predictable; revisit if needed).
+
+          - ``first_frame`` (Class B, hard) — maps to ``ref_img_url``
+            (which Doubao-Seedance treats as the video's starting
+            frame). Aspect must satisfy [0.5, 2.0]; the API will
+            reject otherwise. Other model_codes have their own
+            constraints — propagate the API error verbatim.
+
+          - ``last_frame`` — chanjing/Doubao currently doesn't support
+            end-frame anchoring; raise ``UnsupportedReferenceMode``.
+
+        Hailuo within the chanjing umbrella is t2v-only; first_frame
+        is also unsupported there.
         """
+        from app.adapters.video.base import (
+            FirstFrame,
+            LastFrame,
+            StyleReference,
+            UnsupportedReferenceMode,
+        )
+        # Compile-time-style guard for typing; runtime use is the point.
+        _ = (FirstFrame, LastFrame, StyleReference)
+
+        if last_frame is not None:
+            raise UnsupportedReferenceMode(
+                f"chanjing/{model_code} does not support last_frame anchoring"
+            )
+        if first_frame is not None and "hailuo" in model_code.lower():
+            raise UnsupportedReferenceMode(
+                f"chanjing/{model_code} (hailuo) is text-to-video only; "
+                "first_frame anchoring not supported"
+            )
+
         payload: dict[str, Any] = {
             "ref_prompt": prompt,
             "creation_type": 4,  # video
@@ -672,17 +710,45 @@ class ChanjingVideoProvider:
             "clarity": 720,
             "model_code": model_code,
         }
-        if ref_img_url:
-            payload["ref_img_url"] = [ref_img_url]
+        if first_frame is not None:
+            payload["ref_img_url"] = [first_frame.url]
+        # style_references intentionally dropped — chanjing has no
+        # native style-ref field. Passing them via ref_img_url would
+        # conflate Class A intent with Class B semantics (the bug we
+        # spent a release fixing).
+
         # Most models support aspect_ratio; Hailuo is the exception
         if "hailuo" not in model_code.lower():
             payload["aspect_ratio"] = aspect_ratio
             payload["quality_mode"] = "std"
-        body = await self._request(
-            "POST",
-            "/open/v1/ai_creation/task/submit",
-            json_body=payload,
-        )
+        try:
+            body = await self._request(
+                "POST",
+                "/open/v1/ai_creation/task/submit",
+                json_body=payload,
+            )
+        except AppError as e:
+            # Append hint when chanjing rejects the model_code so the
+            # user / dev sees where to look. Chanjing's Kling family
+            # uses inconsistent model_code formats per version (v2.1 is
+            # ``tx_kling-v2-1-master``, v2.5 is ``kling2.5``); guessing
+            # by pattern doesn't work, you must check the per-version
+            # doc page.
+            if "模型不存在" in str(e):
+                raise AppError(
+                    "CHANJING_BROLL_SUBMIT_FAILED",
+                    (
+                        f"chanjing rejected model_code={model_code!r} (模型不存在). "
+                        "Each Kling/Doubao/etc. version has its own model_code "
+                        "string in chanjing's docs — short forms like 'kling-2.5' "
+                        "differ from full forms like 'tx_kling-v2-1-master'. "
+                        "Update the registry in setting_service.py with the value "
+                        f"verbatim from https://doc.chanjing.cc/api/ai-creation/. "
+                        f"Original error: {e}"
+                    ),
+                    502,
+                ) from e
+            raise
         unique_id = body.get("data")
         if not unique_id:
             raise AppError(

@@ -121,25 +121,57 @@ class GoogleVeoProvider:
         duration: int = 6,
         aspect_ratio: str = "9:16",
         model_code: str = "veo-3.1-generate-preview",
-        ref_img_url: str | None = None,
+        *,
+        style_references: list["StyleReference"] | None = None,
+        first_frame: "FirstFrame | None" = None,
+        last_frame: "LastFrame | None" = None,
     ) -> str:
         """Submit a Veo video generation task.
+
+        Reference handling per Veo 3.x API capability:
+
+          - ``style_references`` (Class A, soft) — Veo 3.x has no
+            native style-reference channel for video generation. Drop
+            silently. (When Veo adds reference_images later, route
+            here without changing the service-layer call.)
+
+          - ``first_frame`` (Class B, hard) — maps to
+            ``instance.image.bytesBase64Encoded``. Veo treats this as
+            the i2v anchor frame.
+
+          - ``last_frame`` — Veo 3.x doesn't support end-frame
+            anchoring; raise ``UnsupportedReferenceMode``.
 
         model_code: veo-3.1-generate-preview | veo-3.1-lite-generate-preview
         Returns operation name (task_id for polling).
         """
+        from app.adapters.video.base import (
+            FirstFrame,
+            LastFrame,
+            StyleReference,
+            UnsupportedReferenceMode,
+        )
+        _ = (FirstFrame, LastFrame, StyleReference)
+
+        if last_frame is not None:
+            raise UnsupportedReferenceMode(
+                f"google-veo/{model_code} does not support last_frame anchoring"
+            )
+
         if not self._api_key:
             raise AppError("VEO_NO_API_KEY", "Google Veo requires a Gemini API key", 401)
 
         # Build instances[0]: text prompt + optional reference image
         instance: dict[str, Any] = {"prompt": prompt}
-        if ref_img_url:
+        if first_frame is not None:
             # Veo expects bytesBase64Encoded inline
-            img_b64, mime = await _fetch_image_as_base64(ref_img_url)
+            img_b64, mime = await _fetch_image_as_base64(first_frame.url)
             instance["image"] = {
                 "bytesBase64Encoded": img_b64,
                 "mimeType": mime,
             }
+        # style_references intentionally dropped — Veo 3.x has no
+        # native style-ref channel.
 
         payload = {
             "instances": [instance],
@@ -147,7 +179,15 @@ class GoogleVeoProvider:
                 "aspectRatio": _aspect_to_veo(aspect_ratio),
                 "durationSeconds": _veo_duration(duration),
                 "personGeneration": "allow_all",
-                "numberOfVideos": 1,
+                # ``numberOfVideos`` was here previously and is the
+                # documented default-1 for older Veo models. Newer Veo
+                # endpoints (3.1+) reject the field with HTTP 400
+                # "numberOfVideos isn't supported by this model" — and
+                # since omitting it has always meant the same default
+                # of 1 video per call, removing it is forward-compatible
+                # without changing legacy behavior. Verified against
+                # production logs where 4-of-4 broll shots failed with
+                # exactly this error.
             },
         }
 
