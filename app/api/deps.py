@@ -21,8 +21,14 @@ PaginationDep = Annotated[dict[str, int], Depends(pagination_params)]
 async def require_owner(request: Request) -> str:
     """Reject guest sessions. Use on endpoints that manage the guest toggle
     itself or any other action that must stay inside the owner's scope even
-    when the middleware allowlist would otherwise permit it."""
+    when the middleware allowlist would otherwise permit it.
+
+    ``api-token`` and ``no-auth`` ARE accepted as owner here — they
+    represent the deployment operator (CLI / API key) and the open-
+    access mode respectively. Only ``guest`` is rejected, because guests
+    must not be able to flip the guest toggle themselves."""
+    from app.api.auth import SENTINEL_GUEST
     uid = getattr(request.state, "user_id", None)
-    if not uid or uid == "guest":
+    if not uid or uid == SENTINEL_GUEST:
         raise HTTPException(status_code=403, detail="Owner-only endpoint")
     return uid

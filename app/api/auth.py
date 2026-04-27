@@ -34,6 +34,45 @@ COOKIE = "od_access_token"
 GUEST_COOKIE = "od_guest"
 
 
+# ── Auth-middleware sentinel strings ───────────────────────────────────
+#
+# ``request.state.user_id`` is a tagged-union: it's EITHER a real user
+# UUID string (for JWT-authenticated requests) OR one of these three
+# sentinel strings the middleware sets for non-user code paths. Any
+# endpoint that loads a User row with ``WHERE User.id == uid`` MUST
+# branch on these BEFORE the SQL query, otherwise asyncpg crashes
+# trying to cast e.g. ``"no-auth"`` to UUID — that's what produced the
+# 500s on /api/v1/auth/me in production. Centralizing the sentinels
+# here (vs scattering magic strings) makes the dispatch rule visible
+# and prevents the next consumer from forgetting one.
+SENTINEL_API_TOKEN = "api-token"
+SENTINEL_GUEST = "guest"
+SENTINEL_NO_AUTH = "no-auth"
+NON_USER_SENTINELS = frozenset({SENTINEL_API_TOKEN, SENTINEL_GUEST, SENTINEL_NO_AUTH})
+
+
+def is_real_user_uid(uid: str | None) -> bool:
+    """True iff ``uid`` is a candidate for ``User.id == uid`` lookup
+    (parses as a UUID). Use as the gate before any SQL query keyed on
+    the user-id field.
+
+    UUID-format check (allowlist) is stronger than sentinel-denylist:
+    a future middleware path adding a new sentinel string will be
+    rejected here automatically, instead of slipping through to
+    ``WHERE User.id == "<new-sentinel>"`` and crashing asyncpg with a
+    500. The known sentinels are still listed in ``NON_USER_SENTINELS``
+    so endpoints can route them to friendly responses (guest/api-token
+    short-circuits in /auth/me) BEFORE this guard fires."""
+    if not uid or uid in NON_USER_SENTINELS:
+        return False
+    import uuid as _uuid
+    try:
+        _uuid.UUID(uid)
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
 def _set_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         COOKIE,
@@ -88,10 +127,23 @@ async def me(request: Request, db: AsyncSession = Depends(get_db)):
     uid = getattr(request.state, "user_id", None)
     if not uid:
         raise HTTPException(401, "Not authenticated")
-    if uid == "guest":
+    if uid == SENTINEL_GUEST:
         return MeResponse(id=None, email=None, is_active=True, is_guest=True)
-    if uid == "api-token":
+    if uid == SENTINEL_API_TOKEN:
         return MeResponse(id=None, email=None, is_active=True, is_guest=False)
+    if uid == SENTINEL_NO_AUTH:
+        # Open-access mode (no JWT secret configured). Surface as a
+        # non-guest "active" identity — there's no real User row to
+        # return, but the frontend just needs to know it's allowed in.
+        # Without this branch, the next line tries to cast "no-auth"
+        # to UUID and crashes with 500.
+        return MeResponse(id=None, email=None, is_active=True, is_guest=False)
+    if not is_real_user_uid(uid):
+        # Defense in depth: a future middleware path adding a new
+        # sentinel without updating this function would otherwise
+        # land back in the 500 trap. Treat unknown non-UUID strings
+        # as not-authenticated rather than letting them reach the DB.
+        raise HTTPException(401, "Not authenticated")
     result = await db.execute(select(User).where(User.id == uid))
     user = result.scalar_one_or_none()
     if not user:
@@ -134,7 +186,11 @@ async def disable_guest(db: AsyncSession = Depends(get_db)):
 @router.post("/change-password", response_model=MessageResponse)
 async def change_password(body: ChangePasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
     uid = getattr(request.state, "user_id", None)
-    if not uid:
+    # Reject all middleware sentinels — none of them represent a real
+    # User row whose password could be changed. Without this guard,
+    # ``api-token`` / ``guest`` / ``no-auth`` all reached
+    # ``WHERE User.id == uid`` and crashed with asyncpg "invalid UUID".
+    if not is_real_user_uid(uid):
         raise HTTPException(401, "Not authenticated")
     result = await db.execute(select(User).where(User.id == uid))
     user = result.scalar_one_or_none()

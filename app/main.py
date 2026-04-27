@@ -402,7 +402,8 @@ async def auth_middleware(request: Request, call_next):
                     select(McpToken).where(McpToken.token_hash == token_hash)
                 )
             if match:
-                request.state.user_id = "api-token"
+                from app.api.auth import SENTINEL_API_TOKEN
+                request.state.user_id = SENTINEL_API_TOKEN
                 request.state.is_guest = False
                 return await call_next(request)
         except Exception:
@@ -426,7 +427,8 @@ async def auth_middleware(request: Request, call_next):
                     {"detail": "Guest mode is read-only on this endpoint"},
                     status_code=403,
                 )
-            request.state.user_id = "guest"
+            from app.api.auth import SENTINEL_GUEST
+            request.state.user_id = SENTINEL_GUEST
             request.state.is_guest = True
             response = await call_next(request)
             # Sliding session: every authenticated request pushes the
@@ -473,7 +475,8 @@ async def auth_middleware(request: Request, call_next):
         open_access = False
 
     if open_access:
-        request.state.user_id = "no-auth"
+        from app.api.auth import SENTINEL_NO_AUTH
+        request.state.user_id = SENTINEL_NO_AUTH
         request.state.is_guest = False
         return await call_next(request)
 
