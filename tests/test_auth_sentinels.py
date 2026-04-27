@@ -180,6 +180,35 @@ def test_is_admin_path_blocks_brandkit_and_knowledge_writes_only():
     assert _is_admin_path("GET", "/api/v1/knowledge/abc") is False
 
 
+def test_is_admin_path_catches_collection_root_writes():
+    """Real incident: ``POST /api/v1/brandkits`` (no trailing slash —
+    the create-collection target) was passing through the no-auth
+    fallback because ``startswith("/api/v1/brandkits/")`` only matched
+    sub-paths. Confirmed by curl: HTTP 201 response writing as no-auth.
+
+    The matcher now handles both forms: ``/api/v1/brandkits`` (bare
+    collection) AND ``/api/v1/brandkits/abc`` (sub-resource). Both
+    match the admin gate, neither bleeds across to unrelated paths
+    like ``/api/v1/brandkits-other``.
+    """
+    from app.main import _is_admin_path
+
+    # The exact collection-root paths that must be admin-write blocked
+    for method in ("POST", "PUT", "PATCH", "DELETE"):
+        assert _is_admin_path(method, "/api/v1/brandkits") is True, \
+            f"{method} /api/v1/brandkits (collection root) must be admin-write"
+        assert _is_admin_path(method, "/api/v1/knowledge") is True, \
+            f"{method} /api/v1/knowledge (collection root) must be admin-write"
+    # Settings collection root (any method)
+    for method in ("GET", "POST"):
+        assert _is_admin_path(method, "/api/v1/settings") is True
+
+    # No false positives: similarly-named paths must NOT be admin
+    assert _is_admin_path("POST", "/api/v1/brandkits-something") is False
+    assert _is_admin_path("POST", "/api/v1/knowledgeable") is False
+    assert _is_admin_path("GET", "/api/v1/settings-export") is False
+
+
 def test_is_admin_path_passes_normal_endpoints():
     """Content endpoints (offers, merchants, apps, topic-plans, etc.)
     must NOT be classified as admin — open-access users / guests need
@@ -215,6 +244,40 @@ def test_admin_paths_apply_to_both_guest_and_open_access():
         "_is_admin_path must be called from BOTH the guest path and the "
         "open-access fallback so the rules apply uniformly"
     )
+
+
+def test_llm_options_endpoint_strips_secret_fields():
+    """``/apps/llm-options`` exists so guest sessions can see what
+    models the operator configured (so they can USE the deployment)
+    without exposing api_key. The response schema must NEVER include
+    api_key or base_url; if a future refactor accidentally re-exposes
+    them via this endpoint, this test catches it."""
+    from app.api.apps import LLMOptionResponse
+
+    fields = set(LLMOptionResponse.model_fields.keys())
+    # Required public fields
+    assert "id" in fields
+    assert "label" in fields
+    assert "provider" in fields
+    assert "model_name" in fields
+    assert "is_active" in fields
+    # Forbidden secret fields
+    assert "api_key" not in fields, "api_key MUST NOT leak via /apps/llm-options"
+    assert "base_url" not in fields, "base_url MUST NOT leak via /apps/llm-options"
+
+
+def test_llm_options_path_not_admin_locked():
+    """The new endpoint sits at ``/api/v1/apps/llm-options`` —
+    deliberately OUTSIDE the ``/api/v1/settings/`` prefix that
+    ``_is_admin_path`` locks. Guest cookie sessions and the no-auth
+    fallback both need to reach it (without it, guest mode loses the
+    model picker entirely)."""
+    from app.main import _is_admin_path
+
+    for method in ("GET", "POST", "PUT", "DELETE"):
+        assert _is_admin_path(method, "/api/v1/apps/llm-options") is False
+    # And /settings/llm IS still admin-locked (the secret-bearing one).
+    assert _is_admin_path("GET", "/api/v1/settings/llm") is True
 
 
 def test_change_password_rejects_all_sentinels():

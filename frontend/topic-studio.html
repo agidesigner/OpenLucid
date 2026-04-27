@@ -28,6 +28,7 @@
   <script src="/js/feedback.js"></script>
   <script src="/js/apps-shared.js"></script>
   <script src="/js/header-selectors.js"></script>
+  <script src="/js/lang-picker.js"></script>
   <script src="/js/shared.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
@@ -297,6 +298,16 @@
                     <span class="text-sm text-gray-600 tabular-nums w-4 text-center" x-text="form.count"></span>
                   </div>
                 </div>
+                <!-- Output Language — defaults to KB language, user can override. -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('language_label')"></label>
+                  <select x-model="outputLang"
+                          @change="languageManualOverride = true"
+                          class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+                    <option value="zh" x-text="t('language_zh')"></option>
+                    <option value="en" x-text="t('language_en')"></option>
+                  </select>
+                </div>
                 <button @click="generate()" :disabled="generating || !offerId"
                         class="ai-cta bg-gradient-to-r from-purple-600 to-accent text-white px-6 py-2 rounded-lg text-[13px] font-medium disabled:opacity-50 flex items-center gap-2 ml-auto shrink-0">
                   <svg x-show="generating" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
@@ -489,6 +500,9 @@
     function topicStudio() {
       const params = new URLSearchParams(location.search);
       return {
+        // Output-language picker — see frontend/js/lang-picker.js.
+        ...window.odLangPicker.makeState(),
+
         offers: [],
         offerId: '',
         strategyUnits: [],
@@ -547,7 +561,11 @@
           try {
             const [res, llmRes] = await Promise.all([
               fetch(`${API}/offers?page_size=100`),
-              fetch(`${API}/settings/llm`).catch(() => null),
+              // /apps/llm-options: sanitized model picker list (no
+              // api_key). Guest-accessible; /settings/llm itself
+              // stays admin-only because its response carries the
+              // plaintext api_key for the edit form.
+              fetch(`${API}/apps/llm-options`).catch(() => null),
             ]);
             if (res.ok) this.offers = (await res.json()).items || [];
             llmConfigs = (llmRes?.ok ? await llmRes.json() : []) || [];
@@ -583,6 +601,8 @@
               this.fetchContext(),
               this.fetchHistory(false),
             ]);
+            // Pick up the offer's KB language for the picker.
+            window.odLangPicker.detectFromOffer(this, this.offerId);
           }
         },
 
@@ -600,6 +620,7 @@
           this.strategyUnitId = '';
           this.strategyUnits = [];
           this.context = null;
+          window.odLangPicker.resetForNewOffer(this);
 
           if (this.offerId) {
             history.replaceState(null, '', `?offer_id=${this.offerId}`);
@@ -610,6 +631,7 @@
               this.fetchContext(),
               this.fetchHistory(false),
             ]);
+            window.odLangPicker.detectFromOffer(this, this.offerId);
           } else {
             history.replaceState(null, '', location.pathname);
             document.title = t('page_title') + ' - OpenLucid';
@@ -749,7 +771,10 @@
               strategy_unit_id: this.strategyUnitId || undefined,
               config_id: sel.config_id || undefined,
               model_override: sel.model_name || undefined,
-              language: getApiLang(),
+              // language: only sent when user manually overrode the
+              // picker. Otherwise omitted → backend's
+              // resolve_output_language() runs KB detection.
+              ...window.odLangPicker.toBody(this),
               instruction: this.form.instruction?.trim() || undefined,
               external_context_text: ext || undefined,
               external_context_url: (ext && this.form.external_context_url?.trim()) || undefined,

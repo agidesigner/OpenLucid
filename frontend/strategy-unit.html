@@ -27,6 +27,7 @@
   <script src="/js/avatar.js"></script>
   <script src="/js/feedback.js"></script>
   <script src="/js/topic-picker.js"></script>
+  <script src="/js/lang-picker.js"></script>
   <script src="/js/shared.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
@@ -336,6 +337,16 @@
                   <span class="text-sm text-gray-600 tabular-nums w-4 text-center" x-text="generateForm.count"></span>
                 </div>
               </div>
+              <!-- Output Language — defaults to KB language, user can override. -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1.5" x-text="t('language_label')"></label>
+                <select x-model="outputLang"
+                        @change="languageManualOverride = true"
+                        class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none">
+                  <option value="zh" x-text="t('language_zh')"></option>
+                  <option value="en" x-text="t('language_en')"></option>
+                </select>
+              </div>
               <button @click="generateTopics()" :disabled="generating"
                       class="ai-cta bg-gradient-to-r from-purple-600 to-accent text-white px-6 py-2 rounded-lg text-[13px] font-medium disabled:opacity-50 flex items-center gap-2 ml-auto shrink-0">
                 <svg x-show="generating" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
@@ -440,6 +451,9 @@
 
     function strategyUnitApp() {
       return {
+        // Output-language picker — see frontend/js/lang-picker.js.
+        ...window.odLangPicker.makeState(),
+
         unitId: new URLSearchParams(location.search).get('id'),
         offerIdParam: new URLSearchParams(location.search).get('offer_id'),
         unit: null,
@@ -497,6 +511,8 @@
           if (!this.offerIdParam) return;
           const res = await fetch(`${API}/offers/${this.offerIdParam}`);
           if (res.ok) this.offer = await res.json();
+          // Pick up the offer's KB language for the output-language picker.
+          window.odLangPicker.detectFromOffer(this, this.offerIdParam);
         },
 
         async fetchCoverage() {
@@ -592,7 +608,9 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 channel: this.generateForm.channel || null,
-                language: getApiLang(),
+                // language: only when user manually overrode the
+                // picker. Otherwise KB-detected by the backend.
+                ...window.odLangPicker.toBody(this),
                 count: this.generateForm.count,
               }),
             });

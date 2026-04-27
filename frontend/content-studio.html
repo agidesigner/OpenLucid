@@ -29,6 +29,7 @@
   <script src="/js/apps-shared.js"></script>
   <script src="/js/header-selectors.js"></script>
   <script src="/js/trend-panel.js"></script>
+  <script src="/js/lang-picker.js"></script>
   <script src="/js/shared.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
@@ -266,7 +267,7 @@
                       class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent resize-none"></textarea>
           </div>
 
-          <div class="mb-4 grid grid-cols-3 gap-3">
+          <div class="mb-4 grid grid-cols-2 md:grid-cols-4 gap-3">
             <div>
               <label class="text-[11px] text-gray-400 mb-1 block" x-text="t('platform_label')"></label>
               <select x-model="platformId"
@@ -293,6 +294,16 @@
                 <template x-for="p in personas" :key="p.id">
                   <option :value="p.id" x-text="p.emoji + ' ' + p.name"></option>
                 </template>
+              </select>
+            </div>
+            <!-- Output Language — defaults to KB language (auto), user can override. -->
+            <div>
+              <label class="text-[11px] text-gray-400 mb-1 block" x-text="t('language_label')"></label>
+              <select x-model="outputLang"
+                      @change="languageManualOverride = true"
+                      class="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+                <option value="zh" x-text="t('language_zh')"></option>
+                <option value="en" x-text="t('language_en')"></option>
               </select>
             </div>
           </div>
@@ -376,6 +387,10 @@
       return {
         // Trend-bridge panel — see frontend/js/trend-panel.js.
         ...window.odTrendPanel.makeState(),
+        // Output-language picker — see frontend/js/lang-picker.js.
+        // Defaults to UI locale; flips to KB language once an offer
+        // is selected (via detectFromOffer); user can override.
+        ...window.odLangPicker.makeState(),
 
         offers: [],
         offerId: '',
@@ -411,7 +426,9 @@
           try {
             const [offersRes, llmRes, platformsRes, personasRes, goalsRes] = await Promise.all([
               fetch(`${API}/offers?page_size=100`),
-              fetch(`${API}/settings/llm`),
+              // /apps/llm-options: sanitized model picker list (no
+              // api_key) — guest-accessible.
+              fetch(`${API}/apps/llm-options`),
               fetch(`${API}/apps/script-writer/platforms?lang=${lang}`),
               fetch(`${API}/apps/script-writer/personas?lang=${lang}`),
               fetch(`${API}/apps/script-writer/goals?lang=${lang}`),
@@ -479,6 +496,9 @@
               this.selectedUnit = this.strategyUnits.find(u => u.id === urlUnit) || null;
             }
             await this.fetchContext();
+            // Detect KB language for the initially-loaded offer so the
+            // language picker reflects content language, not UI locale.
+            window.odLangPicker.detectFromOffer(this, this.offerId);
           }
         },
 
@@ -494,10 +514,14 @@
           this.selectedUnit = null;
           this.strategyUnits = [];
           this.contextData = null;
+          // Reset the lang picker so the new offer's KB language can
+          // re-detect (otherwise an earlier override sticks).
+          window.odLangPicker.resetForNewOffer(this);
           if (this.offerId) {
             window.odHeaderSelectors.rememberOffer("cs", this.offerId);
             await this.loadStrategyUnits();
             await this.fetchContext();
+            await window.odLangPicker.detectFromOffer(this, this.offerId);
           }
         },
 
@@ -565,7 +589,10 @@
                 ...window.odTrendPanel.toBody(this),
                 topic: this.topic.trim(),
                 goal: this.goalId,
-                language: getApiLang(),
+                // language: only sent when user manually overrode the
+                // picker. Otherwise omitted → backend's
+                // resolve_output_language() runs KB detection.
+                ...window.odLangPicker.toBody(this),
                 config_id: sel.config_id || undefined,
                 model_override: sel.model_name || undefined,
                 platform_id: this.platformId || undefined,

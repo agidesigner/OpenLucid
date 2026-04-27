@@ -340,6 +340,21 @@ ADMIN_WRITE_PREFIXES: tuple[str, ...] = ("/api/v1/brandkits/", "/api/v1/knowledg
 ADMIN_WRITE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
+def _path_matches_prefix(path: str, prefix: str) -> bool:
+    """True if ``path`` is governed by ``prefix`` —— either the
+    collection root itself (``/api/v1/brandkits``) OR any sub-path
+    (``/api/v1/brandkits/abc``). Plain ``startswith(prefix)`` with
+    the trailing-slash form misses the collection-root case (a real
+    POST target for "create resource" — that's exactly the gap that
+    let no-auth callers POST to /brandkits and /knowledge in earlier
+    v1.3.x snapshots). Plain ``startswith`` without the slash would
+    over-match (``/brandkits-something-else``); requiring exact OR
+    sub-path is the precise rule.
+    """
+    bare = prefix.rstrip("/")
+    return path == bare or path.startswith(bare + "/")
+
+
 def _is_admin_path(method: str, path: str) -> bool:
     """True iff this (method, path) names a configuration / admin
     operation that must be restricted to real authenticated owners.
@@ -348,9 +363,9 @@ def _is_admin_path(method: str, path: str) -> bool:
     a single source of truth so adding a sensitive endpoint to the
     list applies uniformly to every non-owner identity.
     """
-    if any(path.startswith(p) for p in ADMIN_ALL_PREFIXES):
+    if any(_path_matches_prefix(path, p) for p in ADMIN_ALL_PREFIXES):
         return True
-    if method in ADMIN_WRITE_METHODS and any(path.startswith(p) for p in ADMIN_WRITE_PREFIXES):
+    if method in ADMIN_WRITE_METHODS and any(_path_matches_prefix(path, p) for p in ADMIN_WRITE_PREFIXES):
         return True
     return False
 

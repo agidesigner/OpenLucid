@@ -3,6 +3,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.apps.registry import AppRegistry
@@ -31,6 +32,51 @@ from app.schemas.topic_plan import TopicPlanGenerateRequest, TopicPlanGenerateRe
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/apps", tags=["apps"])
+
+
+# ── Public LLM options (model picker for non-owner identities) ──────
+#
+# Sanitized projection of ``LLMConfig`` rows for the per-call model
+# dropdown that lives in every creation app's header. /api/v1/settings/*
+# is admin-locked (it returns plaintext ``api_key`` in the same payload),
+# so guest / no-auth identities couldn't list models. But the operator
+# explicitly wants guests to USE the models they configured — they just
+# can't CONFIGURE them. This endpoint surfaces only the non-secret
+# fields, so it can stay open while /settings/llm stays locked.
+class LLMOptionResponse(BaseModel):
+    """Public-facing LLM config view for the model picker.
+
+    Strips ``api_key`` and ``base_url`` (the secret fields) and keeps
+    only what the picker UI needs: which configs exist, what they're
+    labelled as, and which provider/model each represents.
+    """
+    id: str
+    label: str
+    provider: str
+    model_name: str
+    is_active: bool
+
+
+@router.get("/llm-options", response_model=list[LLMOptionResponse])
+async def list_llm_options(db: AsyncSession = Depends(get_db)):
+    """List configured LLM options (sanitized — no api_key, no base_url).
+
+    Available to all authenticated identities (owner / api-token /
+    guest). Lets guest sessions see what models the operator made
+    available without exposing API credentials.
+    """
+    from app.application.setting_service import list_llm_configs
+    configs = await list_llm_configs(db)
+    return [
+        LLMOptionResponse(
+            id=str(c.id),
+            label=c.label,
+            provider=c.provider,
+            model_name=c.model_name,
+            is_active=c.is_active,
+        )
+        for c in configs
+    ]
 
 
 @router.get("/topic-studio/context-preview", response_model=TopicStudioContextPreview)

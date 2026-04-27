@@ -26,6 +26,8 @@
   <script src="/js/pinned-apps.js"></script>
   <script src="/js/avatar.js"></script>
   <script src="/js/feedback.js"></script>
+  <script src="/js/header-selectors.js"></script>
+  <script src="/js/lang-picker.js"></script>
   <script src="/js/shared.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
@@ -106,6 +108,15 @@
             <template x-for="m in modelOptions" :key="m.key">
               <option :value="m.key" x-text="m.label"></option>
             </template>
+          </select>
+        </div>
+        <div class="flex items-center gap-2" x-show="offerId">
+          <label class="text-sm text-gray-500 shrink-0" x-text="t('language_label')"></label>
+          <select x-model="outputLang"
+                  @change="languageManualOverride = true"
+                  class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+            <option value="zh" x-text="t('language_zh')"></option>
+            <option value="en" x-text="t('language_en')"></option>
           </select>
         </div>
       </div>
@@ -276,6 +287,9 @@
     function kbQA() {
       const params = new URLSearchParams(location.search);
       return {
+        // Output-language picker — see frontend/js/lang-picker.js.
+        ...window.odLangPicker.makeState(),
+
         offers: [],
         offerId: '',
         _urlOfferId: params.get('offer_id') || '',
@@ -315,7 +329,9 @@
           const [offersRes, stylesRes, llmRes] = await Promise.all([
             fetch(`${API}/offers?page_size=100`).catch(() => null),
             fetch(`${API}/apps/kb-qa/styles?lang=${window._odLang}`).catch(() => null),
-            fetch(`${API}/settings/llm`).catch(() => null),
+            // /apps/llm-options: sanitized model picker list (no
+            // api_key) — guest-accessible.
+            fetch(`${API}/apps/llm-options`).catch(() => null),
           ]);
 
           if (offersRes?.ok) this.offers = (await offersRes.json()).items || [];
@@ -340,6 +356,7 @@
           if (this.offerId) {
             localStorage.setItem('od_last_kbqa_offer', this.offerId);
             await this.fetchContext();
+            window.odLangPicker.detectFromOffer(this, this.offerId);
           }
         },
 
@@ -350,12 +367,14 @@
           this.thinkingActive = false;
           this.contextData = null;
           this.knowledgeByType = {};
+          window.odLangPicker.resetForNewOffer(this);
 
           if (this.offerId) {
             history.replaceState(null, '', `?offer_id=${this.offerId}`);
             const name = this.offers.find(o => o.id === this.offerId)?.name || '';
             document.title = `${t('title_with_offer')} · ${name} - OpenLucid`;
             await this.fetchContext();
+            window.odLangPicker.detectFromOffer(this, this.offerId);
           } else {
             history.replaceState(null, '', location.pathname);
             document.title = t('page_title') + ' - OpenLucid';
@@ -404,7 +423,9 @@
                 style_id: this.styleId,
                 config_id: sel.config_id || undefined,
                 model_override: sel.model_name || undefined,
-                language: getApiLang(),
+                // language: only when user manually overrode the
+                // picker. Otherwise KB-detected by the backend.
+                ...window.odLangPicker.toBody(this),
               }),
             });
 

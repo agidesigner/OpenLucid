@@ -177,6 +177,11 @@ window.I18N = {
       trend_keywords: 'Keywords',
       trend_attention: 'Audience cares about',
       trend_risks: 'Risks (avoid)',
+
+      // Output-language picker (shared by all creation apps)
+      language_label: 'Output Language',
+      language_zh: '🇨🇳 中文',
+      language_en: '🇺🇸 English',
     },
     zh: {
       sidebar_offers: '商品/服务',
@@ -327,6 +332,11 @@ window.I18N = {
       trend_keywords: '关键词',
       trend_attention: '大众关注点',
       trend_risks: '风险点（避免触碰）',
+
+      // 输出语言选择器（创作类 app 共用）
+      language_label: '输出语言',
+      language_zh: '🇨🇳 中文',
+      language_en: '🇺🇸 English',
     },
   },
 

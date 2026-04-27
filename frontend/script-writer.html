@@ -834,7 +834,9 @@ Output language MUST match the language of the knowledge base content and topic.
           // Load all data in parallel
           const [offersRes, llmRes, platformsRes, personasRes, structuresRes, goalsRes] = await Promise.all([
             fetch(`${API}/offers?page_size=100`).catch(() => null),
-            fetch(`${API}/settings/llm`).catch(() => null),
+            // /apps/llm-options: sanitized model picker list (no
+            // api_key) — guest-accessible.
+            fetch(`${API}/apps/llm-options`).catch(() => null),
             fetch(`${API}/apps/script-writer/platforms?lang=${lang}`).catch(() => null),
             fetch(`${API}/apps/script-writer/personas?lang=${lang}`).catch(() => null),
             fetch(`${API}/apps/script-writer/structures?lang=${lang}`).catch(() => null),
