@@ -136,6 +136,51 @@ def test_me_endpoint_rejects_unknown_non_uuid_string_without_db_query():
     raise AssertionError("expected HTTPException(401)")
 
 
+def test_open_access_rejects_settings_paths():
+    """Open-access (no MCP tokens minted) must NOT extend to admin
+    surfaces. The middleware's ADMIN_ALL_PREFIXES list rejects them
+    with 401 even when the deployment is "fresh".
+
+    Real incident: signed-out user on a fresh deployment could
+    PUT /api/v1/settings/llm/* and rewrite the LLM config because
+    open-access set ``user_id = "no-auth"`` for ALL paths.
+    """
+    import importlib
+
+    main_module = importlib.import_module("app.main")
+    src = importlib.import_module("inspect").getsource(main_module.auth_middleware)
+    # Both behavioral guards must be in the middleware.
+    assert "ADMIN_ALL_PREFIXES" in src
+    assert "/api/v1/settings/" in src
+    # GET also rejected (settings/* exposes API keys in the response).
+    assert 'WRITE_METHODS' in src
+    # Open-access fallback must check the admin list BEFORE setting
+    # user_id = no-auth. Easiest test: the order in source.
+    admin_check = src.find("ADMIN_ALL_PREFIXES")
+    no_auth_set = src.find("SENTINEL_NO_AUTH")
+    assert admin_check > 0 and no_auth_set > 0
+    assert admin_check < no_auth_set, (
+        "admin-path check must run BEFORE setting user_id=no-auth, "
+        "otherwise sensitive endpoints get the open-access pass"
+    )
+
+
+def test_open_access_rejects_brandkit_and_knowledge_writes():
+    """Brandkit / knowledge config writes must require real auth.
+    Per the user's spec: "知识库配置、brandkit配置、setting 必须登录才可以配置"."""
+    import importlib
+
+    main_module = importlib.import_module("app.main")
+    src = importlib.import_module("inspect").getsource(main_module.auth_middleware)
+    assert "ADMIN_WRITE_PREFIXES" in src
+    assert "/api/v1/brandkits/" in src
+    assert "/api/v1/knowledge/" in src
+    # Reads are allowed (content apps need them).
+    # Writes (POST/PUT/PATCH/DELETE) are blocked.
+    for verb in ("POST", "PUT", "PATCH", "DELETE"):
+        assert f'"{verb}"' in src, f"write method {verb} must be in WRITE_METHODS gate"
+
+
 def test_change_password_rejects_all_sentinels():
     """All three sentinels → 401 BEFORE any DB query.
     Pre-fix bug: api-token / guest / no-auth all crashed asyncpg

@@ -362,6 +362,19 @@ async def auth_middleware(request: Request, call_next):
         "/api/v1/auth/reset-password",
         "/health",
     }
+
+    # Paths that must require REAL authentication even in open-access
+    # mode (no MCP tokens minted, no JWT cookie, no guest cookie). The
+    # open-access fallback was originally intended for content reads +
+    # MCP agent calls on a fresh deployment; admin / configuration
+    # surfaces leak secrets (LLM API keys, MCP tokens) or let a logged-
+    # out visitor mutate the deployment, neither of which the operator
+    # opts into by skipping MCP-token setup. Match by prefix; method
+    # is ALL for ``ADMIN_ALL`` (GET also leaks payload), and write-
+    # only for ``ADMIN_WRITE`` (read might be needed for content apps).
+    ADMIN_ALL_PREFIXES = ("/api/v1/settings/",)
+    ADMIN_WRITE_PREFIXES = ("/api/v1/brandkits/", "/api/v1/knowledge/")
+    WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
     if path in PUBLIC:
         return await call_next(request)
 
@@ -475,6 +488,18 @@ async def auth_middleware(request: Request, call_next):
         open_access = False
 
     if open_access:
+        # Even in open-access mode, configuration / admin surfaces
+        # require real authentication. A signed-out visitor on a
+        # fresh deployment must NOT be able to read API keys via
+        # /settings/* or rewrite the KB / brandkit. Once the
+        # operator signs in (cookie JWT) or mints an MCP token,
+        # those sessions reach the path above and bypass this gate.
+        method = request.method
+        if any(path.startswith(p) for p in ADMIN_ALL_PREFIXES):
+            return JSONResponse({"detail": "Sign in required"}, status_code=401)
+        if method in WRITE_METHODS and any(path.startswith(p) for p in ADMIN_WRITE_PREFIXES):
+            return JSONResponse({"detail": "Sign in required"}, status_code=401)
+
         from app.api.auth import SENTINEL_NO_AUTH
         request.state.user_id = SENTINEL_NO_AUTH
         request.state.is_guest = False
