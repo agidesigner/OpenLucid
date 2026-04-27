@@ -50,9 +50,21 @@ def test_is_real_user_uid_rejects_all_sentinels_and_empty():
     assert is_real_user_uid("3d82ad15-a36e-4ef7-8caa-826f33b0b387") is True
 
 
-def test_me_endpoint_handles_no_auth_without_db_query():
-    """Open-access mode (no JWT secret) → ``user_id = "no-auth"``.
-    /auth/me must return a friendly response, NOT crash on UUID cast."""
+def test_me_endpoint_returns_401_for_no_auth_without_db_query():
+    """no-auth (open-access mode, no JWT cookie) → /auth/me must
+    return 401, NOT a friendly MeResponse.
+
+    Real incident: returning ``MeResponse(is_guest=False, id=None)``
+    let the WebUI render an owner-style dashboard for a signed-out
+    browser (avatar visible, "settings" link in dropdown, no redirect
+    to /signin). The 500 crash is still avoided because we never
+    reach the DB query — we just return 401 instead of pretending
+    to be a valid identity.
+
+    Open-access is for MCP / API callers (Bearer tokens), not for
+    the WebUI dashboard."""
+    from fastapi import HTTPException
+
     from app.api.auth import me
 
     class _State:
@@ -68,10 +80,12 @@ def test_me_endpoint_handles_no_auth_without_db_query():
                 "is exactly what produced the production 500."
             )
 
-    result = asyncio.run(me(_Req(), _Db()))
-    assert result.id is None
-    assert result.is_guest is False
-    assert result.is_active is True
+    try:
+        asyncio.run(me(_Req(), _Db()))
+    except HTTPException as e:
+        assert e.status_code == 401
+        return
+    raise AssertionError("expected HTTPException(401) for no-auth")
 
 
 def test_me_endpoint_handles_guest_without_db_query():
@@ -136,49 +150,71 @@ def test_me_endpoint_rejects_unknown_non_uuid_string_without_db_query():
     raise AssertionError("expected HTTPException(401)")
 
 
-def test_open_access_rejects_settings_paths():
-    """Open-access (no MCP tokens minted) must NOT extend to admin
-    surfaces. The middleware's ADMIN_ALL_PREFIXES list rejects them
-    with 401 even when the deployment is "fresh".
+def test_is_admin_path_blocks_settings_for_all_methods():
+    """/api/v1/settings/* is admin for EVERY method — GET responses
+    leak API keys / MCP tokens, and writes mutate the deployment.
 
     Real incident: signed-out user on a fresh deployment could
     PUT /api/v1/settings/llm/* and rewrite the LLM config because
-    open-access set ``user_id = "no-auth"`` for ALL paths.
-    """
-    import importlib
+    open-access set ``user_id = "no-auth"`` for ALL paths."""
+    from app.main import _is_admin_path
 
-    main_module = importlib.import_module("app.main")
-    src = importlib.import_module("inspect").getsource(main_module.auth_middleware)
-    # Both behavioral guards must be in the middleware.
-    assert "ADMIN_ALL_PREFIXES" in src
-    assert "/api/v1/settings/" in src
-    # GET also rejected (settings/* exposes API keys in the response).
-    assert 'WRITE_METHODS' in src
-    # Open-access fallback must check the admin list BEFORE setting
-    # user_id = no-auth. Easiest test: the order in source.
-    admin_check = src.find("ADMIN_ALL_PREFIXES")
-    no_auth_set = src.find("SENTINEL_NO_AUTH")
-    assert admin_check > 0 and no_auth_set > 0
-    assert admin_check < no_auth_set, (
-        "admin-path check must run BEFORE setting user_id=no-auth, "
-        "otherwise sensitive endpoints get the open-access pass"
+    for method in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"):
+        assert _is_admin_path(method, "/api/v1/settings/llm") is True
+        assert _is_admin_path(method, "/api/v1/settings/mcp-tokens") is True
+        assert _is_admin_path(method, "/api/v1/settings/llm/abc/models") is True
+
+
+def test_is_admin_path_blocks_brandkit_and_knowledge_writes_only():
+    """Brandkit / knowledge: writes blocked, reads allowed.
+    Reads power content apps (kb_qa, brand-aware generation);
+    writes mutate the deployment."""
+    from app.main import _is_admin_path
+
+    # Writes blocked
+    for method in ("POST", "PUT", "PATCH", "DELETE"):
+        assert _is_admin_path(method, "/api/v1/brandkits/123") is True
+        assert _is_admin_path(method, "/api/v1/knowledge/abc") is True
+    # Reads allowed
+    assert _is_admin_path("GET", "/api/v1/brandkits/123") is False
+    assert _is_admin_path("GET", "/api/v1/knowledge/abc") is False
+
+
+def test_is_admin_path_passes_normal_endpoints():
+    """Content endpoints (offers, merchants, apps, topic-plans, etc.)
+    must NOT be classified as admin — open-access users / guests need
+    them to function."""
+    from app.main import _is_admin_path
+
+    for path in (
+        "/api/v1/offers", "/api/v1/offers/abc",
+        "/api/v1/merchants/abc",
+        "/api/v1/apps/topic-studio/run",
+        "/api/v1/topic-plans/abc",
+        "/api/v1/creations",
+        "/api/v1/auth/me",
+        "/api/v1/ai/extract-text",
+    ):
+        for method in ("GET", "POST", "PUT", "DELETE"):
+            assert _is_admin_path(method, path) is False, f"{method} {path} wrongly classified as admin"
+
+
+def test_admin_paths_apply_to_both_guest_and_open_access():
+    """Same admin rules used in BOTH the guest-cookie branch AND the
+    open-access branch — single source of truth via ``_is_admin_path``.
+
+    Source-level check: both branches must invoke the helper, otherwise
+    one identity type can sneak past the gate the other respects."""
+    import inspect
+
+    from app import main
+
+    src = inspect.getsource(main.auth_middleware)
+    # Helper invoked at least twice (once per branch).
+    assert src.count("_is_admin_path(") >= 2, (
+        "_is_admin_path must be called from BOTH the guest path and the "
+        "open-access fallback so the rules apply uniformly"
     )
-
-
-def test_open_access_rejects_brandkit_and_knowledge_writes():
-    """Brandkit / knowledge config writes must require real auth.
-    Per the user's spec: "知识库配置、brandkit配置、setting 必须登录才可以配置"."""
-    import importlib
-
-    main_module = importlib.import_module("app.main")
-    src = importlib.import_module("inspect").getsource(main_module.auth_middleware)
-    assert "ADMIN_WRITE_PREFIXES" in src
-    assert "/api/v1/brandkits/" in src
-    assert "/api/v1/knowledge/" in src
-    # Reads are allowed (content apps need them).
-    # Writes (POST/PUT/PATCH/DELETE) are blocked.
-    for verb in ("POST", "PUT", "PATCH", "DELETE"):
-        assert f'"{verb}"' in src, f"write method {verb} must be in WRITE_METHODS gate"
 
 
 def test_change_password_rejects_all_sentinels():

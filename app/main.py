@@ -324,6 +324,37 @@ def _guest_write_allowed(method: str, path: str) -> bool:
     return any(method == m and path.startswith(p) for m, p in GUEST_WRITE_ALLOWLIST)
 
 
+# ── Admin / configuration paths ─────────────────────────────────────────
+#
+# Paths that must require a real authenticated owner regardless of which
+# non-owner identity reached the middleware (guest cookie, open-access
+# fallback, future identity types). These leak secrets (API keys, MCP
+# tokens) on read OR mutate the deployment on write — neither is
+# something a shared-link visitor or an unconfigured deployment should
+# get for free.
+#
+# ALL_PREFIXES: every method blocked (GET responses include API keys).
+# WRITE_PREFIXES: only mutating methods blocked (GETs power content apps).
+ADMIN_ALL_PREFIXES: tuple[str, ...] = ("/api/v1/settings/",)
+ADMIN_WRITE_PREFIXES: tuple[str, ...] = ("/api/v1/brandkits/", "/api/v1/knowledge/")
+ADMIN_WRITE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _is_admin_path(method: str, path: str) -> bool:
+    """True iff this (method, path) names a configuration / admin
+    operation that must be restricted to real authenticated owners.
+
+    Used by BOTH guest-cookie and open-access middleware branches —
+    a single source of truth so adding a sensitive endpoint to the
+    list applies uniformly to every non-owner identity.
+    """
+    if any(path.startswith(p) for p in ADMIN_ALL_PREFIXES):
+        return True
+    if method in ADMIN_WRITE_METHODS and any(path.startswith(p) for p in ADMIN_WRITE_PREFIXES):
+        return True
+    return False
+
+
 # Guest cookie lifetime. Sliding session: every authenticated request
 # refreshes the cookie's expiry, so an active guest never gets booted.
 # Only 365 days of inactivity invalidates it client-side (and browsers
@@ -363,18 +394,10 @@ async def auth_middleware(request: Request, call_next):
         "/health",
     }
 
-    # Paths that must require REAL authentication even in open-access
-    # mode (no MCP tokens minted, no JWT cookie, no guest cookie). The
-    # open-access fallback was originally intended for content reads +
-    # MCP agent calls on a fresh deployment; admin / configuration
-    # surfaces leak secrets (LLM API keys, MCP tokens) or let a logged-
-    # out visitor mutate the deployment, neither of which the operator
-    # opts into by skipping MCP-token setup. Match by prefix; method
-    # is ALL for ``ADMIN_ALL`` (GET also leaks payload), and write-
-    # only for ``ADMIN_WRITE`` (read might be needed for content apps).
-    ADMIN_ALL_PREFIXES = ("/api/v1/settings/",)
-    ADMIN_WRITE_PREFIXES = ("/api/v1/brandkits/", "/api/v1/knowledge/")
-    WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+    # Admin-path enforcement uses the module-level ``_is_admin_path`` —
+    # see definition above. Both the guest and open-access branches
+    # reuse the same rules so adding a new admin prefix automatically
+    # applies to every non-owner identity.
     if path in PUBLIC:
         return await call_next(request)
 
@@ -435,6 +458,15 @@ async def auth_middleware(request: Request, call_next):
         except Exception:
             ok = False
         if ok:
+            # Same admin gate as the open-access fallback — guests must
+            # never reach /settings/* or write to /brandkits / /knowledge,
+            # regardless of method. Without this, GET /settings/llm
+            # leaks API keys to anyone with a guest link.
+            if _is_admin_path(request.method, path):
+                return JSONResponse(
+                    {"detail": "Guest mode cannot access admin / configuration endpoints"},
+                    status_code=403,
+                )
             if not _guest_write_allowed(request.method, path):
                 return JSONResponse(
                     {"detail": "Guest mode is read-only on this endpoint"},
@@ -494,10 +526,7 @@ async def auth_middleware(request: Request, call_next):
         # /settings/* or rewrite the KB / brandkit. Once the
         # operator signs in (cookie JWT) or mints an MCP token,
         # those sessions reach the path above and bypass this gate.
-        method = request.method
-        if any(path.startswith(p) for p in ADMIN_ALL_PREFIXES):
-            return JSONResponse({"detail": "Sign in required"}, status_code=401)
-        if method in WRITE_METHODS and any(path.startswith(p) for p in ADMIN_WRITE_PREFIXES):
+        if _is_admin_path(request.method, path):
             return JSONResponse({"detail": "Sign in required"}, status_code=401)
 
         from app.api.auth import SENTINEL_NO_AUTH

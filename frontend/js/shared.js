@@ -184,7 +184,16 @@ window.formatRelative = function (iso) {
   // bottom of long generated content is always scrollable into view.
   const css = `
 body.h-screen { height: 100dvh; }
-body.is-guest .owner-only { display: none !important; }
+/* Owner-only elements: hidden by default, only revealed once
+   detectSession() confirms a real owner session. This protects against
+   three failure modes simultaneously:
+     - guest cookie session (body.is-guest)
+     - no-auth / open-access (body has no class)
+     - /me request still in flight (no class yet)
+   Real owners get a brief paint-flash where the avatar/menu pop in
+   after detectSession resolves; that's the right trade for not leaking
+   "settings" links to non-owners. */
+body:not(.is-owner) .owner-only { display: none !important; }
 body.is-guest { padding-top: 24px; }
 #od-guest-banner { display: none; }
 body.is-guest #od-guest-banner {

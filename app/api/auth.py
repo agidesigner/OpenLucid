@@ -132,12 +132,16 @@ async def me(request: Request, db: AsyncSession = Depends(get_db)):
     if uid == SENTINEL_API_TOKEN:
         return MeResponse(id=None, email=None, is_active=True, is_guest=False)
     if uid == SENTINEL_NO_AUTH:
-        # Open-access mode (no JWT secret configured). Surface as a
-        # non-guest "active" identity — there's no real User row to
-        # return, but the frontend just needs to know it's allowed in.
-        # Without this branch, the next line tries to cast "no-auth"
-        # to UUID and crashes with 500.
-        return MeResponse(id=None, email=None, is_active=True, is_guest=False)
+        # Open-access mode (no MCP tokens minted, no JWT cookie). Treat
+        # as NOT authenticated for the purposes of /me — the frontend
+        # uses a 401 here to redirect users to /signin.html. Returning
+        # a friendly MeResponse would let the WebUI render an
+        # owner-style dashboard (avatar, menu, settings link) for a
+        # signed-out browser session, which is exactly the bug the
+        # operator hit after signout. Open-access is for MCP / API
+        # callers, never for the WebUI dashboard. The earlier 500
+        # crash is still avoided because we never reach the DB query.
+        raise HTTPException(401, "Not authenticated")
     if not is_real_user_uid(uid):
         # Defense in depth: a future middleware path adding a new
         # sentinel without updating this function would otherwise
