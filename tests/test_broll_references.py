@@ -253,20 +253,30 @@ def test_chanjing_kling_model_codes_match_docs_verbatim():
         "Kling 2.5 does NOT follow v2.1's tx_kling-v*-master pattern"
 
 
-def test_is_hard_provider_error_distinguishes_classes():
-    """Soft failures (per-shot parameter / aspect / unsupported ref
-    rejections) must NOT skip the avatar. Hard failures (auth,
-    credits, rate-limit, timeout) SHOULD skip to avoid wasting
-    credits on a job the user can't receive."""
-    from app.application.video_service import _is_hard_provider_error
+def test_strict_gate_module_state():
+    """Strict-mode gate (any broll failure aborts avatar) replaced the
+    earlier hard/soft distinction. Pin the module shape so a future
+    revert can't sneak the lenient gate back without updating tests:
+      * ``_is_hard_provider_error`` must NOT exist anymore (its
+        purpose was the lenient gate's hard/soft check — now meaningless)
+      * the gate code in create_video_job must reference the new
+        ``failed_strict`` status marker
+    """
+    import inspect
 
-    # Hard — yes
-    assert _is_hard_provider_error("Insufficient credits / quota — out of balance")
-    assert _is_hard_provider_error("Rate-limited by provider — slow down")
-    assert _is_hard_provider_error("Authentication / permission denied — bad key")
-    assert _is_hard_provider_error("Provider timeout — deadline exceeded")
-    # Soft — no
-    assert not _is_hard_provider_error("aspect ratio 3.12 not in [0.5, 2.0]")
-    assert not _is_hard_provider_error("invalid prompt encoding")
-    assert not _is_hard_provider_error("unknown")
-    assert not _is_hard_provider_error("")
+    from app.application import video_service as svc
+
+    assert not hasattr(svc, "_is_hard_provider_error"), (
+        "Lenient hard/soft gate has been replaced by strict-mode; "
+        "_is_hard_provider_error should be removed entirely."
+    )
+
+    src = inspect.getsource(svc.create_video_job)
+    assert "failed_strict" in src, (
+        "Strict gate sets params['broll_status'] = 'failed_strict' — "
+        "missing means the gate has been weakened."
+    )
+    assert "broll_specs and broll_failures" in src, (
+        "Strict gate fires on ANY failure (broll_failures non-empty), "
+        "not the legacy 'all shots failed AND all hard' rule."
+    )

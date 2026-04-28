@@ -120,26 +120,6 @@ def _classify_broll_error(msg: str) -> str:
     return cause
 
 
-def _is_hard_provider_error(classified_error: str) -> bool:
-    """True iff the broll-submit failure is one of the four "operator
-    must intervene" classes: insufficient credits, rate-limit, auth,
-    timeout. Hard errors mean retrying any shot would also fail —
-    skipping the talking-head avatar avoids spending more credits on
-    a job the user can't actually receive. Soft errors (parameter
-    rejections, unsupported references, malformed prompts) are
-    per-shot issues; the avatar should still proceed because narration
-    is independent of B-roll."""
-    return any(
-        classified_error.startswith(prefix)
-        for prefix in (
-            "Insufficient credits",
-            "Rate-limited",
-            "Authentication",
-            "Provider timeout",
-        )
-    )
-
-
 def _to_response(job: VideoGenerationJob) -> VideoJobResponse:
     return VideoJobResponse(
         id=str(job.id),
@@ -186,48 +166,15 @@ async def create_video_job(
     if not provider_config:
         raise NotFoundError("MediaProviderConfig", data.provider_config_id)
 
-    # Brandkit-driven subtitle-color defaults. When the user hasn't picked
-    # an explicit override, the brandkit's primary / secondary colors stand
-    # in for preset defaults — this way video subtitles visually match the
-    # brand without forcing the user to re-enter hex on every generation.
-    # Explicit user choice (non-null ``data.subtitle_color`` / ``stroke``)
-    # always wins; only the unset case gets filled.
+    # Style preset values flow straight through. We previously
+    # auto-injected the offer's BrandKit primary / secondary as the
+    # subtitle fill / stroke when the user hadn't overridden — the
+    # intent was "brand-aware subtitles for free", but in practice it
+    # silently defeated every style choice ("I picked Classic, why is
+    # the subtitle red?"). Brand-color matching is now opt-in: users
+    # who want it click "自定义颜色" and pick the hex explicitly.
     effective_subtitle_color = data.subtitle_color
     effective_subtitle_stroke = data.subtitle_stroke
-    if effective_subtitle_color is None or effective_subtitle_stroke is None:
-        from app.models.brandkit import BrandKit, BrandKitColor
-        try:
-            kit = (await db.execute(
-                select(BrandKit).where(
-                    BrandKit.scope_type == "offer",
-                    BrandKit.scope_id == creation.offer_id,
-                ).order_by(BrandKit.updated_at.desc()).limit(1)
-            )).scalars().first()
-            if kit is None and creation.merchant_id:
-                kit = (await db.execute(
-                    select(BrandKit).where(
-                        BrandKit.scope_type == "merchant",
-                        BrandKit.scope_id == creation.merchant_id,
-                    ).order_by(BrandKit.updated_at.desc()).limit(1)
-                )).scalars().first()
-            if kit is not None:
-                colors = (await db.execute(
-                    select(BrandKitColor)
-                    .where(BrandKitColor.brandkit_id == kit.id)
-                    .order_by(BrandKitColor.priority)
-                )).scalars().all()
-                by_role = {c.role: c.hex for c in colors}
-                if effective_subtitle_color is None and by_role.get("primary"):
-                    effective_subtitle_color = by_role["primary"]
-                if effective_subtitle_stroke is None and by_role.get("secondary"):
-                    effective_subtitle_stroke = by_role["secondary"]
-                if effective_subtitle_color or effective_subtitle_stroke:
-                    logger.info(
-                        "Subtitle color defaults pulled from brandkit: fill=%s stroke=%s",
-                        effective_subtitle_color, effective_subtitle_stroke,
-                    )
-        except Exception as e:
-            logger.warning("Brandkit color lookup failed (using style-preset defaults): %s", e)
 
     # 3. Build the params we'll send (and store on the row for debug)
     params: dict = {
@@ -601,44 +548,48 @@ async def create_video_job(
                         params["broll_status"] = "partial"
                     job.params = params
 
-                # Gate the avatar submit. If the user explicitly enabled
-                # B-roll AND the provider rejected every shot at submit
-                # AND the failure looks like a hard provider issue
-                # (auth / out-of-credit / rate-limit / timeout) — there's
-                # no point spending tokens on the talking-head; bail.
+                # Strict gate: ANY B-roll failure aborts avatar
+                # generation. Per product policy: B-roll is no longer
+                # treated as "additive enhancement" — if the user
+                # explicitly enabled B-roll, they expect a complete
+                # video. A partial result (avatar narration without the
+                # planned cutaways, or with one shot missing) is a
+                # quality regression they didn't ask for.
                 #
-                # SOFT failures (param rejections, unsupported references,
-                # ratio out-of-range, etc.) are per-shot issues that the
-                # avatar generation is independent of. We log them in
-                # ``broll_warnings`` for the UI, but still let the
-                # talking-head avatar proceed — narration is the
-                # primary deliverable, B-roll is additive. Pre-v1.3.5
-                # this gate was unconditional and a single misconfigured
-                # reference image silently killed the avatar too.
-                if broll_specs and not broll_tasks and broll_failures:
-                    all_hard = all(
-                        _is_hard_provider_error(f.get("error", ""))
-                        for f in broll_failures
-                    )
-                    if all_hard:
-                        job.status = "failed"
-                        first = broll_failures[0].get("error", "?")
-                        job.error_message = (
-                            f"B-roll generation failed for all {len(broll_failures)} shot(s) "
-                            f"via {broll_provider_config.provider}: {first}. "
-                            "Avatar generation skipped to avoid wasting credits."
+                # This applies to BOTH chanjing and jogg avatars (gate
+                # is provider-agnostic) and to BOTH hard and soft
+                # broll failures. Pre-v1.4 we only bailed on
+                # all-failures-and-all-hard; that produced inconsistent
+                # output that surprised users.
+                #
+                # Caveat: shots that were already accepted by the
+                # provider (have task_ids in ``broll_tasks``) keep
+                # generating server-side and consume credits — neither
+                # chanjing nor jogg expose a cancel API. We surface
+                # this in the error message so the user understands
+                # why the credit ledger moved.
+                if broll_specs and broll_failures:
+                    succeeded_count = len(broll_tasks)
+                    failed_count = len(broll_failures)
+                    first = broll_failures[0].get("error", "?")
+                    suffix = ""
+                    if succeeded_count > 0:
+                        suffix = (
+                            f" 提示：已有 {succeeded_count} 个 broll 任务被提供商接受、"
+                            f"会继续在服务端生成并消耗 credits（暂无取消接口）。"
                         )
-                        job.finished_at = _utcnow()
-                        await db.commit()
-                        await db.refresh(job)
-                        return _to_response(job)
-                    # Soft failures — log them (already in broll_warnings)
-                    # and let the avatar pipeline run normally.
-                    logger.info(
-                        "B-roll: all %d shots failed but errors look soft (per-shot); "
-                        "proceeding with avatar generation.",
-                        len(broll_failures),
+                    job.status = "failed"
+                    job.error_message = (
+                        f"B-roll 生成失败：{failed_count}/{len(broll_specs)} 个分镜在 "
+                        f"{broll_provider_config.provider} 上报错（首个错误：{first}）。"
+                        f"为避免输出不完整的视频，已跳过数字人合成。{suffix}"
                     )
+                    params["broll_status"] = "failed_strict"
+                    job.params = params
+                    job.finished_at = _utcnow()
+                    await db.commit()
+                    await db.refresh(job)
+                    return _to_response(job)
 
     # 6. Submit the avatar video — only reached when B-roll was either not
     # requested, partially succeeded, or wasn't attempted (no plan / no

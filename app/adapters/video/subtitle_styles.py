@@ -39,9 +39,15 @@ SUBTITLE_STYLES: dict[str, dict[str, Any]] = {
         "stroke_width": 10, "size_boost": 6, "y_ratio": 0.78,
     },
     "minimal": {
-        # Understated — light gray, smaller, thin stroke, lower.
-        "color": "#E8E8E8", "stroke_color": "#555555",
-        "stroke_width": 4, "size_boost": -4, "y_ratio": 0.86,
+        # Understated but actually readable. The previous values (light
+        # gray text on a mid-gray stroke, ratio ~2:1) failed WCAG-AA
+        # contrast against most video backgrounds — users reported it
+        # being "invisible". Pure white text + pure black stroke at
+        # half the classic stroke width keeps the "low-key" character
+        # (smaller font, lower position, thinner outline) without
+        # sacrificing legibility on busy footage.
+        "color": "#FFFFFF", "stroke_color": "#000000",
+        "stroke_width": 4, "size_boost": -2, "y_ratio": 0.86,
     },
 }
 

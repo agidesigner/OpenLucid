@@ -10,9 +10,11 @@ from app.application.media_provider_service import (
     activate_media_provider_config,
     create_media_provider_config,
     delete_media_provider_config,
-    list_avatars_for_config,
+    list_all_avatars_for_config,
+    list_all_voices_for_config,
+    list_avatar_tags_for_config,
     list_media_provider_configs,
-    list_voices_for_config,
+    list_voice_tags_for_config,
     synthesize_voice_preview,
     update_media_provider_config,
     validate_credentials,
@@ -23,6 +25,7 @@ from app.schemas.media_provider import (
     MediaProviderConfigResponse,
     MediaProviderConfigUpdate,
     MediaProviderValidateRequest,
+    TagCategory,
     VoiceItem,
     VoicePreviewRequest,
     VoicePreviewResponse,
@@ -80,21 +83,47 @@ async def activate_config(
 @router.get("/{config_id}/avatars", response_model=list[AvatarItem])
 async def list_avatars(
     config_id: uuid.UUID,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    sort: str = Query("latest", pattern="^(latest|hottest|default)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    return await list_avatars_for_config(db, config_id, page=page, page_size=page_size)
+    # The web picker has no pagination UI — return the provider's full
+    # library (walking pages where the adapter supports it). MCP keeps
+    # its own paginated path via the list_avatars tool.
+    # ``sort`` is chanjing-specific (jogg silently ignores). "default"
+    # means "no sort param" — chanjing then returns ID-ascending.
+    sort_arg = None if sort == "default" else sort
+    return await list_all_avatars_for_config(db, config_id, sort=sort_arg)
 
 
 @router.get("/{config_id}/voices", response_model=list[VoiceItem])
 async def list_voices(
     config_id: uuid.UUID,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ):
-    return await list_voices_for_config(db, config_id, page=page, page_size=page_size)
+    # Cap voice walk at 2 pages — picker UX needs ~100-200 voices for
+    # variety, search-by-name covers the long tail. Without this jogg's
+    # 2000+ voice library serializes 20 upstream HTTP calls and stalls
+    # the modal for 10-30s. MCP's paginated /list_voices_for_config
+    # path is untouched (it lets agents walk explicitly).
+    return await list_all_voices_for_config(db, config_id, max_pages=2)
+
+
+@router.get("/{config_id}/avatar-tags", response_model=list[TagCategory])
+async def list_avatar_tags(
+    config_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Provider-side tag dictionary for the avatar picker — used to
+    render filter chips. Providers without a tag taxonomy return []."""
+    return await list_avatar_tags_for_config(db, config_id)
+
+
+@router.get("/{config_id}/voice-tags", response_model=list[TagCategory])
+async def list_voice_tags(
+    config_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    return await list_voice_tags_for_config(db, config_id)
 
 
 @router.post(

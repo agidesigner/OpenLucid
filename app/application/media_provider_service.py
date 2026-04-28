@@ -8,6 +8,7 @@ A user may legitimately want both Chanjing AND Jogg active simultaneously.
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from typing import Any
 
@@ -23,10 +24,18 @@ from app.schemas.media_provider import (
     MediaProviderConfigResponse,
     MediaProviderConfigUpdate,
     MediaProviderDefaults,
+    TagCategory,
+    TagOption,
     VoiceItem,
 )
 
 logger = logging.getLogger(__name__)
+
+# Tag dictionaries change rarely (chanjing-side admin op); a cheap
+# in-process TTL cache keyed by (config_id, kind) avoids hitting the
+# upstream on every picker open. Cleared on process restart.
+_TAG_CACHE_TTL_SECONDS = 3600.0
+_TAG_CACHE: dict[tuple[uuid.UUID, str], tuple[float, list[TagCategory]]] = {}
 
 
 # Required credential keys per provider — used for both validation and masking.
@@ -135,6 +144,9 @@ async def update_media_provider_config(
 
     await db.commit()
     await db.refresh(config)
+    # Credential change may switch us to a different chanjing tenant —
+    # cached tag dictionaries from the old account would be stale.
+    _invalidate_tag_cache(config_id)
     return _to_response(config)
 
 
@@ -149,6 +161,7 @@ async def delete_media_provider_config(
     was_active = config.is_active
     provider = config.provider
     await repo.delete(config)
+    _invalidate_tag_cache(config_id)
 
     # If we deleted the active config of this provider, promote another of the
     # same provider type if one exists.
@@ -223,6 +236,39 @@ async def list_avatars_for_config(
     ]
 
 
+async def list_all_avatars_for_config(
+    db: AsyncSession,
+    config_id: uuid.UUID,
+    sort: str | None = None,
+) -> list[AvatarItem]:
+    """Return the provider's full avatar library, walking pagination if
+    the adapter supports it. Used by the web picker, which has no UI for
+    paging and wants the full list up-front. ``sort`` is forwarded to
+    providers that support it (chanjing); jogg ignores it."""
+    repo = MediaProviderRepository(db)
+    config = await repo.get_by_id(config_id)
+    if not config:
+        raise NotFoundError("MediaProviderConfig", str(config_id))
+    video_provider = get_video_provider(config.provider, config.credentials or {})
+    fetch_all = getattr(video_provider, "list_all_avatars", None)
+    if callable(fetch_all):
+        avatars = await fetch_all(sort=sort) if sort is not None else await fetch_all()
+    else:
+        avatars = await video_provider.list_avatars(page=1, page_size=200)
+    return [
+        AvatarItem(
+            id=a.id,
+            name=a.name,
+            gender=a.gender,
+            age=a.age,
+            preview_image_url=a.preview_image_url,
+            preview_video_url=a.preview_video_url,
+            extras=a.extras or {},
+        )
+        for a in avatars
+    ]
+
+
 async def list_voices_for_config(
     db: AsyncSession,
     config_id: uuid.UUID,
@@ -243,6 +289,47 @@ async def list_voices_for_config(
             age=v.age,
             language=v.language,
             sample_url=v.sample_url,
+            extras=v.extras or {},
+        )
+        for v in voices
+    ]
+
+
+async def list_all_voices_for_config(
+    db: AsyncSession,
+    config_id: uuid.UUID,
+    max_pages: int | None = None,
+) -> list[VoiceItem]:
+    """Voice counterpart to list_all_avatars_for_config — walk pages
+    when the adapter supports it, fall back to a single oversized page
+    otherwise. ``max_pages`` lets callers cap the walk: jogg has 2000+
+    public voices and walking the entire library on every modal-open
+    serializes ~20 upstream HTTP calls, which the picker doesn't
+    actually need — it only displays 50 at a time and supports search.
+    """
+    repo = MediaProviderRepository(db)
+    config = await repo.get_by_id(config_id)
+    if not config:
+        raise NotFoundError("MediaProviderConfig", str(config_id))
+    video_provider = get_video_provider(config.provider, config.credentials or {})
+    fetch_all = getattr(video_provider, "list_all_voices", None)
+    if callable(fetch_all):
+        voices = (
+            await fetch_all(max_pages=max_pages)
+            if max_pages is not None
+            else await fetch_all()
+        )
+    else:
+        voices = await video_provider.list_voices(page=1, page_size=200)
+    return [
+        VoiceItem(
+            id=v.id,
+            name=v.name,
+            gender=v.gender,
+            age=v.age,
+            language=v.language,
+            sample_url=v.sample_url,
+            extras=v.extras or {},
         )
         for v in voices
     ]
@@ -261,3 +348,73 @@ async def synthesize_voice_preview(
         raise NotFoundError("MediaProviderConfig", str(config_id))
     video_provider = get_video_provider(config.provider, config.credentials or {})
     return await video_provider.synthesize_speech(voice_id, text)
+
+
+# ── Tag dictionary (cached) ─────────────────────────────────────────
+
+
+def _normalize_tag_categories(raw: list[dict]) -> list[TagCategory]:
+    return [
+        TagCategory(
+            id=str(cat["id"]),
+            name=cat.get("name", ""),
+            tags=[
+                TagOption(
+                    id=str(t["id"]),
+                    name=t.get("name", ""),
+                    parent_id=t.get("parent_id"),
+                )
+                for t in (cat.get("tags") or [])
+            ],
+        )
+        for cat in raw
+    ]
+
+
+async def list_avatar_tags_for_config(
+    db: AsyncSession, config_id: uuid.UUID,
+) -> list[TagCategory]:
+    return await _list_tags_cached(db, config_id, kind="avatar")
+
+
+async def list_voice_tags_for_config(
+    db: AsyncSession, config_id: uuid.UUID,
+) -> list[TagCategory]:
+    return await _list_tags_cached(db, config_id, kind="voice")
+
+
+async def _list_tags_cached(
+    db: AsyncSession, config_id: uuid.UUID, *, kind: str,
+) -> list[TagCategory]:
+    """Per-config in-process cache for tag dictionaries.
+
+    Providers without a tag taxonomy (jogg, google) return [] — we still
+    cache the empty result so we don't re-trigger the getattr+miss path
+    on every picker open.
+    """
+    key = (config_id, kind)
+    now = time.time()
+    cached = _TAG_CACHE.get(key)
+    if cached and (now - cached[0]) < _TAG_CACHE_TTL_SECONDS:
+        return cached[1]
+    repo = MediaProviderRepository(db)
+    config = await repo.get_by_id(config_id)
+    if not config:
+        raise NotFoundError("MediaProviderConfig", str(config_id))
+    video_provider = get_video_provider(config.provider, config.credentials or {})
+    method = getattr(video_provider, f"list_{kind}_tags", None)
+    if callable(method):
+        raw = await method()
+        result = _normalize_tag_categories(raw)
+    else:
+        result = []
+    _TAG_CACHE[key] = (now, result)
+    return result
+
+
+def _invalidate_tag_cache(config_id: uuid.UUID) -> None:
+    """Drop cached tag dictionaries for a config — call when credentials
+    change or the config is deleted, so a future fetch picks up fresh
+    data from a different upstream account."""
+    for kind in ("avatar", "voice"):
+        _TAG_CACHE.pop((config_id, kind), None)

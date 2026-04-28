@@ -87,6 +87,9 @@ class VoiceItem(BaseModel):
     age: str | None = None      # normalized
     language: str | None = None
     sample_url: str
+    # Mirror of AvatarItem.extras — primarily carries `tag_ids` so the
+    # picker's chip-filter logic is identical for avatars and voices.
+    extras: dict = {}
 
 
 class VoicePreviewRequest(BaseModel):
@@ -97,3 +100,27 @@ class VoicePreviewRequest(BaseModel):
 
 class VoicePreviewResponse(BaseModel):
     audio_url: str
+
+
+# ── Tag dictionary (provider-side filter chips) ─────────────────────
+
+
+class TagOption(BaseModel):
+    """One filterable tag — id matches values in AvatarItem.extras.tag_ids
+    so the picker can render a chip and the frontend joins by id."""
+
+    id: str
+    name: str
+    parent_id: str | None = None  # None = root-level chip
+
+
+class TagCategory(BaseModel):
+    """A category groups related tags (e.g. "场景" → 商务/户外/厨房).
+
+    Empty `tags` is allowed — a provider may publish a category before
+    populating it. Providers without a tag taxonomy return `[]`.
+    """
+
+    id: str
+    name: str
+    tags: list[TagOption] = []

@@ -598,6 +598,12 @@
                 platform_id: this.platformId || undefined,
                 persona_id: this.personaId || undefined,
                 goal_id: this.goalId,
+                // Tag the source so the creations-list filter can
+                // distinguish Content Studio output from Script Writer
+                // (we share the same generate endpoint). Without this,
+                // every content-studio creation got filed under
+                // "视频脚本" / source_app="script_writer".
+                source_app: 'content_studio',
               }),
             });
             if (!res.ok) {

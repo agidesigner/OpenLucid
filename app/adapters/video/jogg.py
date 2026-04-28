@@ -22,6 +22,12 @@ from typing import Any
 
 import httpx
 
+from app.adapters.video._tagging import (
+    SYNTHETIC_AVATAR_TAG_CATEGORIES,
+    SYNTHETIC_VOICE_TAG_CATEGORIES,
+    synthetic_avatar_tag_tokens,
+    synthetic_voice_tag_tokens,
+)
 from app.adapters.video.base import (
     Avatar,
     AspectRatio,
@@ -163,7 +169,63 @@ class JoggVideoProvider:
 
     # ----- VideoProvider interface -----
 
-    async def list_avatars(self, page: int = 1, page_size: int = 50) -> list[Avatar]:
+    @staticmethod
+    def _parse_avatar_item(item: dict) -> Avatar | None:
+        """Map one /avatars/public item to an Avatar. Surfaces the same
+        ``extras`` keys as the chanjing adapter (`native_aspect_ratio`,
+        `tag_ids`) so the picker filter logic is provider-agnostic.
+        """
+        raw_id = item.get("id")
+        if not raw_id and raw_id != 0:  # 0 is a valid Jogg id (int)
+            logger.warning("Jogg avatar item missing id, skipping: %s", item)
+            return None
+        item_id = str(raw_id)
+
+        # Jogg encodes aspect as an int code per avatar
+        # (0 = portrait 9:16, 1 = landscape 16:9). Map to the same enum
+        # chanjing's _native_aspect_ratio emits, so the chip filter and
+        # extras key match across providers.
+        ratio_code = item.get("aspect_ratio")
+        if ratio_code == 0:
+            native_ratio: str | None = "portrait"
+        elif ratio_code == 1:
+            native_ratio = "landscape"
+        else:
+            native_ratio = None
+
+        gender = _normalize_gender(item.get("gender"))
+        age = _normalize_age(item.get("age"), kind="avatar")
+
+        extras: dict = {}
+        if native_ratio is not None:
+            extras["native_aspect_ratio"] = native_ratio
+        # Jogg has no native tag taxonomy — synthetic tokens are the
+        # only chip-filter signal we have. Same token format as chanjing
+        # (gender:*, age:*, aspect:*), so one frontend filter covers both.
+        tokens = synthetic_avatar_tag_tokens(
+            gender=gender, age=age, native_aspect_ratio=native_ratio,
+        )
+        if tokens:
+            extras["tag_ids"] = tokens
+
+        return Avatar(
+            id=item_id,
+            name=item.get("name", ""),
+            gender=gender,
+            preview_image_url=item.get("cover_url", ""),
+            preview_video_url=item.get("video_url"),
+            age=age,
+            extras=extras,
+            raw=item,
+        )
+
+    async def list_avatars(
+        self, page: int = 1, page_size: int = 50, sort: str | None = None,
+    ) -> list[Avatar]:
+        # ``sort`` accepted for cross-provider parity; jogg's
+        # /avatars/public has no sort parameter, so it's silently
+        # ignored. Adding it to the signature lets the service layer
+        # call all providers uniformly without dispatch.
         body = await self._request(
             "GET",
             "/avatars/public",
@@ -173,38 +235,77 @@ class JoggVideoProvider:
         avatars: list[Avatar] = []
         seen_ids: set[str] = set()
         for item in items:
-            raw_id = item.get("id")
-            if not raw_id and raw_id != 0:  # 0 is a valid Jogg id (int)
-                logger.warning("Jogg avatar item missing id, skipping: %s", item)
+            avatar = self._parse_avatar_item(item)
+            if avatar is None:
                 continue
-            item_id = str(raw_id)
-            if item_id in seen_ids:
-                logger.warning("Jogg avatar duplicate id %s, skipping", item_id)
+            if avatar.id in seen_ids:
+                logger.warning("Jogg avatar duplicate id %s, skipping", avatar.id)
                 continue
-            seen_ids.add(item_id)
-            # Jogg returns ``aspect_ratio`` as an int code on each avatar
-            # (0 = portrait 9:16, 1 = landscape 16:9). Surface it on
-            # ``extras`` so the avatar picker can filter by the user's
-            # chosen format and only show templates that match.
-            extras: dict = {}
-            ratio_code = item.get("aspect_ratio")
-            if ratio_code == 0:
-                extras["aspect_ratio"] = "portrait"
-            elif ratio_code == 1:
-                extras["aspect_ratio"] = "landscape"
-            avatars.append(
-                Avatar(
-                    id=item_id,
-                    name=item.get("name", ""),
-                    gender=_normalize_gender(item.get("gender")),
-                    preview_image_url=item.get("cover_url", ""),
-                    preview_video_url=item.get("video_url"),
-                    age=_normalize_age(item.get("age"), kind="avatar"),
-                    extras=extras,
-                    raw=item,
-                )
-            )
+            seen_ids.add(avatar.id)
+            avatars.append(avatar)
         return avatars
+
+    async def list_all_avatars(
+        self, page_size: int = 100, max_pages: int = 20,
+        sort: str | None = None,
+    ) -> list[Avatar]:
+        """Walk /avatars/public until empty.
+
+        Why: jogg paginates with `page` / `page_size` and a single-page
+        fetch only exposes the first slice of the public library — same
+        bug class as chanjing's list_common_dp.
+        """
+        seen: set[str] = set()
+        out: list[Avatar] = []
+        for page in range(1, max_pages + 1):
+            batch = await self.list_avatars(page=page, page_size=page_size)
+            if not batch:
+                break
+            new_count = 0
+            for av in batch:
+                if av.id in seen:
+                    continue
+                seen.add(av.id)
+                out.append(av)
+                new_count += 1
+            # If a page returned only duplicates, the server is looping —
+            # bail rather than spin to max_pages.
+            if new_count == 0:
+                break
+        logger.info(
+            "Jogg list_all_avatars: %d avatars across %d page(s)",
+            len(out), page,
+        )
+        return out
+
+    @staticmethod
+    def _parse_voice_item(item: dict) -> Voice | None:
+        raw_id = item.get("voice_id")
+        if not raw_id:
+            logger.warning("Jogg voice item missing voice_id, skipping: %s", item)
+            return None
+        item_id = str(raw_id)
+        gender = _normalize_gender(item.get("gender"))
+        age = _normalize_age(item.get("age"), kind="voice")
+        language = item.get("language")
+
+        extras: dict = {}
+        tokens = synthetic_voice_tag_tokens(
+            gender=gender, age=age, language=language,
+        )
+        if tokens:
+            extras["tag_ids"] = tokens
+
+        return Voice(
+            id=item_id,
+            name=item.get("name", ""),
+            gender=gender,
+            language=language,
+            sample_url=item.get("audio_url", ""),
+            age=age,
+            extras=extras,
+            raw=item,
+        )
 
     async def list_voices(self, page: int = 1, page_size: int = 50) -> list[Voice]:
         body = await self._request(
@@ -216,27 +317,50 @@ class JoggVideoProvider:
         voices: list[Voice] = []
         seen_ids: set[str] = set()
         for item in items:
-            raw_id = item.get("voice_id")
-            if not raw_id:
-                logger.warning("Jogg voice item missing voice_id, skipping: %s", item)
+            voice = self._parse_voice_item(item)
+            if voice is None:
                 continue
-            item_id = str(raw_id)
-            if item_id in seen_ids:
-                logger.warning("Jogg voice duplicate id %s, skipping", item_id)
+            if voice.id in seen_ids:
+                logger.warning("Jogg voice duplicate id %s, skipping", voice.id)
                 continue
-            seen_ids.add(item_id)
-            voices.append(
-                Voice(
-                    id=item_id,
-                    name=item.get("name", ""),
-                    gender=_normalize_gender(item.get("gender")),
-                    language=item.get("language"),
-                    sample_url=item.get("audio_url", ""),
-                    age=_normalize_age(item.get("age"), kind="voice"),
-                    raw=item,
-                )
-            )
+            seen_ids.add(voice.id)
+            voices.append(voice)
         return voices
+
+    async def list_avatar_tags(self) -> list[dict]:
+        """Jogg has no server-side tag taxonomy — the picker still gets
+        the cross-provider synthetic chips so the UI is identical to
+        chanjing's. Returning an empty list here would force the
+        frontend to branch on provider, defeating the abstraction."""
+        return [c.model_dump() for c in SYNTHETIC_AVATAR_TAG_CATEGORIES]
+
+    async def list_voice_tags(self) -> list[dict]:
+        return [c.model_dump() for c in SYNTHETIC_VOICE_TAG_CATEGORIES]
+
+    async def list_all_voices(
+        self, page_size: int = 100, max_pages: int = 20,
+    ) -> list[Voice]:
+        """Walk /voices until empty. Same rationale as list_all_avatars."""
+        seen: set[str] = set()
+        out: list[Voice] = []
+        for page in range(1, max_pages + 1):
+            batch = await self.list_voices(page=page, page_size=page_size)
+            if not batch:
+                break
+            new_count = 0
+            for v in batch:
+                if v.id in seen:
+                    continue
+                seen.add(v.id)
+                out.append(v)
+                new_count += 1
+            if new_count == 0:
+                break
+        logger.info(
+            "Jogg list_all_voices: %d voices across %d page(s)",
+            len(out), page,
+        )
+        return out
 
     async def create_avatar_video(self, req: CreateVideoRequest) -> str:
         if len(req.script) > 4000:

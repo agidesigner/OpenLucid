@@ -27,6 +27,12 @@ from typing import Any
 
 import httpx
 
+from app.adapters.video._tagging import (
+    SYNTHETIC_AVATAR_TAG_CATEGORIES,
+    SYNTHETIC_VOICE_TAG_CATEGORIES,
+    synthetic_avatar_tag_tokens,
+    synthetic_voice_tag_tokens,
+)
 from app.adapters.video.base import (
     Avatar,
     AspectRatio,
@@ -146,6 +152,28 @@ def _age_from_voice_name(name: str | None) -> str | None:
     if any(k in name for k in ("小哥", "小芸", "小妹", "青年", "年轻", "少年", "young")):
         return "young"
     return None  # leave unknown rather than guessing "adult"
+
+
+def _native_aspect_ratio(width: int | None, height: int | None) -> str | None:
+    """Bucket an avatar's native canvas dimensions into the three values
+    the picker UI uses. Returns None when dimensions are missing/zero so
+    the caller can omit the key (rather than emit a misleading default).
+
+    Buckets match jogg's encoding for cross-provider consistency:
+        portrait  — taller than ~1:1.05    (e.g. 9:16, 3:4)
+        square    — within ±5% of 1:1
+        landscape — wider than ~1:1.05      (e.g. 16:9, 4:3)
+    """
+    if not isinstance(width, int) or not isinstance(height, int):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    ratio = width / height
+    if ratio < 0.95:
+        return "portrait"
+    if ratio > 1.05:
+        return "landscape"
+    return "square"
 
 
 def _aspect_to_canvas(aspect_ratio: AspectRatio) -> tuple[int, int, int, int, int, int]:
@@ -376,60 +404,234 @@ class ChanjingVideoProvider:
 
     # ----- VideoProvider interface -----
 
-    async def list_avatars(self, page: int = 1, page_size: int = 50) -> list[Avatar]:
+    @staticmethod
+    def _parse_avatar_item(item: dict) -> Avatar | None:
+        """Map one /list_common_dp item to an Avatar, or None if unusable."""
+        # Defensive: skip items with missing id (otherwise the frontend
+        # x-for collides on the empty-string fallback key and crashes).
+        raw_id = item.get("id")
+        if not raw_id:
+            logger.warning("Chanjing avatar item missing id, skipping: %s", item)
+            return None
+        item_id = str(raw_id)
+
+        # Drop ``circle_view`` figures — these are headshot-frame-mode
+        # variants that get distorted when chanjing stretches them into
+        # a full-body output canvas. We pick the first non-headshot
+        # figure instead. If the avatar's only variant IS circle_view
+        # (rare), skip the entire avatar — the picker is for full-body
+        # talking-head video, not headshot stickers.
+        raw_figures = item.get("figures") or []
+        figures = [f for f in raw_figures if f.get("type") != "circle_view"]
+        if not figures:
+            logger.info(
+                "Chanjing avatar %s has only circle_view figures; skipping "
+                "(picker shows full-body avatars only)",
+                item_id,
+            )
+            return None
+        first_figure = figures[0]
+        extras: dict = {}
+        if first_figure.get("type"):
+            extras["figure_type"] = first_figure["type"]
+        else:
+            # Defensive: if Chanjing ever returns an avatar without a
+            # figures[0].type, submit_video has no hint and falls back to
+            # the `whole_body` default — which may be rejected with
+            # code=50000. Log so ops can spot and escalate.
+            logger.warning(
+                "Chanjing avatar %s has no figures[0].type; "
+                "submit_video will fall back to whole_body (may fail)",
+                item_id,
+            )
+        # Officially-paired voice — id is the highest-confidence default
+        # in the frontend; name + preview let the picker show "配 [▶ X]"
+        # without a separate voices fetch.
+        if item.get("audio_man_id"):
+            extras["paired_voice_id"] = str(item["audio_man_id"])
+        if item.get("audio_name"):
+            extras["paired_voice_name"] = str(item["audio_name"])
+        if item.get("audio_preview"):
+            extras["paired_voice_preview_url"] = str(item["audio_preview"])
+        # Background-replacement capability — surface so the UI can mark
+        # which avatars work with custom backgrounds.
+        if isinstance(first_figure.get("bg_replace"), bool):
+            extras["bg_replace"] = first_figure["bg_replace"]
+        # Native canvas aspect ratio — chanjing's renderer can scale to
+        # any output ratio, but matching the avatar's native shape avoids
+        # heavy crops/letterboxing. Bucket into the three values the
+        # picker UI uses (matching jogg's encoding).
+        # Docs list dimensions on BOTH the top-level item and on each
+        # ``figures[i]``. In practice top-level is often empty/0 (the
+        # avatar has no canonical canvas size — each figure variant has
+        # its own). Fall back to figures[0] so the filter actually
+        # works on real chanjing data.
+        native_ratio = _native_aspect_ratio(item.get("width"), item.get("height"))
+        if native_ratio is None and first_figure:
+            native_ratio = _native_aspect_ratio(
+                first_figure.get("width"), first_figure.get("height"),
+            )
+        if native_ratio is not None:
+            extras["native_aspect_ratio"] = native_ratio
+
+        # Pre-normalize the fields used by both Avatar(...) and the
+        # synthetic-token computation, so they stay in lockstep.
+        gender = _normalize_gender(item.get("gender"))
+        age = _age_from_chanjing_tags(item.get("tag_names"))
+        figure_type = first_figure.get("type") if first_figure else None
+
+        # Unified tag-id contract: chanjing's real tag ids (numeric,
+        # stringified) merged with synthetic gender/age/figure/aspect
+        # tokens. The frontend filter does a single string-membership
+        # check against this list — no provider-specific branches.
+        real_tokens = [
+            str(t) for t in (item.get("tag_ids") or []) if isinstance(t, int)
+        ]
+        synthetic_tokens = synthetic_avatar_tag_tokens(
+            gender=gender, age=age,
+            native_aspect_ratio=native_ratio,
+            figure_type=figure_type,
+        )
+        tokens = real_tokens + synthetic_tokens
+        if tokens:
+            extras["tag_ids"] = tokens
+
+        return Avatar(
+            id=item_id,
+            name=item.get("name", ""),
+            gender=gender,
+            preview_image_url=first_figure.get("cover", ""),
+            preview_video_url=first_figure.get("preview_video_url"),
+            age=age,
+            extras=extras,
+            raw=item,
+        )
+
+    async def _fetch_avatar_page(
+        self, page: int, page_size: int, sort: str | None = "latest",
+    ) -> tuple[list[Avatar], int | None]:
+        """Fetch one page; return (parsed avatars, total_page or None).
+
+        `total_page` is read from `data.page_info.total_page` when the
+        server provides it (chanjing docs confirm) — used by
+        list_all_avatars to bound the loop deterministically.
+
+        Sort: chanjing accepts ``latest`` (newest first), ``hottest``
+        (usage frequency), or omitted (ID ascending). We default to
+        ``latest`` so the picker's first page surfaces newly added
+        templates — without an explicit sort the API returns ID-
+        ascending, which puts long-tail / rarely-used entries at the
+        top and the picker feels stale across sessions.
+        """
+        params: dict = {"page": page, "size": page_size}
+        if sort in ("latest", "hottest"):
+            params["sort"] = sort
         body = await self._request(
             "GET",
             "/open/v1/list_common_dp",
-            params={"page": page, "size": page_size},
+            params=params,
         )
-        items = (body.get("data") or {}).get("list") or []
-        avatars: list[Avatar] = []
-        seen_ids: set[str] = set()
+        data = body.get("data") or {}
+        items = data.get("list") or []
+        out: list[Avatar] = []
+        seen_in_page: set[str] = set()
         for item in items:
-            # Defensive: skip items with missing id (otherwise the frontend
-            # x-for collides on the empty-string fallback key and crashes).
-            raw_id = item.get("id")
-            if not raw_id:
-                logger.warning("Chanjing avatar item missing id, skipping: %s", item)
+            avatar = self._parse_avatar_item(item)
+            if avatar is None:
                 continue
-            item_id = str(raw_id)
-            if item_id in seen_ids:
-                logger.warning("Chanjing avatar duplicate id %s, skipping", item_id)
+            if avatar.id in seen_in_page:
+                logger.warning("Chanjing avatar duplicate id %s, skipping", avatar.id)
                 continue
-            seen_ids.add(item_id)
+            seen_in_page.add(avatar.id)
+            out.append(avatar)
 
-            figures = item.get("figures") or []
-            first_figure = figures[0] if figures else {}
-            extras: dict = {}
-            if first_figure.get("type"):
-                extras["figure_type"] = first_figure["type"]
-            else:
-                # Defensive: if Chanjing ever returns an avatar without a
-                # figures[0].type, submit_video has no hint and falls back to
-                # the `whole_body` default — which may be rejected with
-                # code=50000. Log so ops can spot and escalate.
-                logger.warning(
-                    "Chanjing avatar %s has no figures[0].type; "
-                    "submit_video will fall back to whole_body (may fail)",
-                    item_id,
-                )
-            # Chanjing avatars carry their officially-paired voice id — use it
-            # as the highest-confidence default in the frontend.
-            if item.get("audio_man_id"):
-                extras["paired_voice_id"] = str(item["audio_man_id"])
-            avatars.append(
-                Avatar(
-                    id=item_id,
-                    name=item.get("name", ""),
-                    gender=_normalize_gender(item.get("gender")),
-                    preview_image_url=first_figure.get("cover", ""),
-                    preview_video_url=first_figure.get("preview_video_url"),
-                    age=_age_from_chanjing_tags(item.get("tag_names")),
-                    extras=extras,
-                    raw=item,
-                )
-            )
+        page_info = data.get("page_info") or {}
+        tp = page_info.get("total_page")
+        total_page = tp if isinstance(tp, int) and tp > 0 else None
+        return out, total_page
+
+    async def list_avatars(
+        self, page: int = 1, page_size: int = 50, sort: str | None = "latest",
+    ) -> list[Avatar]:
+        avatars, _ = await self._fetch_avatar_page(
+            page=page, page_size=page_size, sort=sort,
+        )
         return avatars
+
+    async def list_all_avatars(
+        self, page_size: int = 50, max_pages: int = 20, sort: str | None = "latest",
+    ) -> list[Avatar]:
+        """Walk every page of /open/v1/list_common_dp.
+
+        Loop bound: chanjing returns `page_info.total_page` on every
+        response, so once we've seen the first page we know exactly how
+        many to fetch. Falls back to "probe until empty" if the field is
+        absent. `max_pages` is the runaway guard for both paths.
+        """
+        seen: set[str] = set()
+        out: list[Avatar] = []
+        total_page: int | None = None
+        for page in range(1, max_pages + 1):
+            batch, server_total = await self._fetch_avatar_page(
+                page=page, page_size=page_size, sort=sort,
+            )
+            if total_page is None and server_total is not None:
+                total_page = server_total
+            if not batch:
+                break
+            new_count = 0
+            for av in batch:
+                if av.id in seen:
+                    continue
+                seen.add(av.id)
+                out.append(av)
+                new_count += 1
+            # If a page returned only duplicates, the server is looping —
+            # bail rather than spin to max_pages.
+            if new_count == 0:
+                break
+            # Server told us how many pages exist — stop when we've covered them.
+            if total_page is not None and page >= total_page:
+                break
+        logger.info(
+            "Chanjing list_all_avatars: %d avatars across %d page(s) "
+            "(server total_page=%s)",
+            len(out), page, total_page,
+        )
+        return out
+
+    @staticmethod
+    def _parse_voice_item(item: dict) -> Voice | None:
+        """Map one /list_common_audio item to a Voice, or None if unusable."""
+        raw_id = item.get("id")
+        if not raw_id:
+            logger.warning("Chanjing voice item missing id, skipping: %s", item)
+            return None
+        item_id = str(raw_id)
+        name = item.get("name", "")
+        gender = _normalize_gender(item.get("gender"))
+        language = item.get("lang")
+        age = _age_from_voice_name(name)
+
+        extras: dict = {}
+        # Synthetic tokens give the picker chip filter the same matching
+        # contract as avatars (single string-membership check).
+        tokens = synthetic_voice_tag_tokens(
+            gender=gender, age=age, language=language,
+        )
+        if tokens:
+            extras["tag_ids"] = tokens
+
+        return Voice(
+            id=item_id,
+            name=name,
+            gender=gender,
+            language=language,
+            sample_url=item.get("audition", ""),
+            age=age,
+            extras=extras,
+            raw=item,
+        )
 
     async def list_voices(self, page: int = 1, page_size: int = 50) -> list[Voice]:
         body = await self._request(
@@ -441,29 +643,130 @@ class ChanjingVideoProvider:
         voices: list[Voice] = []
         seen_ids: set[str] = set()
         for item in items:
-            raw_id = item.get("id")
-            if not raw_id:
-                logger.warning("Chanjing voice item missing id, skipping: %s", item)
+            voice = self._parse_voice_item(item)
+            if voice is None:
                 continue
-            item_id = str(raw_id)
-            if item_id in seen_ids:
-                logger.warning("Chanjing voice duplicate id %s, skipping", item_id)
+            if voice.id in seen_ids:
+                logger.warning("Chanjing voice duplicate id %s, skipping", voice.id)
                 continue
-            seen_ids.add(item_id)
-
-            name = item.get("name", "")
-            voices.append(
-                Voice(
-                    id=item_id,
-                    name=name,
-                    gender=_normalize_gender(item.get("gender")),
-                    language=item.get("lang"),
-                    sample_url=item.get("audition", ""),
-                    age=_age_from_voice_name(name),
-                    raw=item,
-                )
-            )
+            seen_ids.add(voice.id)
+            voices.append(voice)
         return voices
+
+    async def list_all_voices(
+        self, page_size: int = 50, max_pages: int = 20,
+    ) -> list[Voice]:
+        """Walk every page of /open/v1/list_common_audio until empty.
+
+        Same rationale as list_all_avatars: chanjing caps the public-voices
+        endpoint at ~50 per call, so a single fetch under-represents the
+        library.
+        """
+        seen: set[str] = set()
+        out: list[Voice] = []
+        for page in range(1, max_pages + 1):
+            batch = await self.list_voices(page=page, page_size=page_size)
+            if not batch:
+                break
+            new_count = 0
+            for v in batch:
+                if v.id in seen:
+                    continue
+                seen.add(v.id)
+                out.append(v)
+                new_count += 1
+            if new_count == 0:
+                break
+        logger.info(
+            "Chanjing list_all_voices: %d voices across %d page(s)",
+            len(out), page,
+        )
+        return out
+
+    async def list_avatar_tags(self) -> list[dict]:
+        """Fetch the digital-person tag dictionary (business_type=1) and
+        merge in the cross-provider synthetic categories. Returning the
+        union here lets the picker render one unified chip set
+        regardless of provider — the same chips work for jogg
+        (synthetic-only) too.
+
+        Resilience: synthetic chips don't depend on the upstream API at
+        all, so a tag_list failure (auth scope, endpoint disabled,
+        transient network) must NOT take the chip bar down with it. We
+        log + drop the real-tag fetch and serve synthetic-only.
+
+        Diagnostic: a 200-but-empty response is treated as success here,
+        which means it would silently flow through. We log it at INFO so
+        future "where did 场景/服装 go?" investigations don't need a curl —
+        ``grep "Chanjing tag_list" <fastapi.log>`` shows whether the
+        upstream returned data.
+        """
+        try:
+            real = await self._fetch_tag_categories(business_type=1)
+            if not real:
+                logger.info(
+                    "Chanjing tag_list (business_type=1) returned no categories; "
+                    "the avatar chip bar will show synthetic chips only. "
+                    "Account-level permission is the most likely cause."
+                )
+        except Exception as e:
+            logger.warning(
+                "Chanjing tag_list (avatars) failed, serving synthetic chips only: %s", e,
+            )
+            real = []
+        synthetic = [c.model_dump() for c in SYNTHETIC_AVATAR_TAG_CATEGORIES]
+        return real + synthetic
+
+    async def list_voice_tags(self) -> list[dict]:
+        """Voice counterpart to list_avatar_tags. Same fault tolerance,
+        same empty-response diagnostic."""
+        try:
+            real = await self._fetch_tag_categories(business_type=2)
+            if not real:
+                logger.info(
+                    "Chanjing tag_list (business_type=2) returned no categories; "
+                    "voice chip bar will show synthetic chips only."
+                )
+        except Exception as e:
+            logger.warning(
+                "Chanjing tag_list (voices) failed, serving synthetic chips only: %s", e,
+            )
+            real = []
+        synthetic = [c.model_dump() for c in SYNTHETIC_VOICE_TAG_CATEGORIES]
+        return real + synthetic
+
+    async def _fetch_tag_categories(self, business_type: int) -> list[dict]:
+        body = await self._request(
+            "GET",
+            "/open/v1/common/tag_list",
+            params={"business_type": business_type},
+        )
+        raw_categories = (body.get("data") or {}).get("list") or []
+        out: list[dict] = []
+        for cat in raw_categories:
+            cat_id = cat.get("id")
+            if cat_id is None:
+                continue
+            tags_out: list[dict] = []
+            for tag in cat.get("tag_list") or []:
+                tag_id = tag.get("id")
+                if tag_id is None:
+                    continue
+                # parent_id == 0 means a root-level tag in this category;
+                # the frontend treats 0/None as "no parent" identically.
+                parent = tag.get("parent_id")
+                parent_id = str(parent) if parent else None
+                tags_out.append({
+                    "id": str(tag_id),
+                    "name": tag.get("name", ""),
+                    "parent_id": parent_id,
+                })
+            out.append({
+                "id": str(cat_id),
+                "name": cat.get("name", ""),
+                "tags": tags_out,
+            })
+        return out
 
     async def create_avatar_video(self, req: CreateVideoRequest) -> str:
         if len(req.script) > 4000:

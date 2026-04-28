@@ -92,25 +92,37 @@
                    class="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
           </div>
         </div>
-        <!-- Source filter — populated from /api/v1/apps?lang=... at init().
-             Values are: real app_id for webui apps (script_writer / content_studio
-             / topic_studio), 'mcp:*' glob for any MCP-triggered creation, and
-             'manual' for direct REST creations. The fetched apps list is filtered
-             to category=content_creation so kb_qa / asset_tagging (which don't
-             write creations) don't show up as permanently-empty options. -->
+        <!-- Source filter — dynamically pruned to sources that
+             actually have creations in the user's scope. The previous
+             static list (every theoretically-possible app + mcp:* +
+             manual) padded the dropdown with dead options that
+             returned empty results when picked. ``visibleSourceOptions``
+             intersects the known apps with /creations/source-counts;
+             only sources with count > 0 render, with the count shown
+             next to the label so the user can see scale at a glance. -->
         <select x-model="filterSource" @change="reload()"
                 class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
-          <option value="" x-text="t('creations_all_sources')"></option>
-          <template x-for="app in webuiApps" :key="app.app_id">
-            <option :value="app.app_id" x-text="app.name"></option>
+          <option value="" x-text="t('creations_all_sources') + (totalSourceCount > 0 ? ' (' + totalSourceCount + ')' : '')"></option>
+          <template x-for="opt in visibleSourceOptions" :key="opt.value">
+            <option :value="opt.value" x-text="opt.label + ' (' + opt.count + ')'"></option>
           </template>
-          <option value="mcp:*" x-text="t('creations_source_mcp')"></option>
-          <option value="manual" x-text="t('creations_source_manual')"></option>
+        </select>
+        <!-- Offer filter — populated from /creations/offer-counts so
+             only offers that actually have creations appear. Default
+             empty = all offers. -->
+        <select x-show="offerCounts.length > 0"
+                x-cloak
+                x-model="filterOffer" @change="reload()"
+                class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent">
+          <option value="" x-text="t('creations_all_offers')"></option>
+          <template x-for="o in offerCounts" :key="o.offer_id">
+            <option :value="o.offer_id" x-text="o.name + ' (' + o.count + ')'"></option>
+          </template>
         </select>
         <!-- Clear-filters shortcut — shown only when any filter is active. -->
-        <button x-show="searchQ || filterSource"
+        <button x-show="searchQ || filterSource || filterOffer"
                 x-cloak
-                @click="searchQ = ''; filterSource = ''; reload()"
+                @click="searchQ = ''; filterSource = ''; filterOffer = ''; reload()"
                 class="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-accent transition-colors px-2 py-2">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
           <span x-text="t('creations_filters_clear')"></span>
@@ -147,7 +159,17 @@
             <div class="p-4 cursor-pointer" @click="openDetail(c)">
               <div class="flex items-start gap-3">
                 <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2 mb-1">
+                  <div class="flex items-center gap-2 mb-1 flex-wrap">
+                    <!-- Offer chip — placed first because Offer is the
+                         strongest mental anchor for "what is this
+                         creation about". Click to filter the list to
+                         only that offer. -->
+                    <button type="button"
+                            x-show="c.offer_id"
+                            @click.stop="filterOffer = c.offer_id; reload()"
+                            class="od-chip od-chip-violet hover:ring-1 hover:ring-violet-300 transition-shadow"
+                            :title="t('creations_filter_by_offer')"
+                            x-text="offerName(c.offer_id)"></button>
                     <span class="od-chip od-chip-neutral" x-text="c.content_type"></span>
                     <span class="od-chip"
                           :class="c.source_app === 'mcp:external' ? 'od-chip-primary' : (c.source_app === 'manual' ? 'od-chip-neutral' : 'od-chip-success')"
@@ -363,6 +385,7 @@
             <!-- Show latest 3 by default; "show all" expands the rest -->
             <template x-for="(job, idx) in videoModal.jobs" :key="job.id">
               <template x-if="idx < 3 || videoModal.showAllJobs">
+              <template x-if="job.status !== 'failed'">
               <div class="rounded-xl p-3 transition-all duration-500"
                    :class="videoModal.flashJobId === job.id ? 'bg-amber-50 ring-2 ring-amber-300' : 'bg-gray-50'">
                 <div class="flex items-start gap-3">
@@ -378,12 +401,7 @@
                     </template>
                     <template x-if="job.status !== 'completed'">
                       <div class="w-full h-full flex items-center justify-center text-gray-400">
-                        <template x-if="job.status === 'failed'">
-                          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                        </template>
-                        <template x-if="job.status !== 'failed'">
-                          <svg class="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
-                        </template>
+                        <svg class="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
                       </div>
                     </template>
                   </div>
@@ -394,7 +412,6 @@
                               'bg-gray-200 text-gray-600': job.status === 'pending',
                               'bg-blue-100 text-blue-700': job.status === 'processing',
                               'bg-green-100 text-green-700': job.status === 'completed',
-                              'bg-red-100 text-red-700': job.status === 'failed',
                             }"
                             x-text="t('vg_status_' + job.status)"></span>
                       <span class="text-[11px] text-gray-400" x-text="job.provider"></span>
@@ -403,50 +420,6 @@
                       <span x-show="job.created_at" class="text-[11px] text-gray-400"
                             :title="new Date(job.created_at).toLocaleString()"
                             x-text="formatRelative(job.created_at)"></span>
-                    </div>
-                    <p x-show="job.error_message" class="text-[11px] text-red-600 mt-1 break-words" x-text="job.error_message"></p>
-                    <!-- B-roll submit warnings: surfaced when individual broll shots failed during submission (quota / auth / rate-limit / etc.). Errors are grouped by message so identical failures collapse into a single line; the raw per-shot list is one click away under the Details disclosure. -->
-                    <div x-show="job.params && Array.isArray(job.params.broll_warnings) && job.params.broll_warnings.length > 0"
-                         role="alert" aria-live="polite"
-                         class="mt-1.5 rounded-lg border bg-amber-50 border-amber-200 text-amber-900 px-3 py-2.5">
-                      <div class="flex items-start gap-2">
-                        <svg class="w-4 h-4 shrink-0 mt-0.5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z"/></svg>
-                        <div class="min-w-0 flex-1">
-                          <div class="flex items-center gap-1.5 flex-wrap text-[12px] font-semibold">
-                            <span x-text="job.params?.broll_status === 'all_failed' ? t('vg_broll_warn_all_failed') : t('vg_broll_warn_partial')"></span>
-                            <span class="text-amber-700/70 font-normal text-[11px]">
-                              <span x-text="(job.params?.broll_warnings?.length || 0)"></span><span class="opacity-50"> shot</span><span x-show="(job.params?.broll_warnings?.length || 0) !== 1" class="opacity-50">s</span>
-                              <span x-show="job.params?.broll_warning_provider">· <span x-text="job.params.broll_warning_provider"></span></span>
-                            </span>
-                          </div>
-                          <!-- Grouped causes: dedupe identical error strings so the user sees the cause once with a count, not the same JSON repeated 4×. -->
-                          <ul class="mt-1 space-y-1 text-[12px] leading-snug">
-                            <template x-for="(group, ci) in groupBrollWarnings(job.params.broll_warnings)" :key="ci">
-                              <li class="flex items-start gap-1.5">
-                                <span x-show="group.shots.length > 1"
-                                      class="shrink-0 inline-flex items-center justify-center min-w-[1.25rem] h-[1rem] px-1 rounded bg-amber-200/70 text-amber-900 text-[10px] font-mono tabular-nums"
-                                      x-text="'×' + group.shots.length"></span>
-                                <span x-show="group.shots.length === 1"
-                                      class="shrink-0 text-[10px] text-amber-700/60 font-mono tabular-nums pt-px"
-                                      x-text="'#' + (group.shots[0] + 1)"></span>
-                                <span class="break-words" x-text="group.error"></span>
-                              </li>
-                            </template>
-                          </ul>
-                          <!-- Raw per-shot dump for debugging — collapsed by default to keep the visible surface clean. -->
-                          <details class="mt-1.5 group/det" x-show="(job.params?.broll_warnings?.length || 0) > 1">
-                            <summary class="cursor-pointer select-none text-[11px] text-amber-800/70 hover:text-amber-900 inline-flex items-center gap-1">
-                              <svg class="w-3 h-3 transition-transform group-open/det:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                              <span x-text="t('vg_broll_warn_show_details')"></span>
-                            </summary>
-                            <ul class="mt-1.5 space-y-0.5 text-[11px] text-amber-800/90">
-                              <template x-for="w in (job.params.broll_warnings || [])" :key="w.idx">
-                                <li class="break-words font-mono leading-snug"><span class="opacity-60" x-text="'#' + ((w.idx || 0) + 1) + ' '"></span><span x-text="w.error"></span></li>
-                              </template>
-                            </ul>
-                          </details>
-                        </div>
-                      </div>
                     </div>
                     <div class="flex items-center gap-3 mt-2">
                       <a x-show="job.status === 'completed' && job.video_url"
@@ -463,14 +436,110 @@
                 </div>
               </div>
               </template>
+              <!-- Failed job — compact single-row by default, expandable
+                   for full error + B-roll warning details. Without this
+                   collapse, a single failed entry could occupy 3-4× the
+                   vertical space of a successful one (long error
+                   strings + amber B-roll alert block + raw per-shot
+                   dump). Progressive-disclosure pattern: show only the
+                   cause summary; everything else is one click away. -->
+              <template x-if="job.status === 'failed'">
+              <div x-data="{ expanded: false }"
+                   class="rounded-xl bg-red-50/40 border border-red-100/70 transition-colors"
+                   :class="videoModal.flashJobId === job.id ? 'bg-amber-50 ring-2 ring-amber-300 border-transparent' : ''">
+                <div class="flex items-center gap-2 px-3 py-2">
+                  <!-- Toggle: red dot + caption + truncated error.
+                       Sibling-of-delete (not parent) so we don't
+                       violate HTML5 button-nesting rules. -->
+                  <button type="button"
+                          @click="expanded = !expanded"
+                          :aria-expanded="expanded"
+                          class="flex items-center gap-2 flex-1 min-w-0 text-left rounded focus:outline-none focus:ring-2 focus:ring-red-200/60">
+                    <span class="w-2 h-2 rounded-full bg-red-500 shrink-0" aria-hidden="true"></span>
+                    <span class="text-[11px] font-semibold text-red-700 shrink-0" x-text="t('vg_status_failed')"></span>
+                    <span class="text-[11px] text-gray-300 shrink-0">·</span>
+                    <span class="text-[11px] text-gray-500 shrink-0" x-text="job.provider"></span>
+                    <span class="text-[11px] text-gray-300 shrink-0" x-show="job.created_at">·</span>
+                    <span class="text-[11px] text-gray-500 shrink-0"
+                          :title="new Date(job.created_at).toLocaleString()"
+                          x-text="formatRelative(job.created_at)" x-show="job.created_at"></span>
+                    <span class="text-[11px] text-gray-700 truncate flex-1 min-w-0"
+                          x-text="job.error_message || t('vg_status_failed')"></span>
+                    <svg class="w-3.5 h-3.5 text-gray-400 transition-transform shrink-0"
+                         :class="expanded ? 'rotate-180' : ''"
+                         fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                  </button>
+                  <button type="button"
+                          @click="deleteVideoJob(job)"
+                          class="shrink-0 text-gray-400 hover:text-red-500 transition-colors p-1 -m-1 rounded"
+                          :aria-label="t('vg_delete_job')"
+                          :title="t('vg_delete_job')">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                  </button>
+                </div>
+                <div x-show="expanded" x-cloak
+                     x-transition:enter="transition ease-out duration-200"
+                     x-transition:enter-start="opacity-0 -translate-y-1"
+                     x-transition:enter-end="opacity-100 translate-y-0"
+                     class="px-3 pb-3 pt-1 space-y-2 border-t border-red-100/70">
+                  <p x-show="job.error_message" class="text-[11px] text-red-700 break-words leading-relaxed" x-text="job.error_message"></p>
+                  <!-- B-roll warnings — same content as before, just
+                       only mounted when the user opens the row. -->
+                  <div x-show="job.params && Array.isArray(job.params.broll_warnings) && job.params.broll_warnings.length > 0"
+                       role="alert" aria-live="polite"
+                       class="rounded-lg border bg-amber-50 border-amber-200 text-amber-900 px-3 py-2.5">
+                    <div class="flex items-start gap-2">
+                      <svg class="w-4 h-4 shrink-0 mt-0.5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z"/></svg>
+                      <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-1.5 flex-wrap text-[12px] font-semibold">
+                          <span x-text="job.params?.broll_status === 'all_failed' || job.params?.broll_status === 'failed_strict' ? t('vg_broll_warn_all_failed') : t('vg_broll_warn_partial')"></span>
+                          <span class="text-amber-700/70 font-normal text-[11px]">
+                            <span x-text="(job.params?.broll_warnings?.length || 0)"></span><span class="opacity-50"> shot</span><span x-show="(job.params?.broll_warnings?.length || 0) !== 1" class="opacity-50">s</span>
+                            <span x-show="job.params?.broll_warning_provider">· <span x-text="job.params.broll_warning_provider"></span></span>
+                          </span>
+                        </div>
+                        <ul class="mt-1 space-y-1 text-[12px] leading-snug">
+                          <template x-for="(group, ci) in groupBrollWarnings(job.params.broll_warnings)" :key="ci">
+                            <li class="flex items-start gap-1.5">
+                              <span x-show="group.shots.length > 1"
+                                    class="shrink-0 inline-flex items-center justify-center min-w-[1.25rem] h-[1rem] px-1 rounded bg-amber-200/70 text-amber-900 text-[10px] font-mono tabular-nums"
+                                    x-text="'×' + group.shots.length"></span>
+                              <span x-show="group.shots.length === 1"
+                                    class="shrink-0 text-[10px] text-amber-700/60 font-mono tabular-nums pt-px"
+                                    x-text="'#' + (group.shots[0] + 1)"></span>
+                              <span class="break-words" x-text="group.error"></span>
+                            </li>
+                          </template>
+                        </ul>
+                        <details class="mt-1.5 group/det" x-show="(job.params?.broll_warnings?.length || 0) > 1">
+                          <summary class="cursor-pointer select-none text-[11px] text-amber-800/70 hover:text-amber-900 inline-flex items-center gap-1">
+                            <svg class="w-3 h-3 transition-transform group-open/det:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                            <span x-text="t('vg_broll_warn_show_details')"></span>
+                          </summary>
+                          <ul class="mt-1.5 space-y-0.5 text-[11px] text-amber-800/90">
+                            <template x-for="w in (job.params.broll_warnings || [])" :key="w.idx">
+                              <li class="break-words font-mono leading-snug"><span class="opacity-60" x-text="'#' + ((w.idx || 0) + 1) + ' '"></span><span x-text="w.error"></span></li>
+                            </template>
+                          </ul>
+                        </details>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              </template>
+              </template>
             </template>
             <!-- Show more / show less toggle -->
             <button x-show="videoModal.jobs.length > 3"
                     @click="videoModal.showAllJobs = !videoModal.showAllJobs"
                     type="button"
                     class="w-full text-center py-1.5 text-[11px] text-gray-400 hover:text-accent transition-colors">
-              <span x-show="!videoModal.showAllJobs" x-text="'查看全部 ' + videoModal.jobs.length + ' 条 ↓'"></span>
-              <span x-show="videoModal.showAllJobs">收起 ↑</span>
+              <span x-show="!videoModal.showAllJobs"
+                    x-text="t('vg_view_all_jobs').replace('{n}', videoModal.jobs.length)"></span>
+              <span x-show="videoModal.showAllJobs" x-text="t('vg_collapse') + ' ↑'"></span>
             </button>
           </div>
         </div>
@@ -497,15 +566,16 @@
             </div>
           </div>
 
-          <!-- Loading lists -->
-          <div x-show="videoModal.listsLoading" class="flex items-center justify-center py-8">
-            <svg class="animate-spin w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
-          </div>
-
           <!-- Lists error -->
           <div x-show="videoModal.listsError" class="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-xl mb-3" x-text="videoModal.listsError"></div>
 
-          <div x-show="!videoModal.listsLoading && !videoModal.listsError && (uniqueAvatars.length > 0 || uniqueVoices.length > 0)" class="space-y-5">
+          <!-- Form body — visible as soon as a provider is selected,
+               regardless of avatar/voice fetch progress. The avatar
+               grid and voice list each show their own inline spinner
+               while loading; everything else (script, format toggle,
+               B-roll, caption, submit) stays interactable so the user
+               can edit copy while the upstream catalog is paginating. -->
+          <div x-show="!videoModal.listsError" class="space-y-5">
 
             <!-- ── Primary: Script (the content — users need to preview/edit) ── -->
             <div>
@@ -527,11 +597,13 @@
 
             <!-- ── Primary: Aspect ratio ──
                  Lifted above Avatar so the avatar grid below can filter to
-                 templates that match the chosen format. Jogg avatars carry
-                 ``extras.aspect_ratio`` (portrait / landscape) sourced from
-                 the API; Chanjing has no per-avatar ratio and stays visible
-                 in either format because its server stretches the figure
-                 to the canvas at generation time. -->
+                 templates that match the chosen format. Both providers
+                 expose ``extras.native_aspect_ratio`` (portrait /
+                 landscape / square): jogg from its int aspect_ratio code,
+                 chanjing computed from the avatar's native canvas
+                 width/height. Avatars without a known native ratio stay
+                 visible across all formats (chanjing's renderer can
+                 stretch in either direction). -->
             <div>
               <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 block mb-2" x-text="t('vg_section_format')"></label>
               <div class="grid grid-cols-2 gap-2" role="group" :aria-label="t('vg_section_format')">
@@ -569,9 +641,33 @@
             <!-- ── Primary: Avatar (the one real decision — highest visual weight) ── -->
             <div>
               <div class="flex items-center justify-between mb-2">
-                <label class="text-sm font-semibold text-gray-800" x-text="t('vg_section_avatar')"></label>
+                <div class="flex items-center gap-3">
+                  <label class="text-sm font-semibold text-gray-800" x-text="t('vg_section_avatar')"></label>
+                  <!-- Sort toggle — chanjing-only (jogg API has no
+                       sort param). Default ``latest`` so newly added
+                       templates surface; ``hottest`` ranks by usage. -->
+                  <div x-show="selectedProviderType === 'chanjing'"
+                       class="flex items-center gap-1 text-[11px]">
+                    <span class="text-gray-400" x-text="t('vg_sort_label') + ':'"></span>
+                    <template x-for="opt in [
+                      {v:'latest',  l:t('vg_sort_latest')},
+                      {v:'hottest', l:t('vg_sort_hottest')},
+                    ]" :key="opt.v">
+                      <button type="button"
+                              @click="setAvatarSort(opt.v)"
+                              class="px-2 py-0.5 rounded-md font-medium transition-colors"
+                              :class="videoModal.avatarSort === opt.v
+                                ? 'bg-accent/10 text-accent'
+                                : 'text-gray-500 hover:bg-gray-100'">
+                        <span x-text="opt.l"></span>
+                      </button>
+                    </template>
+                  </div>
+                </div>
                 <div class="flex items-center gap-2">
-                  <span class="text-[10px] text-gray-400" x-text="filteredAvatars.length + ' / ' + uniqueAvatars.length"></span>
+                  <span class="text-[10px] text-gray-400"
+                        :title="hasMoreAvatars ? ('已渲染 ' + displayedAvatars.length + ' 个，匹配 ' + filteredAvatars.length + ' 个') : ''"
+                        x-text="filteredAvatars.length + ' / ' + uniqueAvatars.length"></span>
                   <button type="button"
                           @click="refreshProviderLists()"
                           :disabled="videoModal.listsLoading"
@@ -582,47 +678,114 @@
                 </div>
               </div>
 
-              <!-- Filter chips (subtle) -->
-              <div x-show="uniqueAvatars.length > 0" class="flex items-center gap-1 mb-2 flex-wrap">
-                <template x-for="opt in [
-                  {v:'all',    l:t('vg_filter_all'),    n:avatarCounts.all},
-                  {v:'male',   l:'♂ '+t('vg_filter_male'),   n:avatarCounts.male},
-                  {v:'female', l:'♀ '+t('vg_filter_female'), n:avatarCounts.female},
-                ]" :key="opt.v">
-                  <button type="button"
-                          x-show="opt.n > 0"
-                          @click="videoModal.avatarFilter = opt.v"
-                          class="px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors"
-                          :class="videoModal.avatarFilter === opt.v
-                            ? 'bg-accent/10 text-accent'
-                            : 'text-gray-500 hover:bg-gray-100'">
-                    <span x-text="opt.l + ' (' + opt.n + ')'"></span>
-                  </button>
+              <!-- Chip filter bar — TagCategory groups from /avatar-tags.
+                   The "aspect" synthetic category is filtered out below
+                   because the format toggle above already covers it.
+                   Categories with zero non-empty chips don't render at
+                   all (no point showing "性别: (no chips have any avatars)"). -->
+              <div x-show="visibleAvatarTagCategories.length > 0" class="space-y-1.5 mb-2">
+                <template x-for="cat in visibleAvatarTagCategories" :key="cat.id">
+                  <div class="flex items-start gap-2 flex-wrap">
+                    <span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 w-12 shrink-0 mt-1"
+                          x-text="chipCategoryLabel(cat)"></span>
+                    <div class="flex items-center gap-1 flex-wrap flex-1">
+                      <template x-for="tag in cat.tags" :key="tag.id">
+                        <button type="button"
+                                x-show="avatarChipCount(tag.id) > 0"
+                                @click="toggleTagId(tag.id)"
+                                class="px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors"
+                                :class="videoModal.selectedTagIds.includes(tag.id)
+                                  ? 'bg-accent/10 text-accent'
+                                  : 'text-gray-500 hover:bg-gray-100'">
+                          <span x-text="chipValueLabel(tag) + ' (' + avatarChipCount(tag.id) + ')'"></span>
+                        </button>
+                      </template>
+                    </div>
+                  </div>
                 </template>
+                <div x-show="videoModal.selectedTagIds.length > 0" class="flex justify-end">
+                  <button type="button"
+                          @click="clearTagFilters()"
+                          class="text-[11px] text-gray-400 hover:text-accent underline">
+                    <span x-text="t('vg_clear_filters')"></span>
+                  </button>
+                </div>
               </div>
 
-              <!-- Empty state -->
-              <div x-show="uniqueAvatars.length === 0"
+              <!-- Loading state: avatars still fetching from provider. -->
+              <div x-show="videoModal.avatarsLoading && uniqueAvatars.length === 0"
+                   class="flex items-center justify-center py-10 bg-gray-50 border border-dashed border-gray-200 rounded-xl">
+                <svg class="animate-spin w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                <span class="ml-2 text-xs text-gray-500" x-text="t('vg_loading_avatars') || '加载数字人中…'"></span>
+              </div>
+
+              <!-- Empty state: no avatars at all (after fetch settled) -->
+              <div x-show="!videoModal.avatarsLoading && uniqueAvatars.length === 0"
                    class="text-center py-6 px-4 bg-gray-50 border border-dashed border-gray-200 rounded-xl">
                 <p class="text-xs text-gray-500" x-text="t('vg_no_avatars')"></p>
               </div>
 
-              <!-- Grid -->
-              <div x-show="uniqueAvatars.length > 0" class="grid grid-cols-4 gap-2 max-h-[22rem] overflow-y-auto pr-1">
-                <template x-for="(a, idx) in filteredAvatars" :key="a.id || ('idx_' + idx)">
+              <!-- Empty state: filters drained the grid -->
+              <div x-show="uniqueAvatars.length > 0 && filteredAvatars.length === 0"
+                   class="text-center py-6 px-4 bg-gray-50 border border-dashed border-gray-200 rounded-xl">
+                <p class="text-xs text-gray-500" x-text="t('vg_avatars_no_match')"></p>
+                <button type="button"
+                        x-show="videoModal.selectedTagIds.length > 0"
+                        @click="clearTagFilters()"
+                        class="mt-1 text-[11px] text-accent hover:underline"
+                        x-text="t('vg_clear_filters')"></button>
+              </div>
+
+              <!-- Grid — column count + card aspect track the format toggle.
+                   In landscape mode chanjing returns 16:9 templates, so
+                   forcing aspect-square would crop the avatar's most
+                   meaningful framing (head + shoulders) into an awkward
+                   centered slice. 3 wider columns of aspect-video read
+                   the cards at their native shape.
+                   x-for binds over ``displayedAvatars`` (a slice) rather
+                   than ``filteredAvatars`` so Alpine never has to
+                   diff/bind 700+ DOM nodes per click. -->
+              <div x-show="uniqueAvatars.length > 0"
+                   class="grid gap-2 max-h-[22rem] overflow-y-auto pr-1"
+                   :class="videoModal.form.aspect_ratio === 'landscape' ? 'grid-cols-3' : 'grid-cols-4'">
+                <template x-for="(a, idx) in displayedAvatars" :key="a.id || ('idx_' + idx)">
                   <button type="button"
                           @click="selectAvatar(a)"
-                          @mouseenter="$el.querySelector('video')?.play().catch(()=>{})"
-                          @mouseleave="const _v = $el.querySelector('video'); if (_v) { _v.pause(); _v.currentTime = 0; }"
-                          class="group relative rounded-xl border-2 overflow-hidden transition-all aspect-square bg-gray-100"
-                          :class="videoModal.form.avatar_id === a.id ? 'border-accent ring-1 ring-accent/30' : 'border-gray-100 hover:border-gray-300'">
+                          @mouseenter="
+                            const _v = $el.querySelector('video');
+                            if (_v && a.preview_video_url) {
+                              if (!_v.src) _v.src = a.preview_video_url;
+                              _v.play().catch(()=>{});
+                            }"
+                          @mouseleave="
+                            const _v = $el.querySelector('video');
+                            if (_v) { _v.pause(); _v.currentTime = 0; }"
+                          class="group relative rounded-xl border-2 overflow-hidden bg-gray-100 transition-all duration-200 ease-out hover:shadow-lg hover:-translate-y-0.5 hover:z-10"
+                          :class="[
+                            videoModal.form.avatar_id === a.id
+                              ? 'border-accent ring-2 ring-accent/30 shadow-md'
+                              : 'border-transparent hover:border-accent/40',
+                            videoModal.form.aspect_ratio === 'landscape' ? 'aspect-video' : 'aspect-square'
+                          ]">
+                    <!-- img stays visible at all times — fading it out
+                         on hover (the previous design) created a brief
+                         gray flash because the lazy-loaded video hasn't
+                         decoded its first frame yet. Hover feedback is
+                         instead conveyed via the parent button's lift
+                         + shadow + accent border (rules: state-clarity,
+                         opacity-threshold, scale-feedback). -->
                     <img x-show="a.preview_image_url"
                          :src="a.preview_image_url" :alt="a.name"
-                         class="absolute inset-0 w-full h-full object-cover transition-opacity group-hover:opacity-0"
+                         class="absolute inset-0 w-full h-full object-cover"
                          loading="lazy"
                          @error="$event.target.style.display='none'">
+                    <!-- Video src is set lazily on first hover (see
+                         @mouseenter above). Without this, every visible
+                         card eagerly created a media decoder for its
+                         preview mp4 — 60 simultaneous decoder setups
+                         on every filter change cost 1-3s on jogg
+                         (which has video_url on every avatar). -->
                     <video x-show="a.preview_video_url"
-                           :src="a.preview_video_url"
                            class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
                            muted loop playsinline preload="none">
                     </video>
@@ -638,12 +801,59 @@
                       <span x-show="a.age"
                             class="text-[9px] font-semibold px-1 py-0.5 rounded backdrop-blur-sm bg-gray-800/70 text-white"
                             x-text="t('vg_age_' + a.age)"></span>
+                      <!-- Background-replaceable badge — chanjing-only
+                           capability bit, surfaced so users picking
+                           avatars for custom-scene shoots can spot
+                           supported templates at a glance. -->
+                      <span x-show="a.extras && a.extras.bg_replace === true"
+                            class="text-[9px] font-semibold px-1 py-0.5 rounded backdrop-blur-sm bg-emerald-600/80 text-white"
+                            :title="t('vg_badge_bg_replace')">BG</span>
                     </div>
-                    <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent text-white text-[10px] font-medium px-1.5 py-1 truncate pointer-events-none">
-                      <span x-text="a.name"></span>
+                    <!-- Paired-voice mini-badge (top-left): chanjing
+                         carries an officially-recommended voice on each
+                         avatar. Show the name as a hint; an inline ▶
+                         lets users sample without scrolling to the
+                         voice list. The button is positioned outside
+                         the parent button via stop-propagation so a
+                         click on ▶ doesn't also pick the avatar. -->
+                    <div x-show="a.extras && a.extras.paired_voice_name"
+                         class="absolute top-1 left-1 flex items-center gap-0.5 max-w-[80%]">
+                      <button type="button"
+                              x-show="a.extras && a.extras.paired_voice_preview_url"
+                              @click.stop="playPairedPreview(a)"
+                              :title="t('vg_badge_paired')"
+                              class="text-[9px] px-1 py-0.5 rounded bg-black/60 text-white hover:bg-accent transition-colors">▶</button>
+                      <span class="text-[9px] font-medium px-1 py-0.5 rounded backdrop-blur-sm bg-black/50 text-white truncate"
+                            :title="t('vg_badge_paired') + ': ' + a.extras.paired_voice_name"
+                            x-text="a.extras.paired_voice_name"></span>
+                    </div>
+                    <!-- Name strip — was using a soft from-black/70
+                         gradient + 10px text that visually disappeared
+                         on light-skinned/light-bg avatars. Stronger
+                         gradient floor + 11px semibold makes the name
+                         readable across every avatar bg without
+                         covering the face. truncate moved to the span
+                         (where the text actually lives) so ellipsis
+                         renders correctly. -->
+                    <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/55 to-transparent text-white text-[11px] font-semibold px-2 pt-3 pb-1.5 pointer-events-none">
+                      <span class="block truncate" x-text="a.name || '—'"></span>
                     </div>
                   </button>
                 </template>
+              </div>
+
+              <!-- Show-more footer — only appears when the slice hides
+                   results. Two paths: load 60 more (gentle) or load all
+                   (the user accepts the bigger render hit). -->
+              <div x-show="hasMoreAvatars" class="flex items-center justify-center gap-3 mt-2 text-[11px]">
+                <button type="button"
+                        @click="showMoreAvatars()"
+                        class="px-3 py-1 rounded-md text-accent hover:bg-accent/10 transition-colors"
+                        x-text="t('vg_load_more_avatars').replace('{shown}', displayedAvatars.length).replace('{total}', filteredAvatars.length)"></button>
+                <button type="button"
+                        @click="showAllAvatars()"
+                        class="text-gray-400 hover:text-accent underline"
+                        x-text="t('vg_show_all_avatars').replace('{n}', filteredAvatars.length)"></button>
               </div>
             </div>
 
@@ -720,34 +930,76 @@
                     </template>
 
                     <template x-for="(shot, idx) in videoModal.form.broll_plan" :key="idx">
-                      <div class="bg-white border border-gray-200 rounded-lg p-2.5 space-y-2">
-                        <div class="flex items-center gap-2 text-[11px]">
-                          <select x-model="shot.type"
-                                  class="border border-gray-200 rounded px-1.5 py-0.5 text-[11px] bg-white">
-                            <option value="retention" x-text="t('vg_broll_type_retention')"></option>
-                            <option value="illustrative" x-text="t('vg_broll_type_illustrative')"></option>
-                          </select>
-                          <span class="text-gray-400" x-text="t('vg_broll_insert_after')"></span>
-                          <input type="number" min="0" :max="brollTotalNarrationChars()"
-                                 x-model.number="shot.insert_after_char"
-                                 class="border border-gray-200 rounded px-1.5 py-0.5 text-[11px] w-16 bg-white">
-                          <span class="text-gray-400" x-text="t('vg_broll_duration')"></span>
-                          <input type="number" min="2" max="15"
-                                 x-model.number="shot.duration_seconds"
-                                 class="border border-gray-200 rounded px-1.5 py-0.5 text-[11px] w-14 bg-white">
-                          <span class="text-gray-400">s</span>
-                          <!-- Preview: the VO keyword this shot will land next to -->
-                          <span class="text-[10px] text-gray-400 truncate flex-1 text-right"
-                                :title="brollContextAt(shot.insert_after_char)"
-                                x-text="brollContextAt(shot.insert_after_char)"></span>
-                          <button type="button" @click="videoModal.form.broll_plan.splice(idx, 1)"
-                                  class="text-gray-300 hover:text-red-500 shrink-0">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                          </button>
+                      <!-- Row x-data scope: per-shot expand/collapse for
+                           Advanced fields. Default collapsed — the LLM-
+                           picked type/insert_at/duration values are
+                           usually correct; only power users open this. -->
+                      <div x-data="{ adv: false }"
+                           class="bg-white border border-gray-200 rounded-lg p-2.5 space-y-2">
+                        <!-- Header: ordinal · position context · duration · advanced toggle · delete -->
+                        <div class="flex items-center justify-between gap-2 text-[11px]">
+                          <div class="flex items-center gap-2 min-w-0 flex-1"
+                               :title="brollContextAt(shot.insert_after_char)">
+                            <span class="shrink-0 inline-flex items-center justify-center w-5 h-5
+                                         rounded-full bg-accent/10 text-accent
+                                         text-[10px] font-semibold tabular-nums"
+                                  x-text="idx + 1"></span>
+                            <span class="text-gray-500 truncate"
+                                  x-text="brollPositionPreview(shot.insert_after_char)"></span>
+                            <span class="shrink-0 text-gray-400 tabular-nums"
+                                  x-text="'· ' + (shot.duration_seconds || 5) + 's'"></span>
+                          </div>
+                          <div class="flex items-center gap-1 shrink-0">
+                            <button type="button"
+                                    @click="adv = !adv"
+                                    :title="adv ? t('vg_broll_advanced_collapse') : t('vg_broll_advanced_toggle')"
+                                    class="p-1 text-gray-400 hover:text-gray-700 rounded transition-colors">
+                              <svg class="w-3.5 h-3.5 transition-transform"
+                                   :class="adv && 'rotate-180'"
+                                   fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                              </svg>
+                            </button>
+                            <button type="button"
+                                    @click="videoModal.form.broll_plan.splice(idx, 1)"
+                                    class="p-1 text-gray-300 hover:text-red-500 rounded transition-colors">
+                              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                            </button>
+                          </div>
                         </div>
-                        <textarea x-model="shot.prompt" rows="2"
+                        <!-- Body: prompt textarea — primary editable surface. -->
+                        <textarea x-model="shot.prompt" rows="3"
                                   :placeholder="t('vg_broll_prompt_placeholder')"
-                                  class="w-full text-[12px] border border-gray-200 rounded px-2 py-1.5 leading-snug focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent resize-y bg-white"></textarea>
+                                  class="w-full text-[12px] border border-gray-200 rounded px-2 py-1.5 leading-relaxed focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent resize-y bg-white"></textarea>
+                        <!-- Advanced: hidden by default. Type/insert_at/
+                             duration are LLM-picked; users open this
+                             only for fine-tuning. -->
+                        <div x-show="adv" x-cloak
+                             x-transition:enter="transition ease-out duration-200"
+                             x-transition:enter-start="opacity-0 -translate-y-1"
+                             x-transition:enter-end="opacity-100 translate-y-0"
+                             class="grid grid-cols-3 gap-3 pt-2 border-t border-gray-200/60 text-[11px]">
+                          <label class="flex flex-col gap-1">
+                            <span class="text-gray-500 font-medium" x-text="t('vg_broll_field_type')"></span>
+                            <select x-model="shot.type"
+                                    class="border border-gray-200 rounded px-1.5 py-1 text-[11px] bg-white">
+                              <option value="retention" x-text="t('vg_broll_type_retention')"></option>
+                              <option value="illustrative" x-text="t('vg_broll_type_illustrative')"></option>
+                            </select>
+                          </label>
+                          <label class="flex flex-col gap-1">
+                            <span class="text-gray-500 font-medium" x-text="t('vg_broll_field_insert_at')"></span>
+                            <input type="number" min="0" :max="brollTotalNarrationChars()"
+                                   x-model.number="shot.insert_after_char"
+                                   class="border border-gray-200 rounded px-1.5 py-1 text-[11px] bg-white tabular-nums">
+                          </label>
+                          <label class="flex flex-col gap-1">
+                            <span class="text-gray-500 font-medium" x-text="t('vg_broll_field_duration')"></span>
+                            <input type="number" min="2" max="15"
+                                   x-model.number="shot.duration_seconds"
+                                   class="border border-gray-200 rounded px-1.5 py-1 text-[11px] bg-white tabular-nums">
+                          </label>
+                        </div>
                       </div>
                     </template>
                   </div>
@@ -760,7 +1012,18 @@
                   <span class="font-medium" x-text="t('vg_caption')"></span>
                 </label>
                 <button type="button" x-show="videoModal.form.caption"
-                        @click="const d = document.getElementById('vg-advanced'); if (d) { d.open = true; d.scrollIntoView({behavior:'smooth', block:'nearest'}); }"
+                        @click="
+                          const d = document.getElementById('vg-advanced');
+                          if (d) d.open = true;
+                          $nextTick(() => {
+                            // Anchor to the caption-style sub-section (not
+                            // the Advanced container) so the user lands
+                            // on the section their click implied — not on
+                            // Voice (which is the first child of Advanced).
+                            const t = document.getElementById('vg-caption-style');
+                            (t || d)?.scrollIntoView({behavior:'smooth', block:'start'});
+                          });
+                        "
                         class="text-[11px] text-accent/70 hover:text-accent transition-colors shrink-0"
                         x-text="t('vg_caption_customize_hint')"></button>
               </div>
@@ -817,7 +1080,16 @@
                     </div>
                   </div>
                   <div class="border border-gray-200 rounded-lg max-h-60 overflow-y-auto divide-y divide-gray-100">
-                    <template x-for="(v, idx) in filteredVoices" :key="v.id || ('idx_' + idx)">
+                    <!-- Inline loading state for voices — same pattern
+                         as the avatar grid: replaces the list area with
+                         a small spinner so the surrounding form stays
+                         visible while voices are still paginating. -->
+                    <div x-show="videoModal.voicesLoading && uniqueVoices.length === 0"
+                         class="flex items-center justify-center py-8">
+                      <svg class="animate-spin w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                      <span class="ml-2 text-xs text-gray-500" x-text="t('vg_loading_voices') || '加载音色中…'"></span>
+                    </div>
+                    <template x-for="(v, idx) in displayedVoices" :key="v.id || ('idx_' + idx)">
                       <div class="flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors"
                            :class="videoModal.form.voice_id === v.id ? 'bg-accent/5' : 'hover:bg-gray-50'"
                            @click="videoModal.form.voice_id = v.id">
@@ -855,6 +1127,16 @@
                     <div x-show="filteredVoices.length === 0" class="py-6 text-center text-xs text-gray-400">
                       <span x-text="t('vg_voices_no_match')"></span>
                     </div>
+                    <div x-show="hasMoreVoices" class="flex items-center justify-center gap-3 py-2 text-[11px] border-t border-gray-100">
+                      <button type="button"
+                              @click="showMoreVoices()"
+                              class="text-accent hover:underline"
+                              x-text="t('vg_load_more_voices').replace('{shown}', displayedVoices.length).replace('{total}', filteredVoices.length)"></button>
+                      <button type="button"
+                              @click="showAllVoices()"
+                              class="text-gray-400 hover:text-accent underline"
+                              x-text="t('vg_show_all_voices').replace('{n}', filteredVoices.length)"></button>
+                    </div>
                   </div>
                   <p class="mt-1 text-[10px] text-gray-400">
                     <span x-show="auditionCanPlay" x-text="t('vg_audition_hint').replace('{n}', auditionPreviewText.length).replace('{text}', auditionPreviewText)"></span>
@@ -863,14 +1145,31 @@
                   <audio x-ref="auditionAudio" class="hidden" @ended="videoModal.auditionPlayingId = ''"></audio>
                 </div>
 
-                <!-- Caption style (shown only when caption enabled above) -->
-                <div x-show="videoModal.form.caption" x-collapse>
+                <!-- Caption style (shown only when caption enabled above)
+                     Preview design notes:
+                     * Backend (chanjing + ffmpeg drawtext) renders subtitles
+                       as stroked text — no background fills, no rounded
+                       boxes. The preview must therefore match that
+                       rendering model so what users see is what they get.
+                     * Single-tone preview backgrounds (the old bg-gray-800)
+                       gave a misleadingly weak impression of stroke styles
+                       — a half-light/half-dark gradient simulates the
+                       worst-case "video background" range and reveals
+                       which styles actually hold up.
+                     * ``-webkit-text-stroke`` + ``paint-order`` produces
+                       a true outline (versus the old 4-direction
+                       text-shadow approximation). Stroke width is
+                       proportional to backend px / 48px-base font; at
+                       16-18px CSS that's ~2.5-3.5px in the preview. -->
+                <div x-show="videoModal.form.caption" x-collapse
+                     id="vg-caption-style"
+                     style="scroll-margin-top: 12px">
                   <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 block mb-2" x-text="t('vg_caption_style')"></label>
                   <div class="flex gap-2">
                     <template x-for="s in [
-                      {id:'classic', label:t('vg_subtitle_classic'),  desc:t('vg_subtitle_classic_desc'), color:'#FFFFFF', stroke:'#000000', size:'text-sm'},
-                      {id:'bold',    label:t('vg_subtitle_bold'),     desc:t('vg_subtitle_bold_desc'),    color:'#FFE033', stroke:'#1A1A1A', size:'text-base font-bold'},
-                      {id:'minimal', label:t('vg_subtitle_minimal'),  desc:t('vg_subtitle_minimal_desc'), color:'#E8E8E8', stroke:'#555555', size:'text-xs'},
+                      {id:'classic', label:t('vg_subtitle_classic'),  desc:t('vg_subtitle_classic_desc'), color:'#FFFFFF', stroke:'#000000', strokeW:'2.5px', size:'text-base', weight:'700'},
+                      {id:'bold',    label:t('vg_subtitle_bold'),     desc:t('vg_subtitle_bold_desc'),    color:'#FFE033', stroke:'#1A1A1A', strokeW:'3.5px', size:'text-lg',  weight:'800'},
+                      {id:'minimal', label:t('vg_subtitle_minimal'),  desc:t('vg_subtitle_minimal_desc'), color:'#FFFFFF', stroke:'#000000', strokeW:'1.5px', size:'text-sm',  weight:'600'},
                     ]" :key="s.id">
                       <button type="button"
                               @click="videoModal.form.subtitle_style = s.id; videoModal.form.subtitle_color = ''; videoModal.form.subtitle_stroke = ''"
@@ -878,10 +1177,15 @@
                               :class="videoModal.form.subtitle_style === s.id
                                 ? 'border-accent bg-accent/5'
                                 : 'border-gray-200 hover:border-gray-300'">
-                        <div class="bg-gray-800 rounded-md px-2 py-1.5 mb-1.5 flex items-center justify-center min-h-[28px]">
+                        <!-- Dual-tone preview bg — light→dark gradient
+                             approximates a real video frame range; if a
+                             style is readable here it'll be readable on
+                             actual footage. -->
+                        <div class="rounded-md mb-1.5 relative overflow-hidden h-12 bg-gradient-to-r from-stone-200 via-slate-500 to-slate-900 flex items-end justify-center pb-1.5 px-1">
                           <span :class="s.size"
-                                :style="`color:${videoModal.form.subtitle_color || s.color}; text-shadow: -1px -1px 0 ${videoModal.form.subtitle_stroke || s.stroke}, 1px -1px 0 ${videoModal.form.subtitle_stroke || s.stroke}, -1px 1px 0 ${videoModal.form.subtitle_stroke || s.stroke}, 1px 1px 0 ${videoModal.form.subtitle_stroke || s.stroke};`"
-                                x-text="t('vg_subtitle_preview_text')"></span>
+                                :style="`color:${videoModal.form.subtitle_color || s.color}; -webkit-text-stroke:${s.strokeW} ${videoModal.form.subtitle_stroke || s.stroke}; paint-order:stroke fill; font-weight:${s.weight}; letter-spacing:0.01em;`"
+                                :title="subtitlePreviewText"
+                                x-text="subtitlePreviewText"></span>
                         </div>
                         <div class="text-[11px] font-medium" :class="videoModal.form.subtitle_style === s.id ? 'text-accent' : 'text-gray-600'" x-text="s.label"></div>
                         <div class="text-[10px] text-gray-400" x-text="s.desc"></div>
@@ -1007,7 +1311,15 @@
         loading: true,
         searchQ: '',
         filterSource: '',
+        // Filter creations by offer. Default '' = all offers.
+        filterOffer: '',
         webuiApps: [],  // populated at init from /api/v1/apps (category=content_creation)
+        // {source_app: count} from /api/v1/creations/source-counts.
+        // Drives dropdown pruning — only sources with count > 0 render.
+        sourceCounts: {},
+        // [{offer_id, name, count}] from /api/v1/creations/offer-counts.
+        // Drives the offer dropdown + offer-name chips on each card.
+        offerCounts: [],
         flashCreationId: '',  // transient highlight when arriving from ?highlight=<id>
         modal: {
           open: false,
@@ -1029,7 +1341,17 @@
           jobsLoading: false,
           avatars: [],
           voices: [],
-          listsLoading: false,
+          // TagCategory[] — chip dictionary fetched alongside avatars.
+          // Each provider returns its real categories merged with the
+          // cross-provider synthetic ones (gender/age/aspect/language).
+          // Single source of truth for the chip filter UI.
+          avatarTags: [],
+          // Per-list loading flags — split out so a slow voices fetch
+          // (jogg's 2000+ library) can't keep already-loaded avatars
+          // hidden behind a single shared spinner.
+          avatarsLoading: false,
+          voicesLoading: false,
+          listsLoading: false,    // legacy union; true while either is loading
           listsError: '',
           form: {
             avatar_id: '',
@@ -1046,7 +1368,28 @@
           auditionPlayingId: '',  // voice id currently playing
           auditionCache: {},      // { voice_id: audio_url } — short-circuit repeat clicks
           // Filter / search state
-          avatarFilter: 'all',    // 'all' | 'male' | 'female'
+          // Selected chip ids (e.g. "gender:female", "10" for chanjing
+          // tag id 10). The chip filter is OR within a category, AND
+          // across categories. Aspect chips ("aspect:*") are not
+          // rendered — the format toggle above already covers that.
+          selectedTagIds: [],
+          // chanjing-specific avatar order. Default ``latest`` so the
+          // picker surfaces newly added templates instead of the
+          // long-tail ID-ascending bottom of the catalog. jogg ignores
+          // this param at the adapter layer.
+          avatarSort: 'latest',
+          // Rendered window over filteredAvatars. Chanjing accounts can
+          // expose 720+ avatars and Alpine's x-for re-evaluates ~8
+          // bindings per node on every state change — DOM-bound diffs
+          // were producing 1-4s click stalls. Cap initial render and
+          // expose a "show more" button so users can opt into the
+          // larger set on demand.
+          visibleAvatarLimit: 60,
+          // Same render-window for voices. jogg returns 400+ voices and
+          // each row carries ~10 reactive bindings (gender/age/lang
+          // labels + audition button states). Capping initial display
+          // keeps Alpine's binding cost bounded.
+          visibleVoiceLimit: 50,
           voiceFilter: 'all',     // 'all' | 'best' | 'male' | 'female'
           voiceSearch: '',
           pastVideosExpanded: false,
@@ -1090,11 +1433,20 @@
             return true;
           });
         },
+        // Cached. Refreshed by $watch on (form.avatar_id, videoModal.avatars).
+        // Without this, every getter access ran an O(N) find() on the
+        // 720-element avatar Proxy.
         get selectedAvatar() {
-          return this.uniqueAvatars.find(a => a.id === this.videoModal.form.avatar_id) || null;
+          return this.cachedSelectedAvatar;
         },
         get selectedVoice() {
           return this.uniqueVoices.find(v => v.id === this.videoModal.form.voice_id) || null;
+        },
+        _refreshSelectedAvatar() {
+          const id = this.videoModal.form.avatar_id;
+          this.cachedSelectedAvatar = id
+            ? (this.uniqueAvatars.find(a => a.id === id) || null)
+            : null;
         },
         get canSubmitVideo() {
           const m = this.videoModal;
@@ -1114,6 +1466,20 @@
 
         get auditionCanPlay() {
           return this.auditionPreviewText.length > 0;
+        },
+
+        // WYSIWYG subtitle preview. When the user has typed a script,
+        // render the first chunk of THEIR text in the chosen style —
+        // they see exactly how their subtitles will look (matters
+        // because Chinese vs Latin glyphs render strokes very
+        // differently). Empty script falls back to a locale-pure
+        // i18n string ("Sample subtitle" / "示例字幕"). Old design
+        // hardcoded mixed "Sample subtitle 示例字幕" which always
+        // looked wrong in the locale that wasn't actively chosen.
+        get subtitlePreviewText() {
+          const s = (this.videoModal.form.script || '').trim();
+          if (s) return s.slice(0, 16);
+          return t('vg_subtitle_preview_text');
         },
 
         // Collapse identical broll-warning entries into one row each so the
@@ -1142,38 +1508,237 @@
         // submit button visibly resets and the user re-picks deliberately.
         setAspectRatio(ratio) {
           this.videoModal.form.aspect_ratio = ratio;
+          this.videoModal.visibleAvatarLimit = 60;
           const sel = this.uniqueAvatars.find(a => a.id === this.videoModal.form.avatar_id);
-          if (sel && sel.extras && sel.extras.aspect_ratio && sel.extras.aspect_ratio !== ratio) {
+          if (sel && sel.extras && sel.extras.native_aspect_ratio && sel.extras.native_aspect_ratio !== ratio) {
             this.videoModal.form.avatar_id = '';
             this.videoModal.form.voice_id = '';
           }
         },
 
         // ── Avatar filter ──
-        // Avatars whose underlying source ratio doesn't match the chosen
-        // Format are dropped — Jogg exposes this via extras.aspect_ratio
-        // ("portrait" | "landscape"). Chanjing has no per-avatar ratio
-        // field (its server-side canvas just stretches the figure to fit),
-        // so chanjing avatars stay visible across both formats.
-        _avatarMatchesAspect(a) {
-          const want = this.videoModal.form.aspect_ratio;
-          const have = a && a.extras && a.extras.aspect_ratio;
-          if (!have) return true;        // unknown → don't hide
-          return have === want;
+        // ── Cross-provider chip filter ──
+        // Selected chips are grouped by category. Match rule:
+        //   * AND across categories (every selected category must match)
+        //   * OR within a category (any chip in that category satisfies)
+        // Each avatar's ``extras.tag_ids`` is a flat array of token
+        // strings — chanjing's real ids stringified ("10") plus
+        // synthetic tokens ("gender:female"). One algorithm covers
+        // both providers. The actual matching runs against the
+        // pre-built tag Sets on ``avatarIndex`` (see _matchesChipsIdx);
+        // this section just maps a flat token array into the
+        // category-grouped form the matcher expects.
+        _categoryOfTag(tagId) {
+          for (const cat of this.videoModal.avatarTags || []) {
+            if ((cat.tags || []).some(t => t.id === tagId)) return cat.id;
+          }
+          return null;
         },
-        get avatarCounts() {
-          const all = this.uniqueAvatars.filter(a => this._avatarMatchesAspect(a));
-          return {
-            all: all.length,
-            male: all.filter(a => a.gender === 'male').length,
-            female: all.filter(a => a.gender === 'female').length,
-          };
+
+        // Chip-label localization. Backend ships zh-CN names by default
+        // (matches MCP / non-web callers). For the web picker we look
+        // up i18n by the stable id; fall back to backend-provided
+        // ``cat.name`` / ``tag.name`` so chanjing real-tag categories
+        // (whose ids are numeric and have no i18n key) keep their
+        // upstream label. The ``chip_v_*`` key swaps the colon in
+        // tag.id for an underscore so JS object keys stay clean.
+        chipCategoryLabel(cat) {
+          const key = 'chip_cat_' + cat.id;
+          const v = (typeof t === 'function' ? t(key) : key);
+          return v === key ? (cat.name || cat.id) : v;
         },
+        chipValueLabel(tag) {
+          const key = 'chip_v_' + String(tag.id || '').replace(':', '_');
+          const v = (typeof t === 'function' ? t(key) : key);
+          return v === key ? (tag.name || tag.id) : v;
+        },
+        _selectedByCategory() {
+          const out = {};
+          for (const id of this.videoModal.selectedTagIds) {
+            const catId = this._categoryOfTag(id);
+            if (!catId) continue;
+            (out[catId] ||= []).push(id);
+          }
+          return out;
+        },
+
+        // Cached. Recomputed only when avatars / aspect /
+        // selectedTagIds change (see init's $watch chain). Without this
+        // memo, every chip click triggered 4-5 redundant 720-iteration
+        // filter passes per render.
         get filteredAvatars() {
-          const list = this.uniqueAvatars.filter(a => this._avatarMatchesAspect(a));
-          const f = this.videoModal.avatarFilter;
-          if (f === 'all') return list;
-          return list.filter(a => a.gender === f);
+          return this.cachedFilteredAvatars;
+        },
+
+        // The actual list bound to ``x-for``. Capping the rendered
+        // count at ``visibleAvatarLimit`` keeps Alpine's binding cost
+        // bounded — without it, filter toggles re-diff hundreds of
+        // DOM nodes and stall the click handler for 1-4 seconds.
+        get displayedAvatars() {
+          return this.cachedFilteredAvatars.slice(0, this.videoModal.visibleAvatarLimit);
+        },
+        get hasMoreAvatars() {
+          return this.cachedFilteredAvatars.length > this.videoModal.visibleAvatarLimit;
+        },
+        showMoreAvatars() {
+          this.videoModal.visibleAvatarLimit += 60;
+        },
+        showAllAvatars() {
+          // Last-resort full reveal. Users opt in explicitly — they're
+          // accepting the render cost in exchange for see-everything.
+          this.videoModal.visibleAvatarLimit = this.filteredAvatars.length;
+        },
+
+        // Hide the synthetic "aspect" category from chip rendering — the
+        // format toggle above already controls aspect filtering, so
+        // showing aspect chips would split the same control across two
+        // places. Also drop categories whose every chip is empty (no
+        // avatar carries the token), so the bar stays uncluttered.
+        get visibleAvatarTagCategories() {
+          const cats = this.videoModal.avatarTags || [];
+          return cats
+            .filter(c => c.id !== 'aspect')
+            .map(c => ({
+              ...c,
+              tags: (c.tags || []).filter(t => this.avatarChipCount(t.id) > 0),
+            }))
+            .filter(c => c.tags.length > 0);
+        },
+
+        // O(1) lookups. Caches are populated by the $watch-driven
+        // recompute registered in init() — see comments there for why
+        // these aren't getters.
+        avatarChipCount(tagId) {
+          return this.cachedAvatarChipCounts[tagId] || 0;
+        },
+
+        _rebuildAvatarIndex() {
+          // Plain-JS snapshot of avatars + pre-built tag_ids Set.
+          // Critical for perf: every iteration in the filter/count
+          // hot loops would otherwise traverse Alpine's reactive
+          // Proxies, which add ~1μs per property access. With
+          // 720 avatars × multiple property reads × multiple filter
+          // passes per click, the Proxy overhead alone was producing
+          // multi-second stalls. Plain JS objects skip all of that.
+          const seen = new Set();
+          const out = [];
+          for (const a of (this.videoModal.avatars || [])) {
+            if (!a || !a.id || seen.has(a.id)) continue;
+            seen.add(a.id);
+            const ex = a.extras || {};
+            const tagIds = ex.tag_ids || [];
+            out.push({
+              id: a.id,
+              gender: a.gender,
+              tagSet: new Set(tagIds),
+              native_aspect_ratio: ex.native_aspect_ratio || null,
+              raw: a,  // back-reference for the grid render path
+            });
+          }
+          this.avatarIndex = out;
+        },
+
+        _matchesAspectIdx(idx, want) {
+          if (!idx.native_aspect_ratio) return true;
+          return idx.native_aspect_ratio === want;
+        },
+        _matchesChipsIdx(idx, byCat) {
+          const cats = Object.keys(byCat);
+          if (cats.length === 0) return true;
+          for (const c of cats) {
+            const allowed = byCat[c];
+            let any = false;
+            for (const id of allowed) {
+              if (idx.tagSet.has(id)) { any = true; break; }
+            }
+            if (!any) return false;
+          }
+          return true;
+        },
+
+        _computeFilteredAvatars() {
+          const want = this.videoModal.form.aspect_ratio;
+          const sel = this._selectedByCategory();
+          const out = [];
+          for (const idx of this.avatarIndex) {
+            if (!this._matchesAspectIdx(idx, want)) continue;
+            if (!this._matchesChipsIdx(idx, sel)) continue;
+            out.push(idx.raw);
+          }
+          return out;
+        },
+
+        _computeAvatarChipCounts() {
+          // Single-pass build of {tagId → count} for every chip,
+          // walking the plain index so no Proxy traps.
+          const out = {};
+          const want = this.videoModal.form.aspect_ratio;
+          const aspectFiltered = this.avatarIndex.filter(idx => this._matchesAspectIdx(idx, want));
+          const sel = this._selectedByCategory();
+          for (const cat of (this.videoModal.avatarTags || [])) {
+            for (const tag of (cat.tags || [])) {
+              // Trial: replace this category's selection with just this
+              // chip, then count avatars that match the resulting set.
+              const trial = { ...sel, [cat.id]: [tag.id] };
+              let count = 0;
+              for (const idx of aspectFiltered) {
+                if (this._matchesChipsIdx(idx, trial)) count++;
+              }
+              out[tag.id] = count;
+            }
+          }
+          return out;
+        },
+
+        toggleTagId(tagId) {
+          // Reassign the array (don't mutate via push/splice) so
+          // Alpine's $watch fires reliably — array mutations through a
+          // Proxy don't always trigger watchers, while a fresh
+          // assignment always does. The memo system depends on this.
+          const arr = this.videoModal.selectedTagIds;
+          this.videoModal.selectedTagIds = arr.includes(tagId)
+            ? arr.filter(id => id !== tagId)
+            : [...arr, tagId];
+          // Reset render window — new filter result may not even need
+          // 60 cards.
+          this.videoModal.visibleAvatarLimit = 60;
+          // If the currently selected avatar no longer satisfies the
+          // new filter set, clear it — same UX rule as the format toggle.
+          const selId = this.videoModal.form.avatar_id;
+          if (selId && !this.cachedFilteredAvatars.some(a => a.id === selId)) {
+            this.videoModal.form.avatar_id = '';
+            this.videoModal.form.voice_id = '';
+          }
+        },
+
+        clearTagFilters() {
+          this.videoModal.selectedTagIds = [];
+          this.videoModal.visibleAvatarLimit = 60;
+        },
+
+        // ── Avatar sort (chanjing-only) ──
+        // Switch the order chanjing serves avatars in (latest / hottest).
+        // Refetches because the param is server-side; the per-(config,
+        // sort) cache key keeps both orderings in localStorage so
+        // toggling back is instant.
+        async setAvatarSort(sort) {
+          if (this.videoModal.avatarSort === sort) return;
+          this.videoModal.avatarSort = sort;
+          this.videoModal.visibleAvatarLimit = 60;
+          this.videoModal.selectedTagIds = [];
+          this.videoModal.form.avatar_id = '';
+          this.videoModal.form.voice_id = '';
+          if (this.videoModal.selectedProviderId) {
+            await this.onProviderChange(this.videoModal.selectedProviderId);
+          }
+        },
+
+        // Provider type ('chanjing' | 'jogg' | ...) for the currently
+        // selected config — drives provider-specific UI like the sort
+        // toggle which only makes sense for chanjing.
+        get selectedProviderType() {
+          const cfg = this.videoModal.providers.find(p => p.id === this.videoModal.selectedProviderId);
+          return cfg ? cfg.provider : '';
         },
 
         // ── Voice search + filter ──
@@ -1195,12 +1760,28 @@
             // Filter by category
             if (f === 'all') return true;
             if (f === 'best') {
-              const av = this.selectedAvatar;
+              const av = this.cachedSelectedAvatar;
               if (!av) return false;
               return this.voiceMatchScore(v, av) > 0;
             }
             return v.gender === f;
           });
+        },
+
+        // Render-window over voices — same rationale as displayedAvatars.
+        // jogg can return 400+ voices and binding all of them was a
+        // major contributor to the click-handler stalls.
+        get displayedVoices() {
+          return this.filteredVoices.slice(0, this.videoModal.visibleVoiceLimit);
+        },
+        get hasMoreVoices() {
+          return this.filteredVoices.length > this.videoModal.visibleVoiceLimit;
+        },
+        showMoreVoices() {
+          this.videoModal.visibleVoiceLimit += 50;
+        },
+        showAllVoices() {
+          this.videoModal.visibleVoiceLimit = this.filteredVoices.length;
         },
 
         // ── Generate button summary ──
@@ -1269,11 +1850,13 @@
           if (avatar.age && voice.age && avatar.age === voice.age) {
             score += 20;
           }
-          // Mood (script ↔ voice name)
-          const mood = this._detectScriptMood(this.videoModal.form.script);
-          const vMood = this._voiceMoodTag(voice.name);
-          if (mood && vMood && mood === vMood) {
-            score += 15;
+          // Mood (script ↔ voice name) — script side is cached so we
+          // don't re-regex on every score call (the sort runs N log N
+          // comparisons and would amplify a per-call regex by ~9x).
+          const mood = this.cachedScriptMood;
+          if (mood) {
+            const vMood = this._voiceMoodTag(voice.name);
+            if (vMood && mood === vMood) score += 15;
           }
           return score;
         },
@@ -1299,26 +1882,117 @@
           return translated === key ? lang : translated;
         },
 
+        // Cached sort. Refresh runs O(N log N) once per dependency
+        // change (selected avatar / voice list / script mood) instead
+        // of on every binding access. Read-only beyond that.
         get sortedVoices() {
+          return this.cachedSortedVoices;
+        },
+        _refreshSortedVoices() {
           const list = this.uniqueVoices;
-          const av = this.selectedAvatar;
-          if (!av || list.length === 0) return list;
-          return [...list].sort(
+          const av = this.cachedSelectedAvatar;
+          if (!av || list.length === 0) {
+            this.cachedSortedVoices = list;
+            return;
+          }
+          this.cachedSortedVoices = [...list].sort(
             (a, b) => this.voiceMatchScore(b, av) - this.voiceMatchScore(a, av)
           );
         },
 
         pickBestVoiceFor(avatar) {
+          // Top of the cached sort already IS the best match for the
+          // currently-selected avatar. When called from selectAvatar
+          // (right after avatar_id is set), we still need to do a
+          // one-off sort because the cache hasn't refreshed yet — but
+          // we use voiceMatchScore which is now cheap (script-mood
+          // pre-cached). Bounded N voices, runs once per click.
           if (!avatar) return null;
-          const list = this.uniqueVoices;
-          const ranked = [...list].sort(
-            (a, b) => this.voiceMatchScore(b, avatar) - this.voiceMatchScore(a, avatar)
-          );
-          return ranked[0] || null;
+          let best = null;
+          let bestScore = -Infinity;
+          for (const v of this.uniqueVoices) {
+            const s = this.voiceMatchScore(v, avatar);
+            if (s > bestScore) { bestScore = s; best = v; }
+          }
+          return best;
         },
+
+        // ── Memo caches ──
+        // Plain (non-getter) fields avoid Alpine's "getters re-run on
+        // every access" trap. Populated by the $watch-driven recompute
+        // registered in init(); reads are O(1).
+        cachedAvatarChipCounts: {},
+        cachedFilteredAvatars: [],
+        // Plain JS snapshot of avatars (no reactive Proxy traps in the
+        // filter/count hot loops). Each entry carries a pre-built Set
+        // of tag_ids so chip matching is O(1) instead of O(L) per
+        // chip-token check.
+        avatarIndex: [],
+        // Voice-side memos. ``sortedVoices`` was a getter doing a full
+        // O(N log N) sort + per-pair regex on every access — with
+        // jogg's hundreds of voices that produced multi-second stalls
+        // when picking an avatar. Now computed once per dependency
+        // change (selected avatar / voices / script mood).
+        cachedSortedVoices: [],
+        cachedSelectedAvatar: null,
+        cachedScriptMood: null,
 
         async init() {
           document.title = t('creations_title') + ' - OpenLucid';
+
+          // ── Real memoization ──
+          // Alpine getters re-run on every access. With 720 avatars,
+          // ``filteredAvatars`` was being recomputed 4-5 times per
+          // render (displayedAvatars + length + hasMoreAvatars + count
+          // tooltip), each pass iterating reactive Proxies. Cache both
+          // chipCounts AND filteredAvatars; rebuild only when one of
+          // the watched inputs changes.
+          //
+          // ``avatarIndex`` is rebuilt only when the underlying
+          // ``videoModal.avatars`` reference changes — this is where we
+          // unwrap reactive Proxies into plain objects so the hot
+          // filter loop never crosses a Proxy trap.
+          const recomputeAll = () => {
+            this.cachedFilteredAvatars = this._computeFilteredAvatars();
+            this.cachedAvatarChipCounts = this._computeAvatarChipCounts();
+          };
+          this.$watch('videoModal.avatars', () => {
+            this._rebuildAvatarIndex();
+            recomputeAll();
+            // Avatar list change can invalidate selectedAvatar.
+            this._refreshSelectedAvatar();
+            this._refreshSortedVoices();
+          });
+          this.$watch('videoModal.avatarTags', recomputeAll);
+          this.$watch('videoModal.selectedTagIds', recomputeAll);
+          this.$watch('videoModal.form.aspect_ratio', recomputeAll);
+
+          // ── Voice-side memos ──
+          // Picking an avatar (or changing the script) shouldn't re-sort
+          // hundreds of voices on every binding access. These watchers
+          // refresh the caches once per real dependency change.
+          this.$watch('videoModal.form.avatar_id', () => {
+            this._refreshSelectedAvatar();
+            this._refreshSortedVoices();
+          });
+          this.$watch('videoModal.voices', () => {
+            this._refreshSortedVoices();
+          });
+          this.$watch('videoModal.form.script', () => {
+            this.cachedScriptMood = this._detectScriptMood(this.videoModal.form.script);
+            this._refreshSortedVoices();
+          });
+
+          // Reset voice render window whenever the filter/search
+          // narrows — keeps the list at a sane size during chip
+          // navigation rather than carrying a "show all 400" state.
+          this.$watch('videoModal.voiceFilter', () => {
+            this.videoModal.visibleVoiceLimit = 50;
+          });
+          this.$watch('videoModal.voiceSearch', () => {
+            this.videoModal.visibleVoiceLimit = 50;
+          });
+
 
           // Populate the Source filter from /api/v1/apps. Only
           // category="content_creation" apps actually write to
@@ -1334,6 +2008,14 @@
               this.webuiApps = all.filter(a => a.category === 'content_creation');
             }
           } catch (e) { console.warn('Failed to load apps registry for filter:', e); }
+
+          // Source-counts drive the dropdown — only sources with at
+          // least 1 creation are rendered, with their count appended to
+          // the label. Dead options (e.g. "选题工坊" when the user has
+          // never used it) are hidden so the picker only ever shows
+          // useful filters.
+          await this.reloadSourceCounts();
+          await this.reloadOfferCounts();
 
           await this.reload();
 
@@ -1371,6 +2053,7 @@
             });
             if (this.searchQ) params.set('q', this.searchQ);
             if (this.filterSource) params.set('source_app', this.filterSource);
+            if (this.filterOffer) params.set('offer_id', this.filterOffer);
             const res = await fetch(`/api/v1/creations?${params}`);
             if (res.ok) {
               const data = await res.json();
@@ -1379,6 +2062,70 @@
             }
           } catch (e) { console.error(e); }
           finally { this.loading = false; }
+        },
+
+        async reloadSourceCounts() {
+          try {
+            const res = await fetch('/api/v1/creations/source-counts');
+            if (res.ok) this.sourceCounts = await res.json();
+          } catch (e) {
+            console.warn('Failed to load source counts:', e);
+            this.sourceCounts = {};
+          }
+        },
+
+        async reloadOfferCounts() {
+          try {
+            const res = await fetch('/api/v1/creations/offer-counts');
+            if (res.ok) this.offerCounts = await res.json();
+          } catch (e) {
+            console.warn('Failed to load offer counts:', e);
+            this.offerCounts = [];
+          }
+        },
+
+        // Lookup offer name by id — used by the chip on each creation
+        // card. Returns the raw id when no match (forward-compat for
+        // newly created offers not yet reflected in offerCounts).
+        offerName(offerId) {
+          if (!offerId) return '';
+          const m = (this.offerCounts || []).find(o => o.offer_id === offerId);
+          return m ? m.name : offerId.slice(0, 8);
+        },
+
+        // ── Visible source options ──
+        // Builds a list of {value, label, count} from sourceCounts
+        // intersected with the known option set. Hides anything with
+        // count 0 — the dropdown stays clean. The aggregate "external
+        // (MCP)" option sums any source_app starting with "mcp:" so a
+        // user with mcp:claude-code creations gets a single entry.
+        get visibleSourceOptions() {
+          const counts = this.sourceCounts || {};
+          const out = [];
+          // 1. Known content_creation apps from /api/v1/apps
+          for (const app of (this.webuiApps || [])) {
+            const n = counts[app.app_id] || 0;
+            if (n > 0) out.push({ value: app.app_id, label: app.name, count: n });
+          }
+          // 2. MCP aggregate — any "mcp:*" key
+          let mcpTotal = 0;
+          for (const k in counts) {
+            if (k && k.startsWith('mcp:')) mcpTotal += counts[k];
+          }
+          if (mcpTotal > 0) {
+            out.push({ value: 'mcp:*', label: t('creations_source_mcp'), count: mcpTotal });
+          }
+          // 3. Manual
+          if ((counts.manual || 0) > 0) {
+            out.push({ value: 'manual', label: t('creations_source_manual'), count: counts.manual });
+          }
+          return out;
+        },
+
+        get totalSourceCount() {
+          let total = 0;
+          for (const k in (this.sourceCounts || {})) total += this.sourceCounts[k] || 0;
+          return total;
         },
 
         openNew() {
@@ -1465,7 +2212,7 @@
           this.videoModal.selectedProviderId = '';
           this.videoModal.listsError = '';
           this.videoModal.submitError = '';
-          this.videoModal.avatarFilter = 'all';
+          this.videoModal.selectedTagIds = [];
           this.videoModal.voiceFilter = 'all';
           this.videoModal.voiceSearch = '';
           // Open with history pre-expanded if caller (e.g. video badge click) asked
@@ -1655,6 +2402,8 @@
         brollContextAt(charPos) {
           // Show a short slice of VO around the insert point so the user
           // sees which line this shot will cut over. ~20 chars radius.
+          // Used as the tooltip on the row header — gives the precise
+          // before/after split at hover.
           const text = this._brollNarrationText();
           if (!text) return '';
           const pos = Math.max(0, Math.min(Number(charPos) || 0, text.length));
@@ -1663,6 +2412,26 @@
           const pre = text.slice(start, pos);
           const post = text.slice(pos, end);
           return `…${pre}│${post}…`;
+        },
+
+        // Human-readable position preview for the row header — replaces
+        // the raw char-offset number that ships in the form data with
+        // a sentence-fragment phrasing the user can actually parse
+        // ("After 'I made 10 video ads'"). Falls back to char index
+        // when the snippet would be empty (offset at start, or after
+        // pure-punctuation).
+        brollPositionPreview(charPos) {
+          const text = this._brollNarrationText();
+          const pos = Math.max(0, Math.min(Number(charPos) || 0, (text || '').length));
+          if (!text || pos === 0) return t('vg_broll_pos_start');
+          // Take up to 14 chars before the cut, trimmed of leading
+          // whitespace + CJK/Latin punctuation so the snippet starts
+          // mid-word, not mid-sentence-tail.
+          let snippet = text.slice(Math.max(0, pos - 14), pos)
+            .replace(/^[\s，。！？,.!?;:、—\-]+/, '')
+            .trim();
+          if (!snippet) return t('vg_broll_pos_at_char').replace('{n}', pos);
+          return t('vg_broll_pos_after').replace('{snippet}', snippet);
         },
 
         async brollRegeneratePlan() {
@@ -1794,10 +2563,30 @@
 
         async onProviderChange(configId, options = {}) {
           const m = this.videoModal;
+
+          // Cancel any in-flight fetches from a previous provider
+          // selection. Without this, switching from chanjing to jogg
+          // mid-load would let the chanjing pagination keep running
+          // (wasting upstream quota) and could race-overwrite jogg's
+          // data when it eventually returns.
+          if (this._listsFetchAbort) {
+            try { this._listsFetchAbort.abort(); } catch (e) { /* noop */ }
+          }
+          const ac = new AbortController();
+          this._listsFetchAbort = ac;
+
           m.selectedProviderId = configId;
           m.avatars = [];
           m.voices = [];
+          m.avatarTags = [];
+          m.selectedTagIds = [];
+          m.visibleAvatarLimit = 60;
+          m.visibleVoiceLimit = 50;
+          // Don't reset avatarSort on provider change — user's
+          // preference is sticky across providers within a session.
           m.listsError = '';
+          m.avatarsLoading = false;
+          m.voicesLoading = false;
           m.form.avatar_id = '';
           m.form.voice_id = '';
 
@@ -1817,47 +2606,138 @@
           // Avatar/voice lists rarely change on the provider side; caching
           // them avoids 1-2s of latency every time the user opens the modal,
           // and saves Chanjing access_token API calls. Bust on demand via the
-          // refresh button (options.force = true).
-          const cacheKey = `od_video_lists:${configId}`;
+          // refresh button (options.force = true). Cache key bumped to ``v4``
+          // when chanjing's circle_view (headshot-frame mode) avatars were
+          // server-side filtered out of /avatars — without this bump, users
+          // with v3 caches kept seeing old figure_type=circle_view entries
+          // for 12h, then submitted them and got distorted output. Cache is
+          // per-(config, sort) so switching sort doesn't return stale
+          // ordering from cache.
+          const cacheKey = `od_video_lists_v4:${configId}:${m.avatarSort}`;
           const CACHE_TTL_MS = 12 * 60 * 60 * 1000;  // 12h
           if (!options.force) {
             try {
               const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
-              if (cached && (Date.now() - cached.ts) < CACHE_TTL_MS) {
+              if (cached && (Date.now() - cached.ts) < CACHE_TTL_MS && this._cacheSchemaIsCurrent(cached)) {
                 m.avatars = cached.avatars || [];
                 m.voices = cached.voices || [];
+                m.avatarTags = cached.avatarTags || [];
                 this._applyDefaultsForProvider(cfg);
                 return;  // skip the network entirely
               }
             } catch (e) { /* corrupt cache, fall through to fetch */ }
           }
 
+          // Each list loads independently. Avatars commonly return in
+          // 1-2 jogg HTTP calls; voices may walk multiple pages and
+          // arrive seconds later. Independent promises mean the user
+          // sees avatars + can edit script while voices are still
+          // streaming in. Tags are best-effort and never block.
+          m.avatarsLoading = true;
+          m.voicesLoading = true;
           m.listsLoading = true;
-          try {
-            const [ar, vr] = await Promise.all([
-              fetch(`/api/v1/media-providers/${configId}/avatars?page=1&page_size=100`),
-              fetch(`/api/v1/media-providers/${configId}/voices?page=1&page_size=100`),
-            ]);
-            if (!ar.ok) throw new Error('avatars: ' + (await ar.text()));
-            if (!vr.ok) throw new Error('voices: ' + (await vr.text()));
-            m.avatars = await ar.json();
-            m.voices = await vr.json();
 
-            // Persist to cache
+          const settle = () => {
+            // listsLoading reflects "any list still pending"; flips off
+            // when both avatars and voices have settled.
+            if (this._listsFetchAbort === ac && !m.avatarsLoading && !m.voicesLoading) {
+              m.listsLoading = false;
+            }
+          };
+
+          const avatarsP = fetch(
+            `/api/v1/media-providers/${configId}/avatars?sort=${encodeURIComponent(m.avatarSort)}`,
+            { signal: ac.signal },
+          ).then(async ar => {
+            if (ac.signal.aborted) return;
+            if (!ar.ok) throw new Error('avatars: ' + (await ar.text()));
+            m.avatars = await ar.json();
+            this._applyDefaultsForProvider(cfg);
+          }).catch(e => {
+            if (e && (e.name === 'AbortError' || ac.signal.aborted)) return;
+            m.listsError = t('vg_lists_load_failed') + e.message;
+          }).finally(() => {
+            if (this._listsFetchAbort === ac) m.avatarsLoading = false;
+            settle();
+          });
+
+          const voicesP = fetch(
+            `/api/v1/media-providers/${configId}/voices`,
+            { signal: ac.signal },
+          ).then(async vr => {
+            if (ac.signal.aborted) return;
+            if (!vr.ok) throw new Error('voices: ' + (await vr.text()));
+            m.voices = await vr.json();
+          }).catch(e => {
+            if (e && (e.name === 'AbortError' || ac.signal.aborted)) return;
+            // Voice failure is shown but doesn't override an avatar error.
+            if (!m.listsError) m.listsError = t('vg_lists_load_failed') + e.message;
+          }).finally(() => {
+            if (this._listsFetchAbort === ac) m.voicesLoading = false;
+            settle();
+          });
+
+          // Tags are best-effort — never set listsError, never block
+          // the loading flags. The chip bar just won't render if this
+          // fails.
+          fetch(
+            `/api/v1/media-providers/${configId}/avatar-tags`,
+            { signal: ac.signal },
+          ).then(async tr => {
+            if (ac.signal.aborted) return;
+            if (tr.ok) {
+              m.avatarTags = await tr.json();
+            } else {
+              console.warn('avatar-tags fetch failed:', await tr.text());
+              m.avatarTags = [];
+            }
+          }).catch(e => {
+            if (e && (e.name === 'AbortError' || ac.signal.aborted)) return;
+            console.warn('avatar-tags fetch threw:', e);
+          });
+
+          // Persist to cache once both lists have completed (avatar
+          // tags arrive separately and may overwrite the cache shortly
+          // after if they came in late — that's fine, next open will
+          // see them).
+          Promise.allSettled([avatarsP, voicesP]).then(() => {
+            if (this._listsFetchAbort !== ac || ac.signal.aborted) return;
             try {
               localStorage.setItem(cacheKey, JSON.stringify({
                 ts: Date.now(),
                 avatars: m.avatars,
                 voices: m.voices,
+                avatarTags: m.avatarTags,
               }));
             } catch (e) { /* localStorage full or disabled — non-fatal */ }
+          });
+        },
 
-            this._applyDefaultsForProvider(cfg);
-          } catch (e) {
-            m.listsError = t('vg_lists_load_failed') + e.message;
-          } finally {
-            m.listsLoading = false;
+        // Reject caches that were written when the backend hadn't shipped
+        // the current picker contract. Two known failure modes self-heal
+        // here without waiting for the 12h TTL:
+        //  (1) avatars lacking the chip-filter keys (tag_ids /
+        //      native_aspect_ratio) — chip bar and aspect filter went
+        //      blank under v2 cache.
+        //  (2) any avatar carrying figure_type=circle_view — that mode
+        //      was server-side filtered out; if any cached entry still
+        //      has it, the cache predates the filter and submitting
+        //      from the picker would produce distorted output.
+        _cacheSchemaIsCurrent(cached) {
+          const avatars = cached && cached.avatars;
+          if (!Array.isArray(avatars) || avatars.length === 0) return true;  // empty is fine
+          const ex = (avatars[0] && avatars[0].extras) || {};
+          if (!Array.isArray(ex.tag_ids) && typeof ex.native_aspect_ratio !== 'string') {
+            return false;  // (1) pre-chip-filter cache
           }
+          // (2) Probe up to 30 entries — circle_view typically clusters,
+          // so even one hit means the entire cache predates the filter.
+          const probe = avatars.slice(0, 30);
+          for (const a of probe) {
+            const aex = (a && a.extras) || {};
+            if (aex.figure_type === 'circle_view') return false;
+          }
+          return true;
         },
 
         _applyDefaultsForProvider(cfg) {
@@ -1892,6 +2772,32 @@
           // — simpler mental model.
           const best = this.pickBestVoiceFor(a);
           if (best) this.videoModal.form.voice_id = best.id;
+        },
+
+        playPairedPreview(avatar) {
+          // Play the avatar's officially-paired voice sample directly.
+          // Shares the modal's <audio> element with auditionVoice so the
+          // two paths behave consistently (clicking ▶ on a different
+          // avatar stops whatever was playing). No TTS synthesis here —
+          // chanjing returns a ready-to-play URL on the avatar payload.
+          const m = this.videoModal;
+          const url = avatar && avatar.extras && avatar.extras.paired_voice_preview_url;
+          if (!url) return;
+          const audio = this.$refs.auditionAudio;
+          if (!audio) return;
+          // Toggle off if the same paired preview is already playing.
+          const tag = `paired:${avatar.id}`;
+          if (m.auditionPlayingId === tag) {
+            audio.pause();
+            audio.currentTime = 0;
+            m.auditionPlayingId = '';
+            return;
+          }
+          audio.pause();
+          audio.currentTime = 0;
+          audio.src = url;
+          m.auditionPlayingId = tag;
+          audio.play().catch(() => { m.auditionPlayingId = ''; });
         },
 
         async auditionVoice(voice) {
