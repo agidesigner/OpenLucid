@@ -94,7 +94,7 @@ class ScriptWriterRequest(BaseModel):
     topic: str = Field("", max_length=2000)
     goal: str = Field("seeding", pattern="^(reach_growth|lead_generation|conversion|education|traffic_redirect|other|seeding|knowledge_sharing|brand_awareness)$")
     tone: str | None = None
-    word_count: int = Field(150, ge=50, le=2000)
+    word_count: int = Field(150, ge=50, le=5000)
     cta: str | None = None
     industry: str | None = None
     reference: str | None = Field(None, max_length=5000)

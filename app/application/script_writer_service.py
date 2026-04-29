@@ -41,8 +41,20 @@ def _build_user_message(
     knowledge_text: str = "",
     strategy_text: str = "",
     asset_text: str = "",
+    is_video: bool = True,
 ) -> str:
-    """Build the user message from request parameters + context."""
+    """Build the user message from request parameters + context.
+
+    ``is_video`` gates the numeric ``word_count`` line. Short video platforms
+    benefit from a hard length signal (60s vs 90s vs livestream feel
+    distinctly different to viewers, and word_count is the proxy for
+    duration). Text platforms — wechat_gzh, blog, substack, xiaohongshu —
+    each have rich prose length specs in their platform body
+    ("1500-3000 字最佳", "200-800 words sweet spot"), and a numeric
+    word_count anchor reliably overrides those nuanced specs in practice.
+    Default is True so the legacy non-composer path (script-writer's
+    original short-video flow) keeps the line.
+    """
     is_en = request.language.startswith("en")
     goal_zh, goal_en = _GOAL_LABELS.get(request.goal, ("其他", "Other"))
 
@@ -62,7 +74,8 @@ def _build_user_message(
     # Optional params
     if request.tone:
         parts.append(f"{'tone: ' if is_en else 'tone（语气风格）：'}{request.tone}")
-    parts.append(f"{'word_count: ' if is_en else 'word_count（字数）：'}{request.word_count}")
+    if is_video:
+        parts.append(f"{'word_count: ' if is_en else 'word_count（字数）：'}{request.word_count}")
     if request.cta:
         parts.append(f"{'cta: ' if is_en else 'cta（引导动作）：'}{request.cta}")
     if request.industry:
@@ -587,11 +600,23 @@ class ScriptWriterService:
                 bool(trend.external_context_text), bool(trend.hotspot),
             )
 
+        # Resolve the platform's content_type early so we can decide
+        # whether to inject the numeric word_count signal. Lookup is
+        # cheap — the registry is process-cached. Defaults to "video"
+        # when no platform_id is set (legacy script-writer path).
+        is_video_request = True
+        if request.platform_id:
+            from app.application.script_platforms import get_platform
+            _p = get_platform(request.platform_id)
+            if _p is not None:
+                is_video_request = _p.is_video
+
         user_message = _build_user_message(
             request,
             knowledge_text=knowledge_text,
             strategy_text=strategy_text,
             asset_text=asset_text,
+            is_video=is_video_request,
         )
         if trend_user_block:
             user_message = user_message + "\n" + trend_user_block

@@ -339,7 +339,11 @@ _CAPABILITY_META = {
         ),
         "models_by_provider": {
             "chanjing": [
-                ("Doubao-Seedance-1.0-pro",     ("Seedance 1.0 Pro · 字节 (推荐)", "Seedance 1.0 Pro · ByteDance (recommended)")),
+                # HappyHorse is intentionally first — it's the recommended
+                # default model picked up by creations.html's first-available
+                # fallback when no explicit MediaCapabilityDefault is set.
+                ("happyhorse-1.0-t2v",          ("HappyHorse 1.0 (新 · 推荐)",     "HappyHorse 1.0 (NEW · recommended)")),
+                ("Doubao-Seedance-1.0-pro",     ("Seedance 1.0 Pro · 字节",        "Seedance 1.0 Pro · ByteDance")),
                 ("doubao-seedance-1.0-lite-i2v",("Seedance 1.0 Lite · 字节",       "Seedance 1.0 Lite · ByteDance")),
                 # Chanjing's Kling model_code naming is INCONSISTENT
                 # across versions. Verify each new entry against the

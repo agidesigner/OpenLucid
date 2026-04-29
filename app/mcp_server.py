@@ -1513,6 +1513,27 @@ async def get_app_config(app_id: str, language: str = "zh") -> str:
     )
 
 
+def _resolve_word_count(word_count: int | None, platform_id: str | None) -> int:
+    """Derive a sensible word_count when the agent didn't specify one.
+
+    Mirrors content-studio's `_derivedWordCount`: pull `max_script_chars`
+    from the platform definition and take 60%, rounded to the nearest 50.
+    Without this every silent caller would get the schema default 150 —
+    fine for short video, catastrophic for long-form (the user-message
+    line `word_count: 150` overrides the platform body's "1500-3000 字"
+    target). Clamped to [50, 5000] to stay inside the schema bounds.
+    """
+    if word_count is not None:
+        return word_count
+    if platform_id:
+        from app.application.script_platforms import get_platform
+        p = get_platform(platform_id)
+        if p and p.max_script_chars:
+            raw = round(p.max_script_chars * 0.6 / 50) * 50
+            return max(50, min(5000, raw))
+    return 150
+
+
 @mcp.tool()
 async def run_app(
     app_id: str,
@@ -1526,7 +1547,7 @@ async def run_app(
     topic: str = "",
     goal: str = "reach_growth",
     tone: str = "",
-    word_count: int = 150,
+    word_count: int | None = None,
     cta: str = "",
     industry: str = "",
     reference: str = "",
@@ -1645,7 +1666,7 @@ async def run_app(
                     topic=topic,
                     goal=goal,
                     tone=tone or None,
-                    word_count=word_count,
+                    word_count=_resolve_word_count(word_count, platform_id),
                     cta=cta or None,
                     industry=industry or None,
                     reference=reference or None,
@@ -1684,7 +1705,7 @@ async def run_app(
             req = TopicPlanGenerateRequest(
                 offer_id=oid,
                 strategy_unit_id=suid,
-                count=word_count if word_count <= 20 else 5,
+                count=word_count if (word_count is not None and word_count <= 20) else 5,
                 language=language,
                 config_id=config_id,
             )
@@ -1720,7 +1741,7 @@ async def run_app(
                 topic=topic,
                 goal=goal,
                 tone=tone or None,
-                word_count=word_count,
+                word_count=_resolve_word_count(word_count, platform_id),
                 cta=cta or None,
                 industry=industry or None,
                 reference=reference or None,

@@ -506,6 +506,17 @@
           window.odHeaderSelectors.rememberModelKey("cs", this.modelKey);
         },
 
+        _derivedWordCount() {
+          const p = this.platforms.find(x => x.id === this.platformId);
+          const cap = p?.max_script_chars;
+          if (!cap) return 1000;
+          // 60% of the cap puts WeChat (3000) at 1800 — squarely in
+          // the platform's "1500-3000 字最佳" target range. Round to
+          // nearest 50 for prompt readability; clamp to schema bounds.
+          const raw = Math.round(cap * 0.6 / 50) * 50;
+          return Math.max(50, Math.min(5000, raw));
+        },
+
         async onOfferChange() {
           this.scriptResult = null;
           this.structuredContent = null;
@@ -589,6 +600,13 @@
                 ...window.odTrendPanel.toBody(this),
                 topic: this.topic.trim(),
                 goal: this.goalId,
+                // Derive a target length from the selected platform.
+                // Without this content-studio falls through to the
+                // backend default (150) — the LLM then dutifully
+                // produces ~200-char output even when the WeChat body
+                // says "1500-3000 字最佳". Long-form lands closer to
+                // the platform cap than short video does.
+                word_count: this._derivedWordCount(),
                 // language: only sent when user manually overrode the
                 // picker. Otherwise omitted → backend's
                 // resolve_output_language() runs KB detection.

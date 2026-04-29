@@ -2252,10 +2252,14 @@
           this.videoModal.providersLoading = true;
           this.videoModal.jobsLoading = true;
           try {
+            // Pass UI language so the dropdown labels render localized.
+            // Without ?lang= the backend defaults to zh-CN and English-UI
+            // users see Chinese labels mixed in (`字节` / `快手` / `推荐`).
+            const lang = (typeof getApiLang === 'function' ? getApiLang() : 'zh').slice(0, 2);
             const [pr, jr, cr] = await Promise.all([
               fetch('/api/v1/media-providers'),
               fetch(`/api/v1/creations/${creation.id}/videos`),
-              fetch('/api/v1/settings/media-capabilities'),
+              fetch(`/api/v1/settings/media-capabilities?lang=${lang}`),
             ]);
             if (pr.ok) {
               const all = await pr.json();

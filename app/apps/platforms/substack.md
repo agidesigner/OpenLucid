@@ -5,7 +5,7 @@ name_en: Substack / Newsletter
 emoji: 📬
 region: en
 content_type: article
-max_script_chars: 6000
+max_script_chars: 21000
 ---
 Platform writing rules (Substack newsletter / long-form email):
 

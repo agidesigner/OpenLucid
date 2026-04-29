@@ -5,7 +5,7 @@ name_en: Blog Post
 emoji: 📝
 region: global
 content_type: article
-max_script_chars: 6000
+max_script_chars: 18000
 ---
 Platform writing rules (long-form blog post for a brand's own site / Medium / Substack / WeChat 公众号):
 

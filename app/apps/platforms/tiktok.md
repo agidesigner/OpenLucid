@@ -6,7 +6,7 @@ emoji: 🎵
 region: global
 content_type: video
 aspect_ratio: portrait
-max_script_chars: 400
+max_script_chars: 1100
 ---
 Platform writing rules (TikTok vertical short video):
 

@@ -1000,10 +1000,14 @@ class ChanjingVideoProvider:
             raise UnsupportedReferenceMode(
                 f"chanjing/{model_code} does not support last_frame anchoring"
             )
-        if first_frame is not None and "hailuo" in model_code.lower():
+        # T2V-only chanjing models — no first-frame anchoring. Each one
+        # has its own dedicated -i2v sibling code if image-driven
+        # generation is needed (e.g. happyhorse-1.0-i2v).
+        T2V_ONLY_MARKERS = ("hailuo", "happyhorse-1.0-t2v")
+        if first_frame is not None and any(t in model_code.lower() for t in T2V_ONLY_MARKERS):
             raise UnsupportedReferenceMode(
-                f"chanjing/{model_code} (hailuo) is text-to-video only; "
-                "first_frame anchoring not supported"
+                f"chanjing/{model_code} is text-to-video only; "
+                "first_frame anchoring not supported (use the matching -i2v variant)"
             )
 
         payload: dict[str, Any] = {

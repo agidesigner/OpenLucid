@@ -5,7 +5,7 @@ name_en: X / Twitter Thread
 emoji: 🐦
 region: en
 content_type: thread
-max_script_chars: 2500
+max_script_chars: 5000
 ---
 Platform writing rules (X / Twitter Thread):
 
