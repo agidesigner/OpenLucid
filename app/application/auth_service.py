@@ -48,6 +48,17 @@ async def update_password(db: AsyncSession, user: User, new_password: str) -> No
     await db.commit()
 
 
+async def update_email(db: AsyncSession, user: User, new_email: str) -> None:
+    """Change a user's email. Caller must check uniqueness first — the
+    DB unique constraint will also raise if violated, but a friendly
+    pre-check produces a cleaner CLI error."""
+    cleaned = (new_email or "").strip().lower()
+    if not cleaned or "@" not in cleaned:
+        raise ValueError("New email is empty or malformed")
+    user.email = cleaned
+    await db.commit()
+
+
 async def send_reset_email(email: str, reset_url: str) -> None:
     from app.libs.mail import send_email
 
@@ -63,4 +74,9 @@ If you did not request a password reset, please ignore this email.
 
     sent = await send_email(email, subject, body)
     if not sent:
-        logger.warning("Email not configured. Password reset URL: %s", reset_url)
+        logger.warning(
+            "Email not configured. Password reset URL: %s\n"
+            "Self-hosted ops: configure mail in docker/.env, OR reset directly via:\n"
+            "  docker compose exec app python -m app.cli reset-password --email %s --new-password <new>",
+            reset_url, email,
+        )

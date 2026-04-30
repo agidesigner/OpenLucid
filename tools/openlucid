@@ -1177,7 +1177,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="openlucid",
         description="Query and operate your OpenLucid marketing data via REST API.",
-        epilog="Config: --url flag > OPENLUCID_URL env > ~/.openlucid.json > http://localhost",
+        epilog=(
+            "Config: --url flag > OPENLUCID_URL env > ~/.openlucid.json > http://localhost\n"
+            "\n"
+            "For account recovery (forgot password / change email / create admin) "
+            "use the in-container direct-DB CLI instead:\n"
+            "  docker compose exec app python -m app.cli --help\n"
+            "See SELF_HOSTING.md."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--url", help="Override the server URL")
     parser.add_argument("--version", action="version", version=f"openlucid {CLI_VERSION}")

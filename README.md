@@ -160,6 +160,9 @@ PostgreSQL 16 in your own container. No SaaS, no third-party vector DB, no telem
 **Q: Can I run it offline / behind a VPN?**
 Yes — once dependencies are installed, the only outbound traffic is to your configured LLM endpoint (and optional video provider Chanjing/Jogg if you use Video Generation).
 
+**Q: I forgot my admin password / lost access to my email / need to provision the first admin from a script.**
+See the [Self-Hosting Operations Guide](SELF_HOSTING.md#account-recovery) — there's a direct-DB CLI (`docker compose exec app python -m app.cli ...`) that bypasses email and HTTP entirely for these recovery cases.
+
 <br/>
 
 ## 🛠️ Tech Stack

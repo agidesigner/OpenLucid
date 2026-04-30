@@ -213,6 +213,25 @@ async def change_password(body: ChangePasswordRequest, request: Request, db: Asy
 @router.post("/forgot-password", response_model=MessageResponse)
 async def forgot_password(body: ForgotPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
     check_rate_limit(request)
+    # Short-circuit when no mail provider is configured. Without this,
+    # the user sees a green "reset link sent" toast and waits forever
+    # for an email that never arrives — the URL only ever lands in the
+    # docker logs. Surfacing the deployment-level mis-config explicitly
+    # is far better UX for self-hosters; the only "leak" is whether
+    # this deployment has email wired up, which is benign.
+    from app.libs.mail import is_mail_configured
+    if not is_mail_configured():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Email service is not configured on this deployment, so a "
+                "reset link cannot be delivered. Self-hosted ops: configure "
+                "RESEND_API_KEY or SMTP_HOST in docker/.env, or reset the "
+                "password directly via "
+                "`docker compose exec app python -m app.cli reset-password "
+                "--email <email> --new-password <new>`."
+            ),
+        )
     user = await auth_service.get_user_by_email(db, str(body.email))
     if user:
         token = create_reset_token(user.email, user.hashed_password)

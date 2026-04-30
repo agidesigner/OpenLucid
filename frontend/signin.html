@@ -13,12 +13,13 @@
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>[x-cloak]{display:none!important}</style>
   <script>
-    // Already logged in → go home; no users → go to install
-    fetch('/api/v1/auth/me').then(r => {
-      if (r.ok) { location.href = '/'; return; }
-      return fetch('/api/v1/auth/setup-status').then(r => r.json()).then(s => {
-        if (s.needs_setup) location.href = '/install.html';
-      });
+    // Only probe setup-status here — /signin is the not-logged-in
+    // landing, so calling /auth/me always 401s and produces a red
+    // console error self-hosters report as "is the system broken?".
+    // Already-logged-in users on /signin (rare path) just see the
+    // form; they can navigate home themselves.
+    fetch('/api/v1/auth/setup-status').then(r => r.json()).then(s => {
+      if (s.needs_setup) location.href = '/install.html';
     });
   </script>
 </head>
