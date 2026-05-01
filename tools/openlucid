@@ -1169,6 +1169,35 @@ def cmd_save_creation(base, token, cookie, args):
     _out(_request(base, token, cookie, "POST", "/creations", body=body))
 
 
+def cmd_refine_section(base, token, cookie, args):
+    """LLM-driven refinement of selected sections of a creation."""
+    sections = [s.strip() for s in args.sections.split(",") if s.strip()]
+    if not sections:
+        print("error: --sections must list at least one section id (comma-separated)", file=sys.stderr)
+        sys.exit(2)
+    body = {"section_ids": sections, "constraint": args.constraint}
+    if args.config_id:
+        body["config_id"] = args.config_id
+    if args.model:
+        body["model_override"] = args.model
+    if args.language:
+        body["language"] = args.language
+    _out(_request(
+        base, token, cookie,
+        "POST", f"/creations/{args.creation}/refine-sections",
+        body=body,
+    ))
+
+
+def cmd_edit_section(base, token, cookie, args):
+    """Manual (no-LLM) edit of a single section's text."""
+    _out(_request(
+        base, token, cookie,
+        "PATCH", f"/creations/{args.creation}/sections/{args.section}",
+        body={"new_text": args.text},
+    ))
+
+
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
@@ -1446,6 +1475,29 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--merchant-id", help="Merchant UUID")
     p.add_argument("--tags", default="", help="Comma-separated tags")
 
+    # -- refine-section --
+    p = sub.add_parser(
+        "refine-section",
+        help="Ask the LLM to rewrite specific sections of a creation, preserving the rest",
+    )
+    p.add_argument("--creation", required=True, help="Creation UUID")
+    p.add_argument("--sections", required=True,
+                   help="Comma-separated section ids to rewrite (e.g. 'hook,body')")
+    p.add_argument("--constraint", required=True,
+                   help="Natural-language refinement instruction (e.g. 'more conversational')")
+    p.add_argument("--config-id", dest="config_id", help="LLM config UUID (override)")
+    p.add_argument("--model", help="Model name override for the chosen config")
+    p.add_argument("--language", help="Output language (zh-CN | en); auto-detected if omitted")
+
+    # -- edit-section --
+    p = sub.add_parser(
+        "edit-section",
+        help="Replace a single section's text directly (no LLM)",
+    )
+    p.add_argument("--creation", required=True, help="Creation UUID")
+    p.add_argument("--section", required=True, help="Section id (e.g. 'hook', 'body')")
+    p.add_argument("--text", required=True, help="New text for the section")
+
     return parser
 
 
@@ -1486,6 +1538,8 @@ _DISPATCH = {
     "list-creations": cmd_list_creations,
     "get-creation": cmd_get_creation,
     "save-creation": cmd_save_creation,
+    "refine-section": cmd_refine_section,
+    "edit-section": cmd_edit_section,
 }
 
 

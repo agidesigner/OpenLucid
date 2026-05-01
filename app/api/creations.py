@@ -10,7 +10,13 @@ from app.database import get_db
 from app.models.creation import Creation
 from app.models.offer import Offer
 from app.schemas.common import PaginatedResponse
-from app.schemas.creation import CreationCreate, CreationResponse, CreationUpdate
+from app.schemas.creation import (
+    CreationCreate,
+    CreationResponse,
+    CreationUpdate,
+    RefineSectionsRequest,
+    UpdateSectionRequest,
+)
 
 router = APIRouter(prefix="/creations", tags=["creations"])
 
@@ -135,16 +141,68 @@ async def delete_creation(creation_id: uuid.UUID, db: AsyncSession = Depends(get
 @router.post("/{creation_id}/regenerate-broll-plan")
 async def regenerate_broll_plan(
     creation_id: uuid.UUID,
+    body: dict | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Ask the LLM for a fresh ``broll_plan`` while keeping the script text
     untouched. Persists the new plan onto ``creation.structured_content`` so
     the Generate Video modal (which deep-copies from there) picks it up.
+
+    Optional body: ``{"constraint": "more dynamic" / "fewer cuts" / ...}``
+    threaded into the regeneration prompt so the user can steer the plan
+    instead of just rerolling.
     """
+    constraint = (body or {}).get("constraint") if isinstance(body, dict) else None
     svc = CreationService(db)
-    creation = await svc.regenerate_broll_plan(creation_id)
+    creation = await svc.regenerate_broll_plan(creation_id, constraint=constraint)
     await db.commit()
     await db.refresh(creation)
     return {
         "broll_plan": (creation.structured_content or {}).get("broll_plan", []),
+        "structured_content": creation.structured_content,
     }
+
+
+@router.post("/{creation_id}/refine-sections", response_model=CreationResponse)
+async def refine_sections(
+    creation_id: uuid.UUID,
+    data: RefineSectionsRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """LLM-driven refinement of selected sections. Sections not listed
+    in ``section_ids`` stay byte-identical. Web wrapper around the
+    ``CreationService.refine_sections`` trunk — MCP and CLI hit the
+    same trunk."""
+    svc = CreationService(db)
+    creation = await svc.refine_sections(
+        creation_id,
+        section_ids=data.section_ids,
+        constraint=data.constraint,
+        config_id=data.config_id,
+        model_override=data.model_override,
+        language=data.language,
+    )
+    await db.commit()
+    await db.refresh(creation)
+    return creation
+
+
+@router.patch(
+    "/{creation_id}/sections/{section_id}",
+    response_model=CreationResponse,
+)
+async def update_section(
+    creation_id: uuid.UUID,
+    section_id: str,
+    data: UpdateSectionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Manual (no-LLM) edit of a single section's text. Plain ``content``
+    mirror is regenerated in the same transaction."""
+    svc = CreationService(db)
+    creation = await svc.update_section_text(
+        creation_id, section_id, data.new_text,
+    )
+    await db.commit()
+    await db.refresh(creation)
+    return creation

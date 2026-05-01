@@ -467,7 +467,13 @@ async def auth_middleware(request: Request, call_next):
             request.state.is_guest = False
             return await call_next(request)
         except Exception:
-            return JSONResponse({"detail": "Invalid token"}, status_code=401)
+            # Stale or expired cookie. Don't 401 here — fall through to
+            # the other auth paths (Bearer / guest / open-access). On a
+            # locked deployment the request still ends up at step 4's
+            # "Not authenticated" 401; on an open-access deployment it
+            # passes as SENTINEL_NO_AUTH instead of locking the user
+            # out behind a dead cookie they can't easily clear.
+            pass
 
     # 2. Try Bearer token auth (reuse MCP tokens table for CLI / API key access)
     auth_header = request.headers.get("authorization", "")

@@ -27,6 +27,29 @@ class CreationUpdate(BaseModel):
     source_note: str | None = None
 
 
+class RefineSectionsRequest(BaseModel):
+    """LLM-driven refinement of selected sections of a creation. Sections
+    not listed are guaranteed byte-identical after the call."""
+
+    section_ids: list[str] = Field(
+        ..., min_length=1,
+        description="Section IDs to rewrite. Must be ⊂ creation.structured_content.section_ids.",
+    )
+    constraint: str = Field(
+        ..., min_length=1, max_length=2000,
+        description="Natural-language refinement instruction (e.g. '更口语化', 'add a data hook').",
+    )
+    config_id: str | None = Field(None, description="LLM config override; otherwise scene default.")
+    model_override: str | None = Field(None, description="Model name override for the chosen config.")
+    language: str | None = Field(None, description="Output language; auto-detected from content if omitted.")
+
+
+class UpdateSectionRequest(BaseModel):
+    """Manual (non-LLM) edit of a single section's text."""
+
+    new_text: str = Field(..., min_length=1, description="Replacement text for the section.")
+
+
 class CreationVideoSummary(BaseModel):
     """Latest video for a creation, surfaced inline in the creations list."""
 

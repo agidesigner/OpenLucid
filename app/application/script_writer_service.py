@@ -109,7 +109,13 @@ def _build_user_message(
     return "\n".join(parts)
 
 
-def _sanitize_broll_plan(raw_plan, sections: dict, section_ids: list[str]) -> list[dict]:
+def _sanitize_broll_plan(
+    raw_plan,
+    sections: dict,
+    section_ids: list[str],
+    *,
+    est_seconds: int | None = None,
+) -> list[dict]:
     """Enforce the broll_plan schema the composer prompt asks for.
 
     The LLM routinely:
@@ -123,9 +129,15 @@ def _sanitize_broll_plan(raw_plan, sections: dict, section_ids: list[str]) -> li
     here, at persist time, so ``creation.structured_content.broll_plan``
     stays clean and every downstream call can rely on it.
 
+    ``est_seconds`` is the LLM's estimated narration duration (when known —
+    most reliable signal). When absent we fall back to a language-aware
+    char→sec conversion (zh ≈ 5 chars/sec, en ≈ 13 chars/sec); a single
+    fixed 5 chars/sec mis-categorised English scripts as much longer than
+    they really were and let too many B-rolls through the count cap.
+
     Returns a list of entries each with:
       {type: "retention"|"illustrative", insert_after_char: int,
-       duration_seconds: int (5-10), prompt: str}
+       duration_seconds: int (5-7 illustrative, 5 retention), prompt: str}
     """
     if not isinstance(raw_plan, list):
         return []
@@ -175,14 +187,18 @@ def _sanitize_broll_plan(raw_plan, sections: dict, section_ids: list[str]) -> li
             resolved = max(0, resolved)
 
         # ── duration_seconds ────────────────────────────────────
+        # Spec: retention = 5s, illustrative = 5-7s. Earlier code allowed
+        # illustrative up to 10s, which combined with too-many entries from
+        # the LLM caused total B-roll duration to overflow narration.
         dur_raw = entry.get("duration_seconds")
         try:
             dur = int(dur_raw) if dur_raw is not None else (5 if t == "retention" else 6)
         except (ValueError, TypeError):
             dur = 5 if t == "retention" else 6
-        dur = max(5, min(dur, 10))
         if t == "retention":
             dur = 5  # spec-enforced: retention always 5s
+        else:
+            dur = max(5, min(dur, 7))
 
         # ── prompt ───────────────────────────────────────────────
         prompt = str(entry.get("prompt") or "").strip()
@@ -198,6 +214,40 @@ def _sanitize_broll_plan(raw_plan, sections: dict, section_ids: list[str]) -> li
 
     # Sort by insert position so downstream consumers see narration order
     sanitized.sort(key=lambda e: e["insert_after_char"])
+
+    # ── Defense in depth — cap count + total duration ────────────────
+    # The composer prompt says "exactly N", but LLMs sometimes overshoot.
+    # Without a server-side cap, an over-produced plan ends up with total
+    # B-roll seconds > narration seconds, which the compositor either
+    # silently trims or overlays incorrectly. Trim from the tail (we
+    # already sorted by insert_after_char, so the last entries are the
+    # latest in the script — most expendable).
+    if est_seconds and est_seconds > 0:
+        narration_seconds = int(est_seconds)
+    else:
+        # Fallback: char→sec by language. zh chars are ~1 syllable each
+        # (~5 chars/sec spoken); en chars are sub-word fragments (~13/sec).
+        from app.libs.lang_detect import detect_text_language
+        is_zh = detect_text_language(narration[:1000]) == "zh" if narration else True
+        chars_per_sec = 5 if is_zh else 13
+        narration_seconds = max(20, int(narration_len / chars_per_sec))
+    if narration_seconds < 30:
+        max_count = 2
+    elif narration_seconds < 60:
+        max_count = 3
+    elif narration_seconds < 90:
+        max_count = 4
+    else:
+        max_count = 5
+    if len(sanitized) > max_count:
+        sanitized = sanitized[:max_count]
+
+    # Hard cap: total B-roll duration must not exceed narration duration.
+    # Trim trailing entries until under the cap. Always keep at least one
+    # entry (the retention opener if present, else the first illustrative).
+    while len(sanitized) > 1 and sum(e["duration_seconds"] for e in sanitized) > narration_seconds:
+        sanitized.pop()
+
     return sanitized
 
 
@@ -230,8 +280,15 @@ def _normalize_structured_content(raw: dict, platform, structure) -> dict:
     if platform.is_video and raw.get("estimated_total_seconds"):
         result["estimated_total_seconds"] = raw["estimated_total_seconds"]
     if platform.is_video and raw.get("broll_plan"):
+        # Pass est_seconds so the count/duration cap uses the LLM's own
+        # estimate rather than a char-based guess (which was Chinese-biased).
+        try:
+            est_for_cap = int(raw.get("estimated_total_seconds") or 0) or None
+        except (TypeError, ValueError):
+            est_for_cap = None
         result["broll_plan"] = _sanitize_broll_plan(
             raw["broll_plan"], sections, structure.section_ids,
+            est_seconds=est_for_cap,
         )
     if not platform.is_video and raw.get("metadata"):
         result["metadata"] = raw["metadata"]
@@ -697,6 +754,9 @@ class ScriptWriterService:
             "knowledge_count": knowledge_count,
             "structured_content": structured_content,
             "creation_id": creation_id,
+            # Surface silent save failures so the UI can warn the user
+            # that section editing won't work for this run.
+            "save_failed": bool(request.save_creation and clean_text.strip() and creation_id is None),
         }
 
     async def _save_creation(
@@ -1003,5 +1063,8 @@ class ScriptWriterService:
             "knowledge_count": knowledge_count,
             "structured_content": structured_content,
             "creation_id": creation_id,
+            # Surface silent save failures so the UI can warn the user
+            # that section editing won't work for this run.
+            "save_failed": bool(request.save_creation and clean_text.strip() and creation_id is None),
         }
         yield f"event: done\ndata: {json.dumps(result, ensure_ascii=False)}\n\n"

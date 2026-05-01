@@ -486,23 +486,58 @@
               <!-- Structured sections (Composer output) -->
               <div x-show="structuredContent" class="space-y-3">
                 <template x-for="[sid, sec] in Object.entries(structuredContent?.sections || {})" :key="sid">
-                  <div class="rounded-lg border border-gray-100 overflow-hidden">
-                    <div class="px-3 py-2 bg-gray-50 flex items-center justify-between">
+                  <div class="rounded-lg border border-gray-100 overflow-hidden group">
+                    <div class="px-3 py-2 bg-gray-50 flex items-center justify-between gap-2">
                       <span class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide"
                             x-text="_sectionLabel(sid)"></span>
-                      <span x-show="sec.duration_seconds" class="text-[11px] text-gray-400"
-                            x-text="'~' + sec.duration_seconds + 's'"></span>
+                      <div class="flex items-center gap-2">
+                        <span x-show="sec.duration_seconds" class="text-[11px] text-gray-400"
+                              x-text="'~' + sec.duration_seconds + 's'"></span>
+                        <!-- Per-section action buttons — always fully visible.
+                             Earlier opacity-50 + group-hover:opacity-100 made these
+                             read as decorative; users reported "can't edit". -->
+                        <div x-show="creationId && editingSectionId !== sid"
+                             class="flex items-center gap-1">
+                          <button @click="startEditSection(sid, sec.text)"
+                                  :title="t('section_edit_tip')"
+                                  class="text-[11px] text-gray-400 hover:text-accent px-1.5 py-0.5 rounded hover:bg-white transition-colors flex items-center gap-1">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                            <span x-text="t('section_edit')"></span>
+                          </button>
+                          <button @click="openRefineModal([sid])"
+                                  :title="t('section_refine_tip')"
+                                  class="text-[11px] text-accent hover:text-accent-hover px-1.5 py-0.5 rounded hover:bg-accent/5 transition-colors flex items-center gap-1">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                            <span x-text="t('section_refine')"></span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
                     <div class="px-3 py-3">
-                      <p class="text-sm text-gray-700 leading-relaxed" x-text="sec.text"></p>
-                      <details x-show="sec.visual_direction" class="mt-2">
+                      <!-- Inline edit textarea (when editing this section) -->
+                      <div x-show="editingSectionId === sid">
+                        <textarea x-model="editingSectionText" rows="6"
+                                  class="w-full border border-accent/30 rounded-lg px-3 py-2 text-sm text-gray-700 leading-relaxed focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"></textarea>
+                        <div class="flex items-center justify-end gap-2 mt-2">
+                          <button @click="cancelEditSection()"
+                                  class="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg" x-text="t('btn_cancel')"></button>
+                          <button @click="saveEditSection(sid)"
+                                  :disabled="editingSaving || !editingSectionText.trim()"
+                                  class="text-xs bg-accent text-white px-3 py-1.5 rounded-lg hover:bg-accent-hover disabled:opacity-50 transition-colors">
+                            <span x-text="editingSaving ? t('saving') : t('btn_save')"></span>
+                          </button>
+                        </div>
+                      </div>
+                      <p x-show="editingSectionId !== sid"
+                         class="text-sm text-gray-700 leading-relaxed" x-text="sec.text"></p>
+                      <details x-show="sec.visual_direction && editingSectionId !== sid" class="mt-2">
                         <summary class="text-[11px] text-gray-400 cursor-pointer hover:text-gray-600 select-none flex items-center gap-1">
                           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
                           <span x-text="t('visual_dir_label')"></span>
                         </summary>
                         <p class="text-[11px] text-gray-400 mt-1.5 pl-4 italic leading-relaxed" x-text="sec.visual_direction"></p>
                       </details>
-                      <p x-show="sec.image_hint" class="text-[11px] text-gray-400 mt-1.5 flex items-center gap-1">
+                      <p x-show="sec.image_hint && editingSectionId !== sid" class="text-[11px] text-gray-400 mt-1.5 flex items-center gap-1">
                         <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                         <span x-text="sec.image_hint"></span>
                       </p>
@@ -541,6 +576,52 @@
                     </div>
                   </div>
                 </template>
+
+                <!-- End-of-content action card — covers all next-step intents
+                     once the user has read through. Two visual clusters:
+                       1) Utility (icon-only, quiet): Copy / Edit directly
+                       2) Primary (text+icon, accent): Generate Video / Rewrite
+                     Two primary buttons differ in weight — Rewrite is solid
+                     (loudest, most "magical"); Generate Video is ghost so the
+                     two don't fight for attention. A subtle divider keeps the
+                     clusters readable on wide screens. -->
+                <div x-show="creationId"
+                     class="mt-1 rounded-xl border border-accent/20 bg-accent/5 px-4 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div class="text-center sm:text-left">
+                    <p class="text-sm font-semibold text-gray-800" x-text="t('refine_cta_title')"></p>
+                    <p class="text-[11px] text-gray-500 mt-0.5" x-text="t('refine_cta_subtitle')"></p>
+                  </div>
+                  <div class="flex items-center gap-1.5 shrink-0 flex-wrap justify-center sm:justify-end">
+                    <!-- Utility cluster: copy + manual edit (icon-only, 36×36) -->
+                    <button @click="copyScript()"
+                            :title="copied ? t('copied') : t('copy_btn')"
+                            class="w-9 h-9 inline-flex items-center justify-center rounded-lg text-gray-500 hover:text-accent hover:bg-white border border-transparent hover:border-gray-200 transition-all">
+                      <svg x-show="!copied" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                      <svg x-show="copied" class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                    </button>
+                    <button x-show="Object.keys(structuredContent?.sections || {}).length >= 1"
+                            @click="startEditFromCta()"
+                            :title="t('refine_cta_edit_directly')"
+                            class="w-9 h-9 inline-flex items-center justify-center rounded-lg text-gray-500 hover:text-accent hover:bg-white border border-transparent hover:border-gray-200 transition-all">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    </button>
+                    <!-- Subtle divider between utility and primary clusters -->
+                    <div class="hidden sm:block w-px h-5 bg-accent/20 mx-1"></div>
+                    <!-- Primary cluster: Generate Video (ghost) + Rewrite (solid) -->
+                    <a x-show="_isVideoResult()"
+                       :href="'/creations.html?open_video=' + creationId"
+                       :title="t('go_generate_video')"
+                       class="inline-flex items-center gap-1.5 bg-white border border-accent/30 hover:border-accent text-accent hover:text-accent-hover px-3.5 py-2 rounded-xl text-sm font-medium transition-all">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                      <span x-text="t('go_generate_video')"></span>
+                    </a>
+                    <button @click="openRefineModal([...Object.keys(structuredContent?.sections || {}), ...((structuredContent?.broll_plan || []).length > 0 ? ['broll_plan'] : [])])"
+                            class="inline-flex items-center gap-1.5 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                      <span x-text="t('refine_cta_btn')"></span>
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <!-- Plain text result (no structured content) -->
@@ -551,6 +632,82 @@
         </div>
       </div>
     </main>
+  </div>
+
+  <!-- AI Section Refinement Modal -->
+  <div x-show="refineModal.open" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+       @click.self="closeRefineModal()">
+    <div class="bg-white rounded-2xl shadow-xl border border-gray-100 w-full max-w-md mx-4 p-6">
+      <div class="flex items-center gap-2 mb-1">
+        <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+        <h3 class="text-base font-semibold text-gray-900" x-text="t('refine_modal_title')"></h3>
+      </div>
+      <p class="text-xs text-gray-400 mb-3"
+         x-text="(refineModal.allSectionIds || []).length > 1
+                 ? t('refine_modal_subtitle')
+                 : t('refine_modal_subtitle_single')"></p>
+
+      <!-- Section selection chips — multi-toggle. Hidden when the
+           creation has only one section (e.g. text_post / article
+           collapses the whole article into a single "body" — picking
+           is meaningless, the chip row would just be noise). -->
+      <div x-show="(refineModal.allSectionIds || []).length > 1" class="mb-3">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-[11px] font-medium text-gray-500" x-text="t('refine_modal_sections_label')"></span>
+          <div class="flex items-center gap-2 text-[11px]">
+            <button @click="refineModal.sectionIds = [...(refineModal.allSectionIds || [])]"
+                    type="button"
+                    class="text-accent hover:underline" x-text="t('refine_select_all')"></button>
+            <span class="text-gray-300">·</span>
+            <button @click="refineModal.sectionIds = []"
+                    type="button"
+                    class="text-gray-400 hover:text-gray-600 hover:underline" x-text="t('refine_select_none')"></button>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-1.5">
+          <template x-for="sid in (refineModal.allSectionIds || [])" :key="sid">
+            <button type="button"
+                    @click="toggleSectionInModal(sid)"
+                    :class="refineModal.sectionIds.includes(sid)
+                            ? 'bg-accent text-white border-accent'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-accent/40'"
+                    class="text-xs px-3 py-1 rounded-full border transition-all">
+              <span x-text="_sectionLabel(sid)"></span>
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <textarea x-model="refineModal.constraint" rows="4"
+                :placeholder="t('refine_constraint_placeholder')"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"></textarea>
+      <!-- Live progress feedback during the LLM call. Honest about elapsed
+           seconds (no fake progress bar) + a rotating tip line so the user
+           knows it's still alive. -->
+      <div x-show="refineModal.loading" x-cloak
+           class="mt-3 flex items-center gap-2 text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+        <svg class="w-3.5 h-3.5 animate-spin shrink-0" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+        <span class="tabular-nums" x-text="t('refining_elapsed_prefix') + ' ' + (refineModal.elapsed || 0) + 's'"></span>
+        <span class="text-gray-400">·</span>
+        <span class="flex-1 truncate"
+              x-text="[t('refine_tip_0'), t('refine_tip_1'), t('refine_tip_2')][refineModal.tipIndex || 0]"></span>
+      </div>
+
+      <p x-show="refineModal.error" x-text="refineModal.error"
+         class="mt-2 text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2"></p>
+      <div class="flex items-center justify-end gap-2 mt-4">
+        <button @click="closeRefineModal()"
+                class="text-xs text-gray-500 hover:text-gray-700 px-3 py-2 rounded-lg" x-text="t('btn_cancel')"></button>
+        <button @click="submitRefine()"
+                :disabled="refineModal.loading || !refineModal.constraint.trim()"
+                class="inline-flex items-center gap-1.5 bg-accent text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-accent-hover disabled:opacity-50 transition-colors">
+          <svg x-show="!refineModal.loading" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+          <svg x-show="refineModal.loading" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+          <span x-text="refineModal.loading ? t('refining') : t('btn_refine')"></span>
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- System Prompt Editor Modal -->
@@ -816,6 +973,23 @@ Output language MUST match the language of the knowledge base content and topic.
         thinking: null,
         thinkingActive: false,
         copied: false,
+        // Per-section refinement state — both Edit (no LLM) and AI Rewrite
+        editingSectionId: null,
+        editingSectionText: '',
+        editingSaving: false,
+        // refineModal: open from per-section ✨ (single preselected) OR from
+        // bottom CTA (all preselected). Section chips inside the modal let
+        // user toggle the selection regardless of entry point.
+        refineModal: {
+          open: false,
+          allSectionIds: [],     // immutable list of all sections in this creation
+          sectionIds: [],        // currently selected (mutable via chips)
+          constraint: '',
+          loading: false,
+          error: '',
+          elapsed: 0,            // declared up-front so Alpine reactivity tracks it
+          tipIndex: 0,
+        },
 
         async init() {
           document.title = t('page_title') + ' - OpenLucid';
@@ -992,12 +1166,231 @@ Output language MUST match the language of the knowledge base content and topic.
             bridge: window._odLang === 'zh' ? '桥接' : 'Bridge',
             story: window._odLang === 'zh' ? '故事' : 'Story',
             lesson: window._odLang === 'zh' ? '结论' : 'Lesson',
+            // Pseudo-section for the B-roll plan (a list of shots, not a
+            // text section). The refine modal treats it as another chip;
+            // submitRefine routes it to /regenerate-broll-plan instead.
+            broll_plan: window._odLang === 'zh' ? 'B-roll 分镜' : 'B-roll Plan',
           };
           return map[sid] || (sid.charAt(0).toUpperCase() + sid.slice(1));
         },
 
         onModelChange() {
           window.odHeaderSelectors.rememberModelKey("sw", this.modelKey);
+        },
+
+        // ── Per-section refinement (manual edit + AI rewrite) ──
+        // Both paths require a saved Creation (creationId set after a
+        // successful generate). They mutate `structuredContent` in place
+        // so the existing render loop reflects the change without a
+        // full reload.
+
+        startEditSection(sid, currentText) {
+          this.editingSectionId = sid;
+          this.editingSectionText = currentText || '';
+        },
+
+        // Bottom-CTA shortcut. Single-section: opens the only section.
+        // Multi-section: opens the first section as an obvious entry —
+        // user can then save/cancel and continue with per-section ✏️ on
+        // other sections (those buttons are always visible).
+        startEditFromCta() {
+          const sections = this.structuredContent?.sections || {};
+          const sids = Object.keys(sections);
+          if (sids.length === 0) return;
+          const sid = sids[0];
+          this.startEditSection(sid, sections[sid]?.text || '');
+          this.$nextTick(() => {
+            const tas = document.querySelectorAll('textarea[x-model="editingSectionText"]');
+            for (const ta of tas) {
+              if (ta.offsetParent !== null) {
+                ta.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                ta.focus();
+                break;
+              }
+            }
+          });
+        },
+
+        cancelEditSection() {
+          this.editingSectionId = null;
+          this.editingSectionText = '';
+        },
+
+        async saveEditSection(sid) {
+          if (!this.creationId || !this.editingSectionText.trim()) return;
+          this.editingSaving = true;
+          try {
+            const r = await fetch(
+              `/api/v1/creations/${this.creationId}/sections/${encodeURIComponent(sid)}`,
+              {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ new_text: this.editingSectionText.trim() }),
+              },
+            );
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              toast.error((err.error?.message || err.detail || 'Save failed').toString());
+            } else {
+              const updated = await r.json();
+              if (updated && updated.structured_content) {
+                this.structuredContent = updated.structured_content;
+                this.scriptResult = updated.content || this.scriptResult;
+              } else {
+                // Server returned without structured_content — patch optimistically
+                if (this.structuredContent && this.structuredContent.sections) {
+                  this.structuredContent.sections[sid] = {
+                    ...(this.structuredContent.sections[sid] || {}),
+                    text: this.editingSectionText.trim(),
+                  };
+                }
+              }
+              toast.success(t('section_save_ok') || 'Section updated');
+              this.cancelEditSection();
+            }
+          } catch (e) {
+            toast.error(t('network_error'));
+          } finally {
+            this.editingSaving = false;
+          }
+        },
+
+        openRefineModal(sectionIds) {
+          // Guard against re-entry while a refine is in flight — opening
+          // would reset modal state and the late response would write
+          // into the wrong modal cycle.
+          if (this.refineModal.loading) return;
+          const all = Object.keys(this.structuredContent?.sections || {});
+          // B-roll plan is a pseudo-section: it isn't in `sections`, but the
+          // user expects to refine it from the same modal. Append the chip
+          // when the creation actually has a B-roll plan to refine.
+          if ((this.structuredContent?.broll_plan || []).length > 0) {
+            all.push('broll_plan');
+          }
+          this.refineModal = {
+            open: true,
+            allSectionIds: all,
+            sectionIds: (sectionIds && sectionIds.length) ? [...sectionIds] : [...all],
+            constraint: '',
+            loading: false,
+            error: '',
+            elapsed: 0,
+            tipIndex: 0,
+          };
+        },
+
+        closeRefineModal() {
+          // Reset transient runtime state on close so a re-open shows a
+          // fresh modal even if the previous cycle was abandoned mid-call.
+          // The in-flight fetch's finally block also clears the timer;
+          // doing it here covers the "user closed before fetch returned"
+          // case where the timer would otherwise tick into a closed modal.
+          if (this._refineTimer) {
+            clearInterval(this._refineTimer);
+            this._refineTimer = null;
+          }
+          this.refineModal.loading = false;
+          this.refineModal.open = false;
+        },
+
+        toggleSectionInModal(sid) {
+          const sids = this.refineModal.sectionIds;
+          const i = sids.indexOf(sid);
+          if (i >= 0) sids.splice(i, 1);
+          else sids.push(sid);
+        },
+
+        async submitRefine() {
+          if (!this.creationId) return;
+          const c = (this.refineModal.constraint || '').trim();
+          if (!c) {
+            this.refineModal.error = t('refine_constraint_required') || 'Constraint required';
+            return;
+          }
+          if (!this.refineModal.sectionIds || this.refineModal.sectionIds.length === 0) {
+            this.refineModal.error = t('refine_no_sections_selected') || 'Pick at least one section';
+            return;
+          }
+          // B-roll plan is a pseudo-section that hits a different endpoint;
+          // partition the selection so each side gets the right call.
+          const wantBroll = this.refineModal.sectionIds.includes('broll_plan');
+          const textIds = this.refineModal.sectionIds.filter(s => s !== 'broll_plan');
+          this.refineModal.loading = true;
+          this.refineModal.error = '';
+          // Live progress feedback — LLM calls take 5-30s; without
+          // anything moving on screen users assume it died. We can't
+          // stream tokens yet, but a wall-clock counter + rotating
+          // tip line communicates "still working" honestly.
+          this.refineModal.elapsed = 0;
+          this.refineModal.tipIndex = 0;
+          if (this._refineTimer) clearInterval(this._refineTimer);
+          this._refineTimer = setInterval(() => {
+            this.refineModal.elapsed += 1;
+            // rotate tip every 5s
+            if (this.refineModal.elapsed % 5 === 0) {
+              this.refineModal.tipIndex = (this.refineModal.tipIndex + 1) % 3;
+            }
+          }, 1000);
+          try {
+            // Phase 1 — text sections (if any). Done first so the
+            // B-roll plan that follows can reflect the new narration.
+            if (textIds.length > 0) {
+              const r = await fetch(
+                `/api/v1/creations/${this.creationId}/refine-sections`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ section_ids: textIds, constraint: c }),
+                },
+              );
+              if (!r.ok) {
+                const err = await r.json().catch(() => ({}));
+                this.refineModal.error = (err.error?.message || err.detail || 'Refinement failed').toString();
+                return;
+              }
+              const updated = await r.json();
+              if (updated && updated.structured_content) {
+                this.structuredContent = updated.structured_content;
+                this.scriptResult = updated.content || this.scriptResult;
+              }
+            }
+            // Phase 2 — B-roll plan (if selected). Hits a different trunk
+            // (regenerate_broll_plan) since the plan is a list of shots,
+            // not a text section.
+            if (wantBroll) {
+              const r2 = await fetch(
+                `/api/v1/creations/${this.creationId}/regenerate-broll-plan`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ constraint: c }),
+                },
+              );
+              if (!r2.ok) {
+                const err = await r2.json().catch(() => ({}));
+                this.refineModal.error = (err.error?.message || err.detail || 'B-roll refinement failed').toString();
+                return;
+              }
+              const data = await r2.json();
+              if (data && data.structured_content) {
+                this.structuredContent = data.structured_content;
+              } else if (data && Array.isArray(data.broll_plan) && this.structuredContent) {
+                // Endpoint pre-dating structured_content return — patch the
+                // array in place so the UI updates without a reload.
+                this.structuredContent = { ...this.structuredContent, broll_plan: data.broll_plan };
+              }
+            }
+            toast.success(t('section_refine_ok') || 'Sections refined');
+            this.closeRefineModal();
+          } catch (e) {
+            this.refineModal.error = t('network_error');
+          } finally {
+            this.refineModal.loading = false;
+            if (this._refineTimer) {
+              clearInterval(this._refineTimer);
+              this._refineTimer = null;
+            }
+          }
         },
 
         async onOfferChange() {
@@ -1220,6 +1613,11 @@ Output language MUST match the language of the knowledge base content and topic.
                   }
                   if (result.creation_id) {
                     this.creationId = result.creation_id;
+                  }
+                  // Silent save failure → editing won't work; tell the user
+                  // so they don't sit there hunting for an edit button.
+                  if (result.save_failed) {
+                    toast.warning(t('generate_save_failed'));
                   }
                 } else if (eventType === 'error') {
                   // Backend signaled an LLM failure (timeout / proxy /
