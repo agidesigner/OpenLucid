@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/platforms/xiaohongshu.md (typically docker/uploads/platforms/xiaohongshu.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: xiaohongshu
 name_zh: 小红书
 name_en: RedNote / Lemon8

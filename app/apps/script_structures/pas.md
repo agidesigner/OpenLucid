@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/script_structures/pas.md (typically docker/uploads/script_structures/pas.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: pas
 name_zh: 问题-激化-解决
 name_en: Problem-Agitate-Solve

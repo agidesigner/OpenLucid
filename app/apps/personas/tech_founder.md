@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/personas/tech_founder.md (typically docker/uploads/personas/tech_founder.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: tech_founder
 name_zh: 技术创始人型
 name_en: Tech Founder

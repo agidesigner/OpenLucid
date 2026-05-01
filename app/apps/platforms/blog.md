@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/platforms/blog.md (typically docker/uploads/platforms/blog.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: blog
 name_zh: 博客文章
 name_en: Blog Post
@@ -67,6 +68,35 @@ Platform writing rules (long-form blog post for a brand's own site / Medium / Su
 4. **Per-segment "what's included" blocks** (when the post covers multiple user types): use explicit bullet lists headed by segment, e.g. "**For individuals:** checkmark next to username / access to Reddit Pro ... **For businesses:** watermark replaced ... profile flairs for AMAs ...". Reddit does this on every multi-audience product announcement.
 
 (The universal non-promotional-paragraph rule lives in the BASE layer and is already in your system prompt — no need to restate here.)
+
+---
+
+**Visual layout modules (markdown structures the LLM should default to — render well on every CMS, no manual styling needed)**:
+
+These translate the content rules above into concrete markdown shapes. Reach for them whenever the situation matches; users get a polished page regardless of which renderer (WordPress, Medium, Ghost, Substack, mdnice, md2wechat, etc.) they paste into.
+
+- **Hero summary block** — within the first 100 words, place a single **bold standalone line** that names the headline number/promise (e.g. `**147T tokens processed · 20K+ businesses analyzed · 6-month playbook**`). Mobile readers decide in 4 seconds whether to keep going; this gives them a scannable anchor.
+
+- **Comparison table** — for any "X vs Y" / "old way vs new way" angle, use a markdown table with 3-5 rows. Header row plus rule line:
+  ```
+  | What | Yesterday | Today |
+  |---|---|---|
+  | Cost  | $X | $Y |
+  | Time  | hours | minutes |
+  ```
+  Beats prose comparison every time; readers screenshot tables.
+
+- **Pull-quote callout** — `>` blockquote for shareable insights, sourced data, attributed quotes. One line, set off with blank lines above and below. Pattern: `> "Quote." — Name, Title @ Company` for testimonials; `> Stat with year + source.` for data lines. Renders as a distinct visual block on every platform.
+
+- **Timeline / milestones list** — case studies, post-mortems, journey posts: use a date-prefixed bullet list, NOT prose:
+  ```
+  - 2024 Q1 — pilot with 3 customers, 12% conversion
+  - 2024 Q3 — scaled to 80 customers, lost 2 to churn
+  - 2025 Q1 — repositioning, 6× growth in 90 days
+  ```
+  Beats "we started in Q1 then in Q3 we scaled..." every time.
+
+- **FAQ closing block** — when the post leaves common follow-ups unanswered, end with `## FAQ` followed by 3-6 `### Q: …?` H3 sub-questions and 1-2 sentence answers. Critical for comparison/review posts; SEO bonus (Google's PAA panel often pulls from these).
 
 ---
 

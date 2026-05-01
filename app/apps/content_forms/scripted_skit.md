@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/content_forms/scripted_skit.md (typically docker/uploads/content_forms/scripted_skit.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: scripted_skit
 name_zh: 剧情
 name_en: Scripted Skit

@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/content_forms/talking_head.md (typically docker/uploads/content_forms/talking_head.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: talking_head
 name_zh: 真人出镜 / 口播
 name_en: Talking Head

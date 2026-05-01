@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/campaign_types/new_customer.md (typically docker/uploads/campaign_types/new_customer.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: new_customer
 name_zh: 新客优惠
 name_en: New Customer Deal

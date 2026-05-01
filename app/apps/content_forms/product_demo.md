@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/content_forms/product_demo.md (typically docker/uploads/content_forms/product_demo.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: product_demo
 name_zh: 纯产品展示
 name_en: Product Demo

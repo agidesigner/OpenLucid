@@ -163,6 +163,9 @@ Yes — once dependencies are installed, the only outbound traffic is to your co
 **Q: I forgot my admin password / lost access to my email / need to provision the first admin from a script.**
 See the [Self-Hosting Operations Guide](SELF_HOSTING.md#account-recovery) — there's a direct-DB CLI (`docker compose exec app python -m app.cli ...`) that bypasses email and HTTP entirely for these recovery cases.
 
+**Q: Can I customize the writing rules per platform (WeChat / blog / xiaohongshu / ...) or per persona / narrative-structure?**
+Yes — every platform / persona / narrative-structure / content-form / campaign-type prompt ships as a markdown file you can edit. The shipped defaults stay in git, your customizations live in a docker volume that survives `git pull`. See [SELF_HOSTING.md#customizing-content-generation-prompts](SELF_HOSTING.md#customizing-content-generation-prompts).
+
 <br/>
 
 ## 🛠️ Tech Stack

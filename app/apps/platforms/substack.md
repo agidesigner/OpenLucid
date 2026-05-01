@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/platforms/substack.md (typically docker/uploads/platforms/substack.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: substack
 name_zh: Substack Newsletter
 name_en: Substack / Newsletter
@@ -65,6 +66,25 @@ Lead with the sharpest version of your thesis in the first 3-5 sentences — nam
 - **Pull quotes / block quotes**: 1-3 per long post; they anchor skimmers and give shareable moments.
 - **Personal disclosure**: at least one honest, specific story/number/admission per issue. The reason people subscribe to newsletters vs. reading blogs is they want YOU, not a polished essay.
 - **Closing**: not a summary — a closing thought that lands. Often a single sentence, italicized or set off.
+
+**Visual layout modules (markdown structures the LLM should default to — render the same in Substack web, email clients, and forwarding screenshots)**:
+
+These translate the body-structure rules above into concrete markdown shapes. Newsletters live and die by skim-pass scannability — three visual blocks per long post is the difference between "saved for later" and "deleted at coffee".
+
+- **Stat-bold lead line** — within the first 3-5 sentences, a single **bold standalone line** carrying the killer number/claim (e.g. `**Over 18 months I tracked 312 founder pricing experiments. Three patterns explain 80% of the wins.**`). Email previews steal the first ~120 chars; this guarantees the hook lands inside that window.
+
+- **Pull-quote `>`** — for shareable thesis lines, surprising stats, attributed quotes. 1-3 per long post; each set off by blank lines above and below. Pattern for stats: `> "Quote." — Name, Title @ Company`. Pattern for thesis: `> Single sentence that reads well as a screenshot tweet`. Substack renders these with a left rule and tonal background — reliably the most-shared element.
+
+- **Sponsor top-block** — when an ad runs, format it as a discrete H2 + blockquote at the very top:
+  ```
+  ## Today's [newsletter] is brought to you by [Sponsor]
+  > One-line value prop. [link to sponsor]
+  ```
+  Top-of-post is the convention; the H2 + `>` combo signals "this is the ad" without needing a label.
+
+- **Section divider `---`** — between the lead and meat, between the meat and closing, OR between major shifts in argument when the H2 cadence isn't enough. Substack renders `---` as a centered horizontal rule — gives long posts visual breath. Use sparingly (2-4 per post max).
+
+- **P.S. coda block** — when including a P.S., format it as `---` then `*P.S.* — content here.` (italicized P.S. label + prose). Substack render keeps the italic + the rule separator clearly demarcates "post is done, here's a side note". 60% of top issues use this exact shape.
 
 **Sponsor / ad placement** (if the newsletter runs sponsors): Place the ad block **at the top** as the first H2 block ("Today's [newsletter] is brought to you by…"), before the essay starts. Never paywall sponsor reads; never bury the sponsor mid-essay. Top-of-post is ~30% of paid newsletter issues. This is counterintuitive but strongly established.
 

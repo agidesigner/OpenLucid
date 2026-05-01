@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/campaign_types/pre_order.md (typically docker/uploads/campaign_types/pre_order.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: pre_order
 name_zh: 预售
 name_en: Pre-Order

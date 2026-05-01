@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/personas/casual_friend.md (typically docker/uploads/personas/casual_friend.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: casual_friend
 name_zh: 朋友闲聊型
 name_en: Casual Friend

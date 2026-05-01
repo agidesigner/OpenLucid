@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/platforms/instagram_carousel.md (typically docker/uploads/platforms/instagram_carousel.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: instagram_carousel
 name_zh: Instagram Carousel
 name_en: Instagram Carousel

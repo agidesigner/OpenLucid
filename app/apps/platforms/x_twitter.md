@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/platforms/x_twitter.md (typically docker/uploads/platforms/x_twitter.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: x_twitter
 name_zh: X / Twitter Thread
 name_en: X / Twitter Thread

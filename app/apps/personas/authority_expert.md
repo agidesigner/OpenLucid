@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/personas/authority_expert.md (typically docker/uploads/personas/authority_expert.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: authority_expert
 name_zh: 权威专家型
 name_en: Authority Expert

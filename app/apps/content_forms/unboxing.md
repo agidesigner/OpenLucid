@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/content_forms/unboxing.md (typically docker/uploads/content_forms/unboxing.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: unboxing
 name_zh: 开箱
 name_en: Unboxing

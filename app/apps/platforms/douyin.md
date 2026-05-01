@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/platforms/douyin.md (typically docker/uploads/platforms/douyin.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: douyin
 name_zh: 抖音
 name_en: Douyin

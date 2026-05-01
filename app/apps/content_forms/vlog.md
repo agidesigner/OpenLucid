@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/content_forms/vlog.md (typically docker/uploads/content_forms/vlog.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: vlog
 name_zh: Vlog / 生活流
 name_en: Vlog

@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/personas/business_educator.md (typically docker/uploads/personas/business_educator.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: business_educator
 name_zh: 商业讲师型
 name_en: Business Educator

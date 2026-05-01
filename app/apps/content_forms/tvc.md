@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/content_forms/tvc.md (typically docker/uploads/content_forms/tvc.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: tvc
 name_zh: TVC / 广告片
 name_en: TVC / Brand Film

@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/platforms/reddit.md (typically docker/uploads/platforms/reddit.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: reddit
 name_zh: Reddit
 name_en: Reddit

@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/platforms/youtube_shorts.md (typically docker/uploads/platforms/youtube_shorts.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: youtube_shorts
 name_zh: YouTube Shorts
 name_en: YouTube Shorts

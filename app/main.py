@@ -91,6 +91,17 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     except FileNotFoundError:
         logger.warning("alembic not found in PATH, skipping auto-migration")
 
+    # 2. Seed shipped content-generation prompts into the user overlay
+    # ($STORAGE_BASE_PATH/<category>/) so self-hosters discover the
+    # writable path naturally instead of editing the shipped .md files
+    # in their git checkout (which conflict on the next git pull).
+    # Idempotent — see app/libs/prompt_overlay.py for the full rationale.
+    try:
+        from app.libs.prompt_overlay import seed_user_overlay
+        seed_user_overlay()
+    except Exception as e:
+        logger.warning("prompt overlay seeding failed: %s", e)
+
     # 3. Background startup tasks (hash backfill + re-queue stuck parses)
     task = asyncio.create_task(_startup_recovery())
     task.add_done_callback(_log_task_exception)

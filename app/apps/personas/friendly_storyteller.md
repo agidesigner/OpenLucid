@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/personas/friendly_storyteller.md (typically docker/uploads/personas/friendly_storyteller.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: friendly_storyteller
 name_zh: 故事邻家型
 name_en: Friendly Storyteller

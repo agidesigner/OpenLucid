@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/content_forms/ugc_authentic.md (typically docker/uploads/content_forms/ugc_authentic.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: ugc_authentic
 name_zh: 素人实拍
 name_en: UGC / Authentic

@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/content_forms/beat_sync.md (typically docker/uploads/content_forms/beat_sync.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: beat_sync
 name_zh: 卡点
 name_en: Beat-Sync

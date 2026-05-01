@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/script_structures/hook_body_cta.md (typically docker/uploads/script_structures/hook_body_cta.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: hook_body_cta
 name_zh: 钩子-正文-行动
 name_en: Hook-Body-CTA

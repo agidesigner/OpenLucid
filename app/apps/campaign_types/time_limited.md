@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/campaign_types/time_limited.md (typically docker/uploads/campaign_types/time_limited.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: time_limited
 name_zh: 限时
 name_en: Time-Limited

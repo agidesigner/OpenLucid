@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/content_forms/kol_mashup.md (typically docker/uploads/content_forms/kol_mashup.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: kol_mashup
 name_zh: 达人 / 明星混剪
 name_en: KOL / Celebrity Mashup

@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/script_structures/story_lesson_cta.md (typically docker/uploads/script_structures/story_lesson_cta.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: story_lesson_cta
 name_zh: 故事-洞见-行动
 name_en: Story-Lesson-CTA

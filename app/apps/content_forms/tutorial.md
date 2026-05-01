@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/content_forms/tutorial.md (typically docker/uploads/content_forms/tutorial.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: tutorial
 name_zh: 教程 / 科普
 name_en: Tutorial / How-to

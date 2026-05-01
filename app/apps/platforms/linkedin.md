@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/platforms/linkedin.md (typically docker/uploads/platforms/linkedin.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: linkedin
 name_zh: LinkedIn
 name_en: LinkedIn

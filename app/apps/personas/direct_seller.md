@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/personas/direct_seller.md (typically docker/uploads/personas/direct_seller.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: direct_seller
 name_zh: 直接带货型
 name_en: Direct Seller

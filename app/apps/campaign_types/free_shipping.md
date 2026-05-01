@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/campaign_types/free_shipping.md (typically docker/uploads/campaign_types/free_shipping.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: free_shipping
 name_zh: 免运费
 name_en: Free Shipping

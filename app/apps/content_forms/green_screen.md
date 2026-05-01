@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/content_forms/green_screen.md (typically docker/uploads/content_forms/green_screen.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: green_screen
 name_zh: 绿幕 / 合成
 name_en: Green Screen / Composite

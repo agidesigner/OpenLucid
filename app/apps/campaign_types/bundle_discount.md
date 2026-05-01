@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/campaign_types/bundle_discount.md (typically docker/uploads/campaign_types/bundle_discount.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: bundle_discount
 name_zh: 满减
 name_en: Bundle Discount

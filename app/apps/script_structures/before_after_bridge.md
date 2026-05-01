@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/script_structures/before_after_bridge.md (typically docker/uploads/script_structures/before_after_bridge.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: before_after_bridge
 name_zh: 之前-之后-桥梁
 name_en: Before-After-Bridge

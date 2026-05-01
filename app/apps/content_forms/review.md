@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/content_forms/review.md (typically docker/uploads/content_forms/review.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: review
 name_zh: 测评
 name_en: Review

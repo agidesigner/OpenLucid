@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/campaign_types/first_purchase.md (typically docker/uploads/campaign_types/first_purchase.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: first_purchase
 name_zh: 首购优惠
 name_en: First-Purchase Offer

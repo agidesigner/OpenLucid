@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/campaign_types/free_gift.md (typically docker/uploads/campaign_types/free_gift.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: free_gift
 name_zh: 赠品
 name_en: Free Gift with Purchase

@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/campaign_types/bogo.md (typically docker/uploads/campaign_types/bogo.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: bogo
 name_zh: 拍1发N / 买一送多
 name_en: Buy-One-Get-N

@@ -3,7 +3,7 @@
 This guide is for **operators of self-hosted OpenLucid deployments** —
 recovering admin access, configuring email, checking health, etc. If
 you're looking for "how to use OpenLucid as a product," start with the
-[main README](../README.md) instead.
+[main README](README.md) instead.
 
 ---
 
@@ -99,6 +99,74 @@ docker compose exec app python -m app.cli create-admin \
 Once a user exists, the installer route auto-redirects future visitors
 to `/signin.html`, so this is safe to run idempotently in your bootstrap
 pipeline (subsequent runs error with `user already exists`, exit code 2).
+
+---
+
+## Customizing content-generation prompts
+
+OpenLucid ships default prompt files for five categories — **platforms**
+(wechat_gzh / blog / xiaohongshu / ...), **personas** (voice styles),
+**script structures** (narrative templates), **content forms**, and
+**campaign types**. On first container start, every shipped `.md` is
+copied into a persistent docker volume so you have a writable copy
+that survives `git pull`.
+
+### Where to edit
+
+| Category | Path inside container | Path on host (typical) |
+|---|---|---|
+| Platforms | `/app/uploads/platforms/<id>.md` | `docker/uploads/platforms/<id>.md` |
+| Personas | `/app/uploads/personas/<id>.md` | `docker/uploads/personas/<id>.md` |
+| Structures | `/app/uploads/script_structures/<id>.md` | `docker/uploads/script_structures/<id>.md` |
+| Content forms | `/app/uploads/content_forms/<id>.md` | `docker/uploads/content_forms/<id>.md` |
+| Campaign types | `/app/uploads/campaign_types/<id>.md` | `docker/uploads/campaign_types/<id>.md` |
+
+In every case the host path resolves to `$STORAGE_BASE_PATH/<category>/`.
+
+### Workflow
+
+```bash
+# 1. Edit your overlay copy (NOT the shipped file in app/apps/)
+vim docker/uploads/platforms/wechat_gzh.md
+
+# 2. Restart so the loader picks up the change — registries are
+#    process-cached at boot
+docker compose restart app
+
+# 3. (Optional) Revert to the latest shipped default — delete your
+#    overlay, restart, and the seed step copies the shipped version
+#    back automatically
+rm docker/uploads/platforms/wechat_gzh.md
+docker compose restart app
+```
+
+### How the override works
+
+At load time each registry reads two directories:
+
+1. **Shipped defaults** at `app/apps/<category>/*.md` — version-controlled,
+   updated by `git pull`. You should NOT edit these; every shipped file
+   has a yaml-comment notice at the top reminding you.
+2. **User overlay** at `$STORAGE_BASE_PATH/<category>/*.md` — persistent
+   docker volume. A user file with the same `id` wins over the shipped
+   one.
+
+This lets new `git pull` releases ship new platforms, fix typos, or
+update writing rules in the shipped defaults without ever touching
+your customizations. If you customized a file and want the latest
+shipped version back, `rm` your overlay file and restart — the seed
+step re-copies the new shipped version, ready for you to re-customize.
+
+### What's not customizable yet
+
+A few prompts are still hardcoded in Python and can't be overridden
+without forking:
+
+- Goals (`app/application/script_goals.py`)
+- Knowledge inference system prompt (`app/adapters/ai.py`)
+- MCP server instructions (`app/mcp_server.py`)
+
+These are tracked for future overlay support.
 
 ---
 

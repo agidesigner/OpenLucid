@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/campaign_types/limited_qty.md (typically docker/uploads/campaign_types/limited_qty.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: limited_qty
 name_zh: 限量
 name_en: Limited Quantity

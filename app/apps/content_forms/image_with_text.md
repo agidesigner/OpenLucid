@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/content_forms/image_with_text.md (typically docker/uploads/content_forms/image_with_text.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: image_with_text
 name_zh: 图文
 name_en: Image-with-Text

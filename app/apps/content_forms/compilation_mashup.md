@@ -1,4 +1,5 @@
 ---
+# DEFAULT — to customize, edit $STORAGE_BASE_PATH/content_forms/compilation_mashup.md (typically docker/uploads/content_forms/compilation_mashup.md on the host). Editing this shipped file will conflict on `git pull`. See SELF_HOSTING.md.
 id: compilation_mashup
 name_zh: 场景混剪
 name_en: Scene Compilation
