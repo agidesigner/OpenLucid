@@ -163,6 +163,31 @@ async def regenerate_broll_plan(
     }
 
 
+@router.post("/{creation_id}/broll-suggestions")
+async def broll_suggestions(
+    creation_id: uuid.UUID,
+    aspect: str = Query(
+        ...,
+        description="Target video aspect: portrait | landscape | square (or 9:16 / 16:9 / 1:1)",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """For each B-roll shot in the creation, look up the user's offer-
+    scoped asset library and return the top-1 strict match (or None).
+
+    Strict gates: ≥720p short edge, duration 2-15s for video, aspect
+    must equal ``aspect`` exactly (no padding/cropping), and an LLM
+    batch rerank must affirm semantic overlap with the shot prompt.
+
+    The suggestion is purely advisory — the client decides whether to
+    bind it (asset_mode="direct" / "reference") into the broll_plan
+    payload at video-submit time."""
+    from app.application.broll_matching_service import match_assets_for_broll
+
+    matches = await match_assets_for_broll(db, creation_id, aspect)
+    return {"matches": matches}
+
+
 @router.post("/{creation_id}/refine-sections", response_model=CreationResponse)
 async def refine_sections(
     creation_id: uuid.UUID,

@@ -24,11 +24,32 @@ logger = logging.getLogger(__name__)
 
 
 async def _download(url: str, dest: Path) -> None:
-    async with httpx.AsyncClient(follow_redirects=True) as client:
-        r = await client.get(url, timeout=120)
-        r.raise_for_status()
-        dest.write_bytes(r.content)
-    logger.info("Downloaded %s -> %s (%.1f MB)", url[:80], dest.name, dest.stat().st_size / 1e6)
+    """Fetch ``url`` to ``dest``. Two source schemes supported:
+
+    - http(s) URL: download via httpx (AI-generated broll lives here —
+      the provider returns a CDN URL after polling).
+    - Local filesystem path: copy directly. Used by the direct-asset
+      broll path, where the user's own file is already in OpenLucid
+      storage. Bypasses any provider round-trip — important because
+      Google/Veo's ``upload_temp_file`` returns a base64 data URI
+      that httpx can't fetch, and Chanjing's would needlessly upload
+      a multi-MB file just to re-download it here.
+    """
+    if url.startswith(("http://", "https://")):
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            r = await client.get(url, timeout=120)
+            r.raise_for_status()
+            dest.write_bytes(r.content)
+    else:
+        # Treat as a local path. ``shutil.copy`` is sync but the volumes
+        # are small enough (≤ 50 MB broll clips) that it doesn't block
+        # the event loop meaningfully.
+        import shutil
+        shutil.copy(url, dest)
+    logger.info(
+        "Downloaded %s -> %s (%.1f MB)",
+        url[:80], dest.name, dest.stat().st_size / 1e6,
+    )
 
 
 _FFMPEG_MISSING_HINT = (
@@ -50,6 +71,28 @@ async def _ffprobe_duration(path: Path) -> float:
         raise RuntimeError(_FFMPEG_MISSING_HINT) from e
     stdout, _ = await proc.communicate()
     return float(stdout.strip() or 0)
+
+
+async def _ffprobe_has_audio(path: Path) -> bool:
+    """Return True iff ``path`` has at least one audio stream.
+
+    Used by the asset-audio routing path: when the user enabled "use
+    asset's own audio" but the asset turns out to have no audio track,
+    we silently fall back to avatar audio rather than letting ffmpeg
+    produce an audio-less segment that would break ``concat -c copy``
+    downstream (concat with -c copy requires all segments to share the
+    same stream layout)."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "error", "-select_streams", "a",
+            "-show_entries", "stream=codec_type",
+            "-of", "default=noprint_wrappers=1:nokey=1", str(path),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as e:
+        raise RuntimeError(_FFMPEG_MISSING_HINT) from e
+    stdout, _ = await proc.communicate()
+    return bool(stdout.strip())
 
 
 async def _ffmpeg(*args: str) -> None:
@@ -380,7 +423,12 @@ async def composite_broll(
                      total_chars / avatar_duration if avatar_duration else 0)
 
         # 3. Download B-roll clips and calculate insert timestamps
-        insert_points: list[tuple[float, Path, float]] = []  # (timestamp, path, duration)
+        # 4th tuple field: asset_audio flag. When True, the per-clip mux
+        # below maps audio from the broll clip itself (silencing TTS for
+        # that segment). Default False = TTS plays through. Adding it
+        # here keeps the flag traveling with the clip through the
+        # extraction → mux pipeline without needing a parallel structure.
+        insert_points: list[tuple[float, Path, float, bool]] = []
         for i, clip in enumerate(broll_clips):
             url = clip.get("url")
             if not url:
@@ -399,7 +447,7 @@ async def composite_broll(
             # Previously this was capped at 6 which silently truncated any
             # 8-10s "slow-motion reveal" clips the LLM intentionally planned.
             clip_dur = max(3.0, min(clip.get("duration_seconds") or 5, 10.0))
-            insert_points.append((timestamp, p, clip_dur))
+            insert_points.append((timestamp, p, clip_dur, bool(clip.get("asset_audio"))))
 
         if not insert_points:
             logger.warning("No B-roll clips to insert, returning avatar as-is")
@@ -412,7 +460,7 @@ async def composite_broll(
 
         # Sort by timestamp and ensure no overlaps
         insert_points.sort(key=lambda x: x[0])
-        logger.info("Insert plan: %s", [(f"{t:.1f}s", p.name, f"{d:.0f}s") for t, p, d in insert_points])
+        logger.info("Insert plan: %s", [(f"{t:.1f}s", p.name, f"{d:.0f}s") for t, p, d, _ in insert_points])
 
         # 4. Build A+V segments — each carries its own audio slice.
         #
@@ -485,7 +533,7 @@ async def composite_broll(
                     await _add_avatar_segment(t, chunk_end)
                     t = chunk_end
 
-        for insert_time, clip_path, clip_dur in insert_points:
+        for insert_time, clip_path, clip_dur, asset_audio in insert_points:
             # Retention-opener exception: the first clip at t≈0 is a hook
             # that REPLACES the first seconds of avatar, not an inter-cut.
             # Without this, the "insert_time < cursor + 1.0" guard below
@@ -513,7 +561,7 @@ async def composite_broll(
             seg = tmp_path / f"seg_br_{len(segments)}.mp4"
             # Find the narration text for this B-roll segment
             char_pos = 0
-            for _t, _p, _d in insert_points:
+            for _t, _p, _d, _aa in insert_points:
                 if _p == clip_path:
                     # Find original insert_after_char from broll_clips
                     for bc in broll_clips:
@@ -551,12 +599,32 @@ async def composite_broll(
             vf = ",".join([scale_filter, *chunk_filters]) if chunk_filters else scale_filter
             # Two-input: broll is input 0 (visual), avatar is input 1 with
             # input-level ``-ss`` so the audio slice begins at insert_time.
-            # For audio-only take from the avatar input, input-level seek
-            # is sample-accurate (AAC packets are small), so drift-free.
+            # Audio source depends on the per-clip asset_audio flag:
+            #   False (default): map avatar's TTS audio (1:a:0) so narration
+            #     keeps playing through the broll segment — the right
+            #     default for most user-uploaded broll, which usually has
+            #     irrelevant ambient sound.
+            #   True: map the broll clip's own audio (0:a:0) — for SFX,
+            #     music, or key dialogue assets where the user explicitly
+            #     wants the asset's sound. TTS narration is silenced
+            #     during this segment as a side effect.
+            # Audio source: if asset_audio requested but the asset has
+            # no audio track, fall back to avatar's TTS so the output
+            # segment still has audio. Otherwise concat -c copy (final
+            # mux) breaks because some segments would have audio and
+            # this one wouldn't — the layouts must match.
+            if asset_audio and not await _ffprobe_has_audio(clip_path):
+                logger.warning(
+                    "B-roll #%d asked for asset audio but clip has no "
+                    "audio track; falling back to avatar TTS", len(segments),
+                )
+                audio_map = "1:a:0"
+            else:
+                audio_map = "0:a:0" if asset_audio else "1:a:0"
             await _ffmpeg(
                 "-i", str(clip_path),
                 "-ss", f"{insert_time:.3f}", "-i", str(avatar_path),
-                "-map", "0:v:0", "-map", "1:a:0",
+                "-map", "0:v:0", "-map", audio_map,
                 "-t", f"{use_dur:.3f}",
                 "-vf", vf,
                 *_VENC, *_AENC,
@@ -586,7 +654,7 @@ async def composite_broll(
         )
 
         final_dur = await _ffprobe_duration(output_path)
-        broll_total = sum(d for _, _, d in insert_points)
+        broll_total = sum(d for _, _, d, _ in insert_points)
         logger.info(
             "Composite done: %s (%.1fs, B-roll ~%.1fs ≈%.0f%%)",
             output_path.name, final_dur, broll_total,

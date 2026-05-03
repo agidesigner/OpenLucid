@@ -411,16 +411,38 @@ async def create_video_job(
                 # submission latency. Parallelism cuts that roughly in half
                 # (ceil(N / BROLL_SUBMIT_CONCURRENCY) waves instead of N).
                 broll_specs: list[tuple[int, dict, str, int, dict]] = []
+                # Direct-use entries: per-shot user assets that bypass AI
+                # generation entirely. They share the broll_tasks list with
+                # AI tasks (so the poll path picks both up uniformly), but
+                # carry ``source="asset"`` + ``asset_id`` instead of a
+                # ``task_id``. Poll phase resolves asset_id → local path
+                # at composite time (we deliberately don't store the path
+                # in params — it's exposed via the jobs API and would
+                # leak server FS layout).
+                direct_broll_tasks: list[dict] = []
+                # Hoisted up from below so the direct/reference branches
+                # in the loop can record submit-time failures.
+                broll_failures: list[dict] = []
+                from app.application.broll_matching_service import (
+                    get_asset_url_for_broll,
+                )
+                from app.adapters.video.base import StyleReference
+
                 for idx, entry in enumerate(broll_plan[:5]):
                     prompt = (entry.get("prompt") or "").strip()
                     if not prompt:
                         continue
                     shot_type = entry.get("type", "illustrative")
+                    asset_id_raw = entry.get("asset_id")
+                    asset_mode = entry.get("asset_mode")  # "direct" | "reference" | None
+
                     # Retention opener: prepend style cues that nudge Seedance
                     # toward a stopping-power shot. Without this, retention
                     # and illustrative shots look identical — which defeats
                     # the whole point of the type distinction.
-                    if shot_type == "retention":
+                    # Skip the prefix in direct mode — the asset is the
+                    # opener, not an AI prompt.
+                    if shot_type == "retention" and asset_mode != "direct":
                         # Match prefix language to prompt language so the LLM
                         # sees a coherent single-language prompt (previously
                         # an English prefix was prepended even to Chinese
@@ -441,23 +463,124 @@ async def create_video_job(
                         )
                         prompt = retention_prefix + prompt
                     dur = max(5, min(entry.get("duration_seconds") or 5, 10))
-                    # KB assets → StyleReference (Class A: "look like
-                    # this"). Soft hint — providers without a native
-                    # style channel (chanjing/Doubao, Veo 3.x) drop
-                    # these silently rather than misuse them as
-                    # first-frame anchors (the v1.3.x bug). When we
-                    # later add Kling / Runway / Sora — which DO have
-                    # reference_images channels — they consume these
-                    # automatically without any service-layer change.
-                    #
-                    # FirstFrame / LastFrame are intentionally NOT
-                    # set here: per the product decision, those are
-                    # explicit user-uploaded inputs (a future UI),
-                    # never auto-sourced from KB.
-                    from app.adapters.video.base import StyleReference
+
+                    # ── Direct-use mode: skip AI submit, mark this shot
+                    # as asset-backed (source="asset" + asset_id). Poll
+                    # phase resolves the asset to a local file path on
+                    # the fly and feeds it to broll_clips alongside
+                    # AI-generated clips, no provider call required.
+                    if asset_id_raw and asset_mode == "direct":
+                        try:
+                            asset_uri, asset_meta = await get_asset_url_for_broll(
+                                db, uuid.UUID(str(asset_id_raw)),
+                                expected_aspect=ar,
+                            )
+                            # Resolve the asset to its absolute local path
+                            # for the compositor to read directly. We
+                            # deliberately do NOT call the broll provider's
+                            # ``upload_temp_file`` here:
+                            #   (a) the asset is already in OpenLucid's
+                            #       storage — no reason to round-trip a
+                            #       multi-MB file through a third-party CDN;
+                            #   (b) Google/Veo's upload_temp_file returns
+                            #       a base64 data URI which the compositor's
+                            #       httpx-based ``_download`` can't fetch;
+                            #   (c) provider uploads default to image MIME
+                            #       types and would mislabel a video file.
+                            # Submit-time validation only: confirm the
+                            # asset's file actually exists on disk so we
+                            # fail-fast (rather than mid-composite). The
+                            # absolute path is intentionally NOT stored in
+                            # broll_tasks — params is exposed via the jobs
+                            # API and we don't want to leak server FS layout.
+                            # The poll path resolves asset_id → abs path
+                            # again at composite time, which has the bonus
+                            # of detecting "asset deleted between submit
+                            # and composite" and skipping that one shot
+                            # instead of crashing the whole job.
+                            import os
+                            _validation_path = storage.get_absolute_path(asset_uri)
+                            if not os.path.exists(_validation_path):
+                                raise FileNotFoundError(
+                                    f"Asset file missing on disk: {_validation_path}"
+                                )
+                            # Asset's actual duration may differ from the
+                            # planner's request — for direct use, prefer the
+                            # asset's real duration (compositor will clip if
+                            # over). 5s default if missing.
+                            asset_dur_ms = asset_meta.get("duration_ms")
+                            asset_dur = int((asset_dur_ms or 5000) / 1000)
+                            asset_dur = max(2, min(asset_dur, 15))
+                            direct_broll_tasks.append({
+                                "index": idx,
+                                "asset_id": str(asset_id_raw),
+                                # No asset_url — poll phase resolves
+                                # asset_id → path on the fly.
+                                "type": entry.get("type", "illustrative"),
+                                "insert_after_char": entry.get("insert_after_char", 0),
+                                "duration_seconds": asset_dur,
+                                "prompt": prompt,
+                                "source": "asset",
+                                # Pass-through to compositor: when True, the
+                                # final video keeps the asset's own audio
+                                # (silencing TTS for this segment); default
+                                # False means strip asset audio and let
+                                # avatar narration play continuously.
+                                "asset_audio": bool(entry.get("asset_audio")),
+                            })
+                            logger.info(
+                                "B-roll #%d direct-use asset=%s dur=%ds",
+                                idx, asset_id_raw, asset_dur,
+                            )
+                        except Exception as e:
+                            err_str = str(e) or e.__class__.__name__
+                            logger.warning(
+                                "B-roll #%d direct-use failed (asset=%s): %s",
+                                idx, asset_id_raw, e,
+                            )
+                            broll_failures.append({
+                                "idx": idx,
+                                "prompt": prompt[:80],
+                                "error": _classify_broll_error(err_str),
+                            })
+                        continue  # Skip AI submit for this shot.
+
+                    # ── Reference mode: per-shot style hint, AI still generates.
+                    # Soft hint — providers without a native style channel
+                    # (chanjing/Doubao, Veo 3.x) drop these silently rather
+                    # than misuse them as first-frame anchors (v1.3.x bug).
+                    # FirstFrame / LastFrame are intentionally NOT set here:
+                    # per the product decision, those are explicit user-
+                    # uploaded inputs (future UI), never auto-sourced.
+                    shot_asset_urls = list(asset_urls)  # global offer-KB refs
+                    if asset_id_raw and asset_mode == "reference":
+                        try:
+                            asset_uri, asset_meta = await get_asset_url_for_broll(
+                                db, uuid.UUID(str(asset_id_raw)),
+                                expected_aspect=ar,
+                            )
+                            file_bytes = await storage.get_file(asset_uri)
+                            ref_url = await broll_video_provider.upload_temp_file(
+                                file_bytes,
+                                asset_meta.get("file_name") or "ref.mp4",
+                            )
+                            shot_asset_urls.append(ref_url)
+                            logger.info(
+                                "B-roll #%d reference-mode asset=%s",
+                                idx, asset_id_raw,
+                            )
+                        except Exception as e:
+                            # Reference mode is a soft hint. Drop it on
+                            # failure rather than blocking the AI submit.
+                            logger.warning(
+                                "B-roll #%d reference upload failed (asset=%s): %s — "
+                                "falling back to AI without this reference",
+                                idx, asset_id_raw, e,
+                            )
+
                     style_refs = (
-                        [StyleReference(url=u) for u in asset_urls]
-                        if asset_urls else None
+                        [StyleReference(url=u) for u in shot_asset_urls]
+                        if shot_asset_urls else None
                     )
                     submit_kwargs: dict = dict(
                         prompt=prompt, duration=dur,
@@ -475,10 +598,9 @@ async def create_video_job(
                 BROLL_SUBMIT_CONCURRENCY = 3
                 _sem = asyncio.Semaphore(BROLL_SUBMIT_CONCURRENCY)
 
-                # Captures failures from concurrent _submit_one calls so we
-                # can surface them on the job after gather() completes.
+                # ``broll_failures`` is hoisted above the spec-building
+                # loop so direct/reference branches can append to it.
                 # Single-thread asyncio means list.append is safe here.
-                broll_failures: list[dict] = []
 
                 async def _submit_one(
                     idx: int, entry: dict, prompt: str, dur: int, submit_kwargs: dict
@@ -512,9 +634,14 @@ async def create_video_job(
                 results = await asyncio.gather(
                     *(_submit_one(*s) for s in broll_specs)
                 )
-                # ``gather`` preserves argument order, so the surviving tasks
-                # stay in narration order without an explicit sort.
-                broll_tasks: list[dict] = [r for r in results if r is not None]
+                # ``gather`` preserves argument order. Merge AI-submitted
+                # tasks with direct-use asset entries, then sort by index
+                # so downstream poll/composite see them in narration order.
+                ai_broll_tasks = [r for r in results if r is not None]
+                broll_tasks: list[dict] = sorted(
+                    ai_broll_tasks + direct_broll_tasks,
+                    key=lambda t: t.get("index", 0),
+                )
 
                 if broll_tasks:
                     params["broll_tasks"] = broll_tasks
@@ -715,7 +842,49 @@ async def _maybe_sync_status(
             any_failed = False
             broll_clips: list[dict] = []
             poll_failures: list[dict] = []  # captured for params.broll_warnings
+            # Storage adapter for resolving direct-asset paths at poll
+            # time. Only LocalStorageAdapter is wired today; if/when an
+            # S3 adapter ships, ``get_absolute_path`` may need to return
+            # a presigned URL and compositor's _download will route it
+            # through the http branch.
+            from app.adapters.storage import LocalStorageAdapter
+            poll_storage = LocalStorageAdapter()
+
             for bt in broll_tasks:
+                # Direct-use asset entries skip the provider poll entirely.
+                # ``source == "asset"`` is the sentinel; we resolve the
+                # asset's storage path on the fly here (rather than caching
+                # it in params) so we (a) don't leak server FS layout via
+                # the jobs API, (b) catch "asset deleted between submit
+                # and composite" gracefully without crashing the job.
+                if bt.get("source") == "asset" and bt.get("asset_id"):
+                    try:
+                        from app.application.broll_matching_service import (
+                            get_asset_url_for_broll,
+                        )
+                        asset_uri, _ = await get_asset_url_for_broll(
+                            db, uuid.UUID(bt["asset_id"]),
+                        )
+                        local_path = poll_storage.get_absolute_path(asset_uri)
+                    except Exception as e:
+                        logger.warning(
+                            "B-roll asset %s missing at composite (skipping): %s",
+                            bt.get("asset_id"), e,
+                        )
+                        continue  # skip this clip; rest of broll proceeds
+                    broll_clips.append({
+                        "url": local_path,
+                        "insert_after_char": bt.get("insert_after_char", 0),
+                        "duration_seconds": bt.get("duration_seconds", 5),
+                        "type": bt.get("type", "illustrative"),
+                        "prompt": bt.get("prompt", ""),
+                        # Direct-mode flag — compositor maps audio from
+                        # the broll clip (instead of from avatar) when set.
+                        # AI-generated clips never carry meaningful audio,
+                        # so this is implicitly false for non-asset entries.
+                        "asset_audio": bool(bt.get("asset_audio")),
+                    })
+                    continue
                 try:
                     br_status = await broll_video_provider.poll_broll_clip(bt["task_id"])
                 except Exception as e:

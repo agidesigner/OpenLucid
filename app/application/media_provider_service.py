@@ -128,6 +128,11 @@ async def update_media_provider_config(
     if not config:
         raise NotFoundError("MediaProviderConfig", str(config_id))
 
+    # Snapshot OLD credentials before mutation so we can invalidate any
+    # adapter-level token cache keyed on them after the update.
+    old_provider = config.provider
+    old_creds = dict(config.credentials or {})
+
     if data.label is not None:
         config.label = data.label
     if data.credentials is not None:
@@ -147,6 +152,27 @@ async def update_media_provider_config(
     # Credential change may switch us to a different chanjing tenant —
     # cached tag dictionaries from the old account would be stale.
     _invalidate_tag_cache(config_id)
+    # Drop the chanjing access_token cache slot keyed on OLD credentials
+    # when they actually changed. Functionally the new key already uses a
+    # different cache slot, so the OLD entry just sits in memory until
+    # natural token expiry (~24h). Cleaner debug state + tiny memory win.
+    if (
+        data.credentials is not None
+        and old_provider == "chanjing"
+    ):
+        new_creds = dict(config.credentials or {})
+        if (
+            old_creds.get("app_id"),
+            old_creds.get("secret_key"),
+        ) != (
+            new_creds.get("app_id"),
+            new_creds.get("secret_key"),
+        ):
+            from app.adapters.video.chanjing import invalidate_token_cache
+            invalidate_token_cache(
+                old_creds.get("app_id", ""),
+                old_creds.get("secret_key", ""),
+            )
     return _to_response(config)
 
 
@@ -160,8 +186,17 @@ async def delete_media_provider_config(
 
     was_active = config.is_active
     provider = config.provider
+    # Snapshot creds before delete so we can drop the adapter token cache
+    # slot for these credentials. Same hygiene reason as the update path.
+    old_creds = dict(config.credentials or {})
     await repo.delete(config)
     _invalidate_tag_cache(config_id)
+    if provider == "chanjing":
+        from app.adapters.video.chanjing import invalidate_token_cache
+        invalidate_token_cache(
+            old_creds.get("app_id", ""),
+            old_creds.get("secret_key", ""),
+        )
 
     # If we deleted the active config of this provider, promote another of the
     # same provider type if one exists.

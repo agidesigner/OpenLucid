@@ -911,12 +911,6 @@
                           </a>
                         </template>
 
-                        <button type="button" @click="brollRegeneratePlan()"
-                                :disabled="brollRegenerating"
-                                class="text-[11px] text-gray-500 hover:text-accent font-medium flex items-center gap-1 disabled:opacity-50">
-                          <svg class="w-3 h-3" :class="brollRegenerating ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                          <span x-text="brollRegenerating ? t('vg_broll_regenerating') : t('vg_broll_regenerate')"></span>
-                        </button>
                         <button type="button" @click="brollAddShot()"
                                 class="text-[11px] text-accent hover:text-accent-hover font-medium flex items-center gap-1">
                           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
@@ -936,18 +930,18 @@
                            usually correct; only power users open this. -->
                       <div x-data="{ adv: false }"
                            class="bg-white border border-gray-200 rounded-lg p-2.5 space-y-2">
-                        <!-- Header: ordinal · position context · duration · advanced toggle · delete -->
+                        <!-- Header: compact ordinal + duration + actions. -->
                         <div class="flex items-center justify-between gap-2 text-[11px]">
-                          <div class="flex items-center gap-2 min-w-0 flex-1"
-                               :title="brollContextAt(shot.insert_after_char)">
+                          <div class="flex items-center gap-2 min-w-0 flex-1">
                             <span class="shrink-0 inline-flex items-center justify-center w-5 h-5
                                          rounded-full bg-accent/10 text-accent
                                          text-[10px] font-semibold tabular-nums"
                                   x-text="idx + 1"></span>
-                            <span class="text-gray-500 truncate"
-                                  x-text="brollPositionPreview(shot.insert_after_char)"></span>
-                            <span class="shrink-0 text-gray-400 tabular-nums"
-                                  x-text="'· ' + (shot.duration_seconds || 5) + 's'"></span>
+                            <span class="text-gray-400 tabular-nums"
+                                  x-text="(shot.duration_seconds || 5) + 's'"></span>
+                            <span class="text-gray-300">·</span>
+                            <span class="text-gray-400"
+                                  x-text="shot.type === 'retention' ? t('vg_broll_type_retention') : t('vg_broll_type_illustrative')"></span>
                           </div>
                           <div class="flex items-center gap-1 shrink-0">
                             <button type="button"
@@ -967,8 +961,214 @@
                             </button>
                           </div>
                         </div>
-                        <!-- Body: prompt textarea — primary editable surface. -->
-                        <textarea x-model="shot.prompt" rows="3"
+                        <!-- Narration context: the actual sentence(s) where
+                             this broll fires. Renders ~30 chars before/after
+                             insert_after_char with an inline [N] marker at
+                             the exact fire point. The whole point: user
+                             scans down the cards and at-a-glance sees WHERE
+                             each broll lands in the script. No scroll, no
+                             popover, no preview block above. -->
+                        <div class="rounded-md bg-gray-50 border border-gray-100 px-2.5 py-1.5">
+                          <p class="text-[12px] text-gray-700 leading-relaxed italic"
+                             style="word-break: break-word;">
+                            <template x-if="brollContextWindow(shot.insert_after_char).before">
+                              <span class="text-gray-400" x-text="'…' + brollContextWindow(shot.insert_after_char).before"></span>
+                            </template>
+                            <span class="inline-flex items-center justify-center min-w-[16px] h-4 px-1 mx-0.5 rounded-full bg-accent text-white text-[9px] font-bold align-middle not-italic tabular-nums leading-none"
+                                  x-text="idx + 1"></span>
+                            <template x-if="brollContextWindow(shot.insert_after_char).after">
+                              <span class="text-gray-400" x-text="brollContextWindow(shot.insert_after_char).after + '…'"></span>
+                            </template>
+                            <template x-if="!brollContextWindow(shot.insert_after_char).before && !brollContextWindow(shot.insert_after_char).after">
+                              <span class="text-gray-400 not-italic"
+                                    x-text="t('vg_broll_pos_at_char').replace('{n}', shot.insert_after_char || 0)"></span>
+                            </template>
+                          </p>
+                        </div>
+                        <!-- Matched-asset suggestion. Wrapped in <template x-if>
+                             instead of x-show so the inner bindings DON'T
+                             evaluate when no asset is matched — Alpine still
+                             walks x-show subtrees, and a freshly-pushed shot
+                             from "Add shot" has no matched_asset, which used
+                             to break the rendering pipeline silently. With
+                             x-if, the subtree only exists when there's an
+                             actual asset to bind to. -->
+                        <template x-if="shot.matched_asset">
+                          <div class="p-2.5 rounded-lg bg-gray-50 border border-gray-100 relative">
+                            <button type="button"
+                                    @click="dismissAssetSuggestion(shot)"
+                                    :aria-label="t('dismiss_suggestion')"
+                                    :title="t('dismiss_suggestion')"
+                                    class="absolute top-1.5 right-1.5 p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors">
+                              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                              </svg>
+                            </button>
+                            <div class="flex items-start gap-2.5">
+                              <!-- Clickable thumbnail. shrink-0 + fixed dim
+                                   means landscape vs portrait don't shift the
+                                   segmented control's left edge. Hover reveals
+                                   a play overlay → click opens videoPlayer
+                                   lightbox. The play affordance only shows
+                                   for video assets; image assets stay quiet
+                                   (no point in "playing" an image).  -->
+                              <button type="button"
+                                      @click="openAssetPreview(shot)"
+                                      :aria-label="t('preview_asset') + ': ' + shot.matched_asset.file_name"
+                                      class="shrink-0 rounded overflow-hidden bg-gray-200 relative group/thumb cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent/40"
+                                      :class="shot.matched_asset.aspect === '9:16'
+                                                ? 'w-[36px] h-[64px]'
+                                                : (shot.matched_asset.aspect === '1:1'
+                                                    ? 'w-[56px] h-[56px]'
+                                                    : 'w-[80px] h-[45px]')">
+                                <!-- Thumbnail URL is built from asset.id, not
+                                     preview_uri (which is the raw storage path
+                                     from the backend, not a fetchable URL).
+                                     Same pattern as offer.html:530/648. -->
+                                <img :src="'/api/v1/assets/' + shot.matched_asset.id + '/' + (shot.matched_asset.asset_type === 'image' ? 'file' : 'thumbnail')"
+                                     loading="lazy"
+                                     class="w-full h-full object-cover"
+                                     :alt="shot.matched_asset.file_name"
+                                     @error="$el.style.opacity='0.3'">
+                                <!-- Play overlay (video only). Hidden at rest;
+                                     fades in on hover/focus. Pure transform/
+                                     opacity transition — no layout shift. -->
+                                <span x-show="shot.matched_asset.asset_type === 'video'"
+                                      class="absolute inset-0 flex items-center justify-center
+                                             bg-black/0 group-hover/thumb:bg-black/45
+                                             group-focus/thumb:bg-black/45
+                                             transition-colors duration-150">
+                                  <svg class="w-5 h-5 text-white drop-shadow opacity-0
+                                              group-hover/thumb:opacity-100
+                                              group-focus/thumb:opacity-100
+                                              transition-opacity duration-150"
+                                       fill="currentColor" viewBox="0 0 24 24"
+                                       aria-hidden="true">
+                                    <path d="M8 5v14l11-7z"/>
+                                  </svg>
+                                </span>
+                                <span x-show="shot.matched_asset.asset_type === 'video'"
+                                      class="absolute bottom-0.5 right-0.5 px-1 py-0.5 rounded bg-black/55 text-white text-[9px] font-medium leading-none tabular-nums pointer-events-none"
+                                      x-text="(shot.matched_asset.duration_seconds || 0) + 's'"></span>
+                              </button>
+                              <!-- Meta + segmented control -->
+                              <div class="flex-1 min-w-0 pr-5">
+                                <div class="flex items-center gap-1.5 mb-0.5">
+                                  <span class="text-[11px] font-medium text-gray-700 truncate"
+                                        x-text="shot.matched_asset.file_name"></span>
+                                  <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-accent/10 text-accent text-[9px] font-medium shrink-0">
+                                    <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                                    </svg>
+                                    <span x-text="t('ai_matched')"></span>
+                                  </span>
+                                </div>
+                                <p class="text-[10px] text-gray-500 mb-1 tabular-nums"
+                                   x-text="(shot.matched_asset.aspect || '?')
+                                            + ' · '
+                                            + (shot.matched_asset.duration_seconds || 0) + 's · '
+                                            + (shot.matched_asset.resolution_label || '')"></p>
+                                <!-- LLM rerank rationale — shows the one-line
+                                     judgment that picked THIS asset for
+                                     THIS shot. Helps the user trust the
+                                     suggestion (or recognize a weak match
+                                     quickly). Hidden when the LLM didn't
+                                     return a reason. -->
+                                <p x-show="shot.matched_asset.match_reason"
+                                   class="text-[10px] text-gray-400 mb-1.5 italic leading-snug"
+                                   x-text="'“' + shot.matched_asset.match_reason + '”'"></p>
+                                <!-- Segmented control: 2 options.
+                                     "Switch back to AI" is covered by the
+                                     dismiss ✕ button on the top-right
+                                     (clears the suggestion entirely → falls
+                                     back to AI generation from prompt).
+                                     A third button would just be a louder
+                                     synonym for dismiss.  -->
+                                <div class="inline-flex rounded-lg bg-gray-100 p-0.5 text-[11px]">
+                                  <button type="button"
+                                          @click="setShotMode(shot, 'direct')"
+                                          :class="(shot.asset_mode === 'direct') ? 'bg-white shadow-sm text-accent' : 'text-gray-500 hover:text-gray-700'"
+                                          class="px-2.5 py-1 rounded-md font-medium transition-all duration-150">
+                                    <span x-text="t('use_directly')"></span>
+                                  </button>
+                                  <button type="button"
+                                          @click="setShotMode(shot, 'reference')"
+                                          :class="(shot.asset_mode === 'reference') ? 'bg-white shadow-sm text-accent' : 'text-gray-500 hover:text-gray-700'"
+                                          class="px-2.5 py-1 rounded-md font-medium transition-all duration-150">
+                                    <span x-text="t('ai_reference')"></span>
+                                  </button>
+                                </div>
+                                <!-- Reference-mode helper: explains the
+                                     prompt textarea below is still editable
+                                     and feeds AI as guidance alongside the
+                                     asset reference. Direct mode no longer
+                                     needs an explanation — the textarea is
+                                     hidden, the user already sees "this
+                                     asset goes here" without ambiguity. -->
+                                <p x-show="shot.asset_mode === 'reference'"
+                                   class="text-[10px] text-gray-500 mt-1 italic"
+                                   x-text="t('asset_reference_helper')"></p>
+                                <!-- Audio output toggle (direct mode only).
+                                     Default: muted. Asset's video plays, but
+                                     its original audio is dropped — the
+                                     avatar's TTS keeps speaking continuously.
+                                     ON state uses amber (NOT primary accent)
+                                     because enabling has a real consequence:
+                                     it silences TTS for this segment. Amber
+                                     says "intentional, but be aware";
+                                     primary blue would understate it. -->
+                                <div x-show="shot.asset_mode === 'direct'
+                                              && shot.matched_asset.asset_type === 'video'"
+                                     class="mt-2 pt-2 border-t border-gray-100">
+                                  <button type="button"
+                                          @click="shot.asset_audio = !shot.asset_audio"
+                                          :aria-pressed="!!shot.asset_audio"
+                                          :class="shot.asset_audio
+                                                    ? 'bg-amber-50 border-amber-200 hover:bg-amber-100'
+                                                    : 'bg-white border-gray-200 hover:bg-gray-50'"
+                                          class="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md border transition-colors">
+                                    <span class="flex items-center gap-1.5 min-w-0">
+                                      <!-- icon: muted speaker (off) -->
+                                      <svg x-show="!shot.asset_audio" class="w-3.5 h-3.5 shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l4-4m0 4l-4-4"/>
+                                      </svg>
+                                      <!-- icon: speaker (on) -->
+                                      <svg x-show="shot.asset_audio" class="w-3.5 h-3.5 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
+                                      </svg>
+                                      <span class="text-[11px] font-medium truncate"
+                                            :class="shot.asset_audio ? 'text-amber-700' : 'text-gray-600'">
+                                        <span x-show="!shot.asset_audio" x-text="t('asset_audio_off_label')"></span>
+                                        <span x-show="shot.asset_audio" x-text="t('asset_audio_on_label')"></span>
+                                      </span>
+                                    </span>
+                                    <!-- Toggle pill: 36×20 (≥ 44 pt total
+                                         with the wrapping button's tap area).
+                                         Position-shifting dot is purely a
+                                         transform on `left` — Tailwind's
+                                         arbitrary value handles it. -->
+                                    <span class="relative w-9 h-5 rounded-full transition-colors shrink-0"
+                                          :class="shot.asset_audio ? 'bg-amber-500' : 'bg-gray-300'">
+                                      <span class="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all duration-150"
+                                            :class="shot.asset_audio ? 'left-[18px]' : 'left-0.5'"></span>
+                                    </span>
+                                  </button>
+                                  <p class="text-[10px] mt-1 leading-snug"
+                                     :class="shot.asset_audio ? 'text-amber-700' : 'text-gray-400'"
+                                     x-text="shot.asset_audio ? t('asset_audio_on_helper') : t('asset_audio_off_helper')"></p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </template>
+                        <!-- Body: prompt textarea — primary editable surface.
+                             Hidden in ``direct`` mode (asset replaces this
+                             shot, prompt is dead weight). x-show preserves
+                             the textarea state across mode toggles, so user
+                             switching to AI 参考 still keeps any text they
+                             had typed. -->
+                        <textarea x-show="shot.asset_mode !== 'direct'"
+                                  x-model="shot.prompt" rows="3"
                                   :placeholder="t('vg_broll_prompt_placeholder')"
                                   class="w-full text-[12px] border border-gray-200 rounded px-2 py-1.5 leading-relaxed focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent resize-y bg-white"></textarea>
                         <!-- Advanced: hidden by default. Type/insert_at/
@@ -1285,9 +1485,16 @@
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
       <!-- Video -->
+      <!-- :muted reflects the per-preview initial state (default false for
+           regular video lightbox use; set to true when previewing a broll
+           asset whose card toggle is OFF, so preview matches generation).
+           The native HTML5 audio control still lets the user temporarily
+           unmute to listen — that override is preview-only and never
+           feeds back to the card toggle. -->
       <video x-ref="lightboxVideo"
              :src="videoPlayer.url"
              :poster="videoPlayer.poster"
+             :muted="!!videoPlayer.muted"
              class="rounded-xl shadow-2xl max-h-[80vh] max-w-[85vw] bg-black"
              controls autoplay playsinline>
       </video>
@@ -1397,11 +1604,13 @@
           // Submission feedback
           flashJobId: '',         // briefly highlight a newly-submitted job
         },
-        // ── B-roll regenerate state ──
-        brollRegenerating: false,
 
         // Video lightbox player
-        videoPlayer: { open: false, url: '', poster: '', downloadUrl: '' },
+        // ``muted`` is the initial mute state for the lightbox <video>.
+        // Default false so the existing "play a generated video" callers
+        // (job done → click thumbnail → play with sound) still work.
+        // Asset previews override this to mirror the per-shot toggle.
+        videoPlayer: { open: false, url: '', poster: '', downloadUrl: '', muted: false },
 
         get activeJobsCount() {
           return this.videoModal.jobs.filter(
@@ -1514,6 +1723,9 @@
             this.videoModal.form.avatar_id = '';
             this.videoModal.form.voice_id = '';
           }
+          // Aspect changed → previous matches are aspect-bound and may
+          // no longer fit. Re-fetch suggestions for the new aspect.
+          this.loadBrollSuggestions();
         },
 
         // ── Avatar filter ──
@@ -2306,6 +2518,11 @@
             await this.onProviderChange(def.id);
           }
 
+          // Kick off asset suggestions for each broll shot. Fires once
+          // we have the broll_plan + aspect_ratio settled. Silent fail —
+          // the modal is fully usable without suggestions.
+          this.loadBrollSuggestions();
+
           // If any existing job is non-terminal, start polling it
           for (const job of this.videoModal.jobs) {
             if (job.status === 'pending' || job.status === 'processing') {
@@ -2365,8 +2582,17 @@
           window.location.href = `${this._recreatorApp(creation.content_type)}?${p}`;
         },
 
-        openVideoPlayer(url, poster) {
-          this.videoPlayer = { open: true, url, poster: poster || '', downloadUrl: url };
+        openVideoPlayer(url, poster, opts = {}) {
+          this.videoPlayer = {
+            open: true,
+            url,
+            poster: poster || '',
+            downloadUrl: url,
+            // muted defaults false (legacy callers expect playback with
+            // sound); asset-preview path explicitly passes true/false to
+            // mirror the broll card's audio toggle.
+            muted: !!opts.muted,
+          };
           // Pause any small inline videos
           document.querySelectorAll('.video-modal-body video').forEach(v => v.pause());
         },
@@ -2374,6 +2600,30 @@
           this.videoPlayer.open = false;
           // Let the <video> unload by clearing URL after transition
           setTimeout(() => { if (!this.videoPlayer.open) this.videoPlayer.url = ''; }, 300);
+        },
+
+        // Open the user's asset (matched broll) in the existing video
+        // lightbox so they can preview what they're about to splice into
+        // their final video. Image assets aren't supported in the lightbox
+        // (it expects a <video>) — the thumbnail click is video-only.
+        //
+        // ``shot`` is the broll_plan entry whose matched_asset is being
+        // previewed. We pass its asset_audio flag through as the lightbox's
+        // initial mute state so preview mirrors generation: card toggle
+        // OFF → preview opens muted; toggle ON → preview opens with sound.
+        // The native HTML5 audio control still lets the user temporarily
+        // unmute (e.g. to evaluate "should I enable this for the final
+        // video?"); that override is preview-only and never feeds back
+        // to the card toggle.
+        openAssetPreview(shot) {
+          const asset = shot && shot.matched_asset;
+          if (!asset || !asset.id) return;
+          if (asset.asset_type !== 'video') return;
+          this.openVideoPlayer(
+            `/api/v1/assets/${asset.id}/file`,
+            `/api/v1/assets/${asset.id}/thumbnail`,
+            { muted: !shot.asset_audio },
+          );
         },
 
         // ── B-roll editor helpers ─────────────────────────────────────
@@ -2438,32 +2688,27 @@
           return t('vg_broll_pos_after').replace('{snippet}', snippet);
         },
 
-        async brollRegeneratePlan() {
-          // Ask the server to propose a fresh broll_plan for this creation.
-          // Server re-sanitizes + persists, we just repoint the form.
-          if (this.brollRegenerating || !this.videoModal.creation?.id) return;
-          this.brollRegenerating = true;
-          try {
-            const r = await fetch(
-              `/api/v1/creations/${this.videoModal.creation.id}/regenerate-broll-plan`,
-              { method: 'POST' },
-            );
-            const data = await r.json().catch(() => ({}));
-            if (!r.ok) {
-              throw new Error(data.detail || data.error || r.statusText);
-            }
-            this.videoModal.form.broll_plan = (data.broll_plan || [])
-              .map(s => ({ ...s }));  // shallow clone per row
-            // Also update the in-memory creation so subsequent re-opens see
-            // the fresh plan without a full reload.
-            if (this.videoModal.creation.structured_content) {
-              this.videoModal.creation.structured_content.broll_plan = data.broll_plan;
-            }
-          } catch (e) {
-            toast.error(e.message || String(e));
-          } finally {
-            this.brollRegenerating = false;
-          }
+        // ── Per-card narration context ──────────────────────────────
+        // Returns {before, after} — ~30 chars on each side of the broll's
+        // insert_after_char, with leading/trailing punctuation stripped
+        // so snippets read like phrases, not orphan tail-fragments.
+        // Used by each broll card to show in-context where it fires;
+        // user scans cards top-to-bottom and at-a-glance sees what
+        // narration each shot lands on. No popover, no scroll, no
+        // hover — visible at rest, "一眼可以看到".
+        brollContextWindow(charPos) {
+          const text = this._brollNarrationText();
+          if (!text) return { before: '', after: '' };
+          const pos = Math.max(0, Math.min(Number(charPos) || 0, text.length));
+          const RADIUS = 36;
+          const beforeRaw = text.slice(Math.max(0, pos - RADIUS), pos);
+          const afterRaw = text.slice(pos, Math.min(text.length, pos + RADIUS));
+          // Strip leading/trailing whitespace + sentence punctuation so
+          // the displayed snippet reads as a phrase (else we get
+          // ", and the worst part…" which looks broken).
+          const before = beforeRaw.replace(/^[\s，。！？,.!?;:、—\-]+/, '').trim();
+          const after = afterRaw.replace(/[\s]+$/, '').trim();
+          return { before, after };
         },
 
         brollAddShot() {
@@ -2528,6 +2773,80 @@
           // Re-sort so the UI reads in narration order.
           plan.sort((a, b) => (a.insert_after_char || 0) - (b.insert_after_char || 0));
           this.videoModal.form.broll_plan = plan;
+        },
+
+        // ── B-roll asset matching (Generate Video modal) ─────────────────
+        // Loaded once per modal-open + on aspect change. Silently swallows
+        // failures — the feature is an enhancement, not a blocker.
+
+        async loadBrollSuggestions() {
+          const c = this.videoModal.creation;
+          if (!c || !c.id) return;
+          const aspect = this.videoModal.form?.aspect_ratio;
+          if (!aspect) return;
+          const plan = this.videoModal.form?.broll_plan;
+          if (!Array.isArray(plan) || plan.length === 0) return;
+          // Clear stale matches first so an aspect change wipes old
+          // suggestions before the new fetch returns.
+          for (const shot of plan) {
+            if (shot && shot.matched_asset && !shot._asset_dismissed) {
+              shot.matched_asset = null;
+              shot.asset_id = null;
+              shot.asset_mode = null;
+            }
+          }
+          try {
+            const res = await fetch(
+              `/api/v1/creations/${c.id}/broll-suggestions?aspect=${encodeURIComponent(aspect)}`,
+              { method: 'POST' },
+            );
+            if (!res.ok) return;
+            const data = await res.json();
+            const matches = (data && data.matches) || [];
+            for (const m of matches) {
+              const shot = plan[m.shot_index];
+              if (!shot || !m.matched_asset) continue;
+              // Respect explicit dismissal — once the user said "no thanks",
+              // don't re-suggest in the same modal session even if aspect
+              // changes back.
+              if (shot._asset_dismissed) continue;
+              shot.matched_asset = m.matched_asset;
+              shot.asset_id = m.matched_asset.id;
+              shot.asset_mode = 'direct';  // default-on per spec
+            }
+          } catch (e) {
+            console.warn('broll suggestions fetch failed:', e);
+          }
+        },
+
+        setShotMode(shot, mode) {
+          // mode: 'direct' | 'reference' | 'ai'
+          shot.asset_mode = mode;
+          if (mode === 'ai') {
+            // Mode "ai" disables the asset binding for this shot. Keep
+            // matched_asset visible (so user can flip back) but clear
+            // the asset_id so submit doesn't include it.
+            shot.asset_id = null;
+          } else if (shot.matched_asset) {
+            // Restore the binding when switching back into direct/ref.
+            shot.asset_id = shot.matched_asset.id;
+          }
+          // Audio toggle is direct-mode-only — clear any leftover state
+          // when leaving direct mode so the flag never silently survives
+          // a mode change. Today's submit guard requires `mode==='direct'`
+          // before forwarding asset_audio, but defending here keeps state
+          // hygiene if a future caller forgets that guard.
+          if (mode !== 'direct') {
+            shot.asset_audio = false;
+          }
+        },
+
+        dismissAssetSuggestion(shot) {
+          shot.matched_asset = null;
+          shot.asset_id = null;
+          shot.asset_mode = null;
+          shot.asset_audio = false;  // clear audio toggle alongside the binding
+          shot._asset_dismissed = true;
         },
 
         _extractNarration(creation) {
@@ -2622,8 +2941,17 @@
           if (!options.force) {
             try {
               const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
-              if (cached && (Date.now() - cached.ts) < CACHE_TTL_MS && this._cacheSchemaIsCurrent(cached)) {
-                m.avatars = cached.avatars || [];
+              // Empty avatars in cache = previous run errored before
+              // populating. Don't trust it — re-fetch. Heals users whose
+              // cache was poisoned before the write-side guard landed.
+              const cachedAvatars = (cached && cached.avatars) || [];
+              const cacheUsable = cached
+                && (Date.now() - cached.ts) < CACHE_TTL_MS
+                && this._cacheSchemaIsCurrent(cached)
+                && Array.isArray(cachedAvatars)
+                && cachedAvatars.length > 0;
+              if (cacheUsable) {
+                m.avatars = cachedAvatars;
                 m.voices = cached.voices || [];
                 m.avatarTags = cached.avatarTags || [];
                 this._applyDefaultsForProvider(cfg);
@@ -2704,8 +3032,19 @@
           // tags arrive separately and may overwrite the cache shortly
           // after if they came in late — that's fine, next open will
           // see them).
+          //
+          // Two guards on cache write: (1) skip if any fetch errored,
+          // and (2) skip if avatars came back empty. Both prevent the
+          // bug where an auth failure (deleted/rotated provider key)
+          // wrote `[]` into the 12h cache, and subsequent opens — even
+          // after the user fixed the key in setting.html — kept reading
+          // the empty cache instead of re-fetching. Empty result on a
+          // healthy provider is rare; treating it as "don't cache" is
+          // the safer default.
           Promise.allSettled([avatarsP, voicesP]).then(() => {
             if (this._listsFetchAbort !== ac || ac.signal.aborted) return;
+            if (m.listsError) return;
+            if (!Array.isArray(m.avatars) || m.avatars.length === 0) return;
             try {
               localStorage.setItem(cacheKey, JSON.stringify({
                 ts: Date.now(),
@@ -2894,8 +3233,35 @@
               broll: m.form.broll || false,
               // Send the edited plan when broll is enabled; service falls
               // back to creation.structured_content.broll_plan otherwise.
+              // Also strips client-only fields (matched_asset metadata,
+              // _asset_dismissed flag) and only forwards the asset_id /
+              // asset_mode pair the backend understands.
               ...(m.form.broll && Array.isArray(m.form.broll_plan) && m.form.broll_plan.length
-                ? { broll_plan: m.form.broll_plan }
+                ? {
+                    broll_plan: m.form.broll_plan.map(shot => {
+                      const out = {
+                        type: shot.type,
+                        insert_after_char: shot.insert_after_char,
+                        duration_seconds: shot.duration_seconds,
+                        prompt: shot.prompt,
+                      };
+                      // Only forward asset binding when both fields are
+                      // set AND mode != "ai" (which means "ignore the
+                      // matched asset for this run").
+                      if (shot.asset_id && shot.asset_mode &&
+                          shot.asset_mode !== 'ai') {
+                        out.asset_id = shot.asset_id;
+                        out.asset_mode = shot.asset_mode;
+                        // asset_audio only meaningful in direct mode —
+                        // reference mode just feeds AI a style hint, the
+                        // asset's audio never leaves OpenLucid.
+                        if (shot.asset_mode === 'direct' && shot.asset_audio) {
+                          out.asset_audio = true;
+                        }
+                      }
+                      return out;
+                    }),
+                  }
                 : {}),
               // Per-job B-roll model override (provider+model picked in the
               // toolbar selector). Omit when the user hasn't enabled B-roll

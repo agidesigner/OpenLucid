@@ -85,6 +85,28 @@ async def _get_token_state(app_id: str, secret_key: str) -> dict[str, Any]:
         return state
 
 
+def invalidate_token_cache(app_id: str, secret_key: str) -> None:
+    """Drop the cached access_token state for these credentials.
+
+    Call this when the underlying secret_key was rotated or the config
+    deleted — without it, the (app_id, OLD_secret_key) entry sits in
+    memory until natural token expiry (~24h). New requests under the
+    new secret_key already use a different cache slot and aren't
+    affected functionally; this is purely memory hygiene + clearer
+    debug state.
+
+    Synchronous because the only thing being mutated is dict.pop, which
+    completes within a single event-loop tick — no need to await the
+    cache lock and risk deadlocking with an in-flight refresh."""
+    if not app_id or not secret_key:
+        # Empty creds were never cached (we only insert on real fetch
+        # attempts), so popping ("", "") is a no-op. Early-return here
+        # makes the no-op explicit and signals upstream "you probably
+        # didn't mean to call this with empty creds".
+        return
+    _token_cache.pop((app_id, secret_key), None)
+
+
 # Chanjing's TTS rejects any emoji in the script with `code=50000: 输入文本不可以
 # 包含 emoji`. Strip them silently before sending so the user doesn't have to
 # clean up scripts pasted from real-world content (which always have emoji).
