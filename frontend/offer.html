@@ -1623,6 +1623,10 @@
         },
 
         async fetchMcpTokenStatus() {
+          // Owner-only; guests / unauthenticated would burn a console
+          // 403. Skip rather than catch (browsers always log 4xx).
+          await window.odAwaitMe();
+          if (!window.odIsOwner()) { this.mcpHasTokens = false; return; }
           try {
             const r = await fetch(`${API}/settings/mcp-tokens`);
             if (r.ok) {

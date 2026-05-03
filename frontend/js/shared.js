@@ -288,6 +288,36 @@ body.is-guest #od-guest-banner {
     .catch(() => {});
 })();
 
+// Returns a promise resolving to ``window._od_me`` once /auth/me settles.
+// Intended for callers that want to skip an owner-only request rather
+// than burn a console 403 for guest visitors. Caps the wait at 1.5s so
+// a slow/dead /auth/me doesn't block page init forever — after the cap,
+// callers see whatever ``_od_me`` is at that moment (likely undefined,
+// which they should treat as "not yet known → don't call admin APIs").
+window.odAwaitMe = function odAwaitMe(timeoutMs = 1500) {
+  if (window._od_me !== undefined) return Promise.resolve(window._od_me);
+  return new Promise(resolve => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve(window._od_me);
+    };
+    document.addEventListener('od-auth-me', finish, { once: true });
+    setTimeout(finish, timeoutMs);
+    // Race: the event may have already fired before we attached.
+    if (window._od_me !== undefined) finish();
+  });
+};
+
+// True when /auth/me has resolved and the visitor is a real owner
+// (not guest, not unauthenticated). Useful as the precondition for
+// owner-only admin API calls so they don't 403 silently in the
+// console for guests/anonymous visitors.
+window.odIsOwner = function odIsOwner() {
+  return !!window._od_me && !window._od_is_guest;
+};
+
 // ── Toast ──────────────────────────────────────────────────────────────
 (function setupToast() {
   const ICONS = { success: '✓', error: '!', warning: '!', info: 'i' };

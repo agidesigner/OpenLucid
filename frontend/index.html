@@ -736,6 +736,10 @@
         },
 
         async checkMcpTokens() {
+          // /settings/* is owner-only; skip for guests/unauthenticated
+          // to avoid a red 403 in every visitor's console.
+          await window.odAwaitMe();
+          if (!window.odIsOwner()) { this.mcpTokensCount = 0; return; }
           try {
             const r = await fetch(`${API}/settings/mcp-tokens`);
             if (r.ok) {

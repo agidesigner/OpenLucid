@@ -79,7 +79,15 @@
   async function expandConfigsToModels(llmConfigs, apiBase = '/api/v1') {
     if (!Array.isArray(llmConfigs) || llmConfigs.length === 0) return [];
 
+    // /settings/* is owner-only; skip the per-config probe for guests/
+    // unauthenticated visitors so they don't see N × 403 in the
+    // console. Fallback path (just ``cfg.model_name`` per config)
+    // already handles missing model lists.
+    if (typeof window.odAwaitMe === 'function') await window.odAwaitMe();
+    const isOwner = typeof window.odIsOwner === 'function' && window.odIsOwner();
+
     const fetched = await Promise.all(llmConfigs.map(async (cfg) => {
+      if (!isOwner) return [cfg.model_name];
       try {
         const r = await fetch(`${apiBase}/settings/llm/${cfg.id}/models`);
         if (!r.ok) return [cfg.model_name];
