@@ -1666,7 +1666,9 @@ Generate {count} topic plans that honor the Creative Brief above."""
         closed_vocab_section = format_closed_vocab_for_tagging(language=language)
 
         existing_hint = ""
-        if existing_sample:
+        if isinstance(existing_sample, dict) and existing_sample:
+            existing_hint = json.dumps(existing_sample, ensure_ascii=False)
+        elif isinstance(existing_sample, list) and existing_sample:
             existing_hint = json.dumps(existing_sample[:30], ensure_ascii=False)
 
         if is_en:
@@ -1679,12 +1681,13 @@ Generate {count} topic plans that honor the Creative Brief above."""
 4. scenario (scenario association): scenarios this asset fits, **prefer exact phrases from target scenarios above**, 1-3 tags (can be empty)
 5. channel_fit (channel fit): suitable platforms, 1-2 tags
 6. content_form (production form): **pick 1-2 ids from the closed vocabulary above**, never invent new ids
-7. campaign_type (promotional mechanic): **pick 0-2 ids from the closed vocabulary above, or empty** if no promotional mechanic is visibly featured
+7. campaign_type (promotional mechanic): **pick 0-2 ids from the closed vocabulary above only when explicit promo evidence is visible/OCR-readable** (price, discount, free trial, gift, shipping, limited stock, preorder, coupon, countdown, deadline for an offer). Leave empty for ordinary event dates, agendas, brand posters, or feature descriptions.
 
 ## Consistency requirements
+- subject MUST describe only objects/people/text visibly present in this asset; do not copy subject tags from product context or other assets
 - selling_point and scenario MUST reuse original text from the product context when applicable
 - content_form / campaign_type MUST use ids from the closed vocabulary exactly — no paraphrasing, no new ids
-- Reuse existing free-form tags when possible: {existing_hint or 'N/A'}
+- Reuse existing category-specific non-subject tags when they fit this asset: {existing_hint or 'N/A'}
 - Tag language (for free-form fields): English
 
 Return JSON only:
@@ -1699,12 +1702,13 @@ Return JSON only:
 4. scenario（场景关联）：此素材适配的场景，**优先从上方目标场景中选择**，1-3 个（可以留空）
 5. channel_fit（渠道适配）：适合发布的平台，1-2 个
 6. content_form（内容形态）：**从上方受控词典里选 1-2 个 id**，不允许发明新 id
-7. campaign_type（促销机制）：**从上方受控词典里选 0-2 个 id，如画面无明显促销机制则留空**
+7. campaign_type（促销机制）：**只有画面/OCR 明确出现促销证据时才从受控词典里选 0-2 个 id**，例如价格、折扣、免费试用、赠品、包邮、限量、预售、优惠券、倒计时、优惠截止时间。普通活动日期、日程、品牌海报、功能说明不算促销机制，必须留空。
 
 ## 一致性要求
+- subject 必须只描述当前图片里确实可见的物体/人物/文字，不允许从商品上下文或其他素材复制画面主体
 - selling_point 和 scenario 必须优先复用商品知识库中的原文
 - content_form / campaign_type 必须使用受控词典里的 id 原文——不允许近义替换、不允许发明新 id
-- 其他自由标签尽量复用已有标签：{existing_hint or '无'}
+- 其他非 subject 标签可在适配当前素材时复用同分类历史标签：{existing_hint or '无'}
 - 自由标签语言：中文
 
 仅返回 JSON：
@@ -1713,12 +1717,32 @@ Return JSON only:
         user_text = f"{'Asset metadata' if is_en else '素材元数据'}：\n{json.dumps(asset_metadata, ensure_ascii=False, indent=2)}"
 
         if image_path:
-            try:
-                result = await self._chat_vision(system, user_text, image_path, temperature=0.3)
-            except Exception:
-                logger.warning("Vision call failed, falling back to text-only tagging")
-                result = await self._chat(system, user_text, temperature=0.3)
+            # Vision is the only legitimate path when an image is
+            # available. Pre-fix we used to fall back to a text-only
+            # call here when the vision request failed (e.g. user
+            # picked a non-vision model like deepseek-v4-pro for the
+            # vision_llm scene → API 400). That "succeeded" at the
+            # data layer (16 tags written) but the model never saw
+            # the image — it fabricated ``subject`` tags from
+            # filename + metadata + offer context, in direct violation
+            # of the prompt's rule "subject MUST describe only
+            # objects/people/text visibly present in this asset".
+            # The result was hallucinated tags that polluted the KB
+            # with confidence ~0.70 (vs ~0.94 on real vision runs).
+            #
+            # Now: let the vision exception bubble up. ``_auto_tag``'s
+            # caller in asset_service catches it, logs the reason, and
+            # marks the asset done with empty tags. The user sees an
+            # untagged card and immediately knows to switch to a
+            # vision-capable model — far better than silently
+            # poisoning their library.
+            result = await self._chat_vision(system, user_text, image_path, temperature=0.3)
         else:
+            # No image to look at (audio asset, or video without a
+            # preview frame yet). Text-only is legitimate here —
+            # there's no visual content to misrepresent, and the
+            # filename / mime / duration metadata is genuinely the
+            # only signal available.
             result = await self._chat(system, user_text, temperature=0.3)
 
         try:

@@ -2081,9 +2081,16 @@ async def match_broll_assets(
     Use this before submitting a video for generation when you want
     to surface user-shot footage instead of letting the AI synthesize
     every shot. The returned matches are advisory — to actually use
-    one, include ``asset_id`` and ``asset_mode`` ("direct" or
-    "reference") on the corresponding broll_plan entry when calling
-    submit_video.
+    one, include ``asset_id`` and ``asset_mode`` on the corresponding
+    broll_plan entry when calling submit_video. Three modes:
+
+      - "direct": skip AI, splice the asset straight into the timeline
+      - "first_frame": AI generates from this image as frame-0 anchor
+        (i2v); requires the chosen broll model's
+        ``supports_first_frame`` capability
+      - "reference": AI uses this as a soft style/content hint;
+        requires ``supports_style_references`` (no provider supports
+        this today — included for forward compatibility)
 
     Args:
       creation_id: UUID of the creation. Must have structured_content

@@ -318,6 +318,34 @@ window.odIsOwner = function odIsOwner() {
   return !!window._od_me && !window._od_is_guest;
 };
 
+// ── Vision-capability heuristic ────────────────────────────────────────
+// Asset tagging (and other vision_llm scenes) need a model that accepts
+// image input. We have no canonical capability registry per LLM config,
+// so this is a best-effort name-based check used by the UI to surface
+// "your tagging model probably can't see images" warnings before /
+// during failure (the UI shouldn't accuse, just hint). False positives
+// (warning a real vision model that we don't recognize) are tolerable —
+// users can still try; if it works, no harm done. False negatives
+// (failing to warn for an actual text-only model) just mean the user
+// finds out post-hoc via the empty-tags state on the asset card.
+//
+// Markers cover the major vision/multimodal model families as of
+// 2026-04. Add new markers here when integrating a new vision model
+// rather than scattering checks throughout the UI.
+window.odLooksLikeVisionModel = function odLooksLikeVisionModel(modelName) {
+  if (!modelName) return false;
+  const n = String(modelName).toLowerCase();
+  const markers = [
+    'vl', 'vision', 'visual', 'multimodal',
+    'gpt-4o', 'gpt-4-turbo', 'gpt-4-vision', 'gpt-5',
+    'claude-3', 'claude-4', 'claude-sonnet', 'claude-opus', 'claude-haiku',
+    'gemini',
+    'llava', 'minicpm-v', 'phi-3-vision', 'phi-4-multimodal',
+    'doubao-vision', 'doubao-seed', 'qwen2-vl', 'qwen2.5-vl', 'qwen3-vl',
+  ];
+  return markers.some(k => n.includes(k));
+};
+
 // ── Toast ──────────────────────────────────────────────────────────────
 (function setupToast() {
   const ICONS = { success: '✓', error: '!', warning: '!', info: 'i' };

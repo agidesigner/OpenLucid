@@ -356,52 +356,16 @@ async def create_video_job(
             if not broll_video_provider:
                 logger.info("B-roll: no B-roll-capable provider configured — skipping")
             else:
-                # Reference images for B-roll generation come from the
-                # offer's Assets tab — the only place the UI lets users
-                # upload product-specific photos. Merchant-scope Assets
-                # aren't queried because no UI currently uploads to that
-                # scope; that query would always be empty in practice.
-                # Brandkit is intentionally NOT used as a source — it's
-                # brand identity (logo, colors, fonts), not product
-                # visual content for i2v conditioning.
+                # Per-shot references only — the previous auto-load of
+                # offer-KB images as ``style_references`` for every shot
+                # was a no-op in practice: chanjing relay and Veo both
+                # drop ``style_references`` silently (no upstream channel),
+                # so the only effect was wasting bandwidth + chanjing
+                # tokens uploading images that were then discarded. Per-
+                # shot ``first_frame`` / ``reference`` modes are now
+                # capability-gated in the UI and routed below.
                 from app.adapters.storage import LocalStorageAdapter
-                from app.models.asset import Asset
                 storage = LocalStorageAdapter()
-
-                candidates: list = []
-                source_label = "none"
-                try:
-                    result = await db.execute(
-                        select(Asset).where(
-                            Asset.scope_type == "offer",
-                            Asset.scope_id == creation.offer_id,
-                            Asset.asset_type == "image",
-                            Asset.mime_type.in_(["image/png", "image/jpeg", "image/webp"]),
-                        ).order_by(Asset.created_at.desc()).limit(5)
-                    )
-                    candidates = list(result.scalars().all())
-                    if candidates:
-                        source_label = "offer_kb"
-                except Exception as e:
-                    logger.warning("B-roll: offer-KB asset lookup failed: %s", e)
-
-                # Upload each candidate; per-asset try so one bad file
-                # doesn't kill the rest. Empty ``candidates`` is fine —
-                # Seedance just runs pure text-to-video without ref_img.
-                asset_urls: list[str] = []
-                for asset in candidates:
-                    try:
-                        file_bytes = await storage.get_file(asset.storage_uri)
-                        ref_url = await broll_video_provider.upload_temp_file(
-                            file_bytes, asset.file_name or "ref.png",
-                        )
-                        asset_urls.append(ref_url)
-                    except Exception as e:
-                        logger.warning("B-roll: failed to upload asset %s: %s", asset.file_name, e)
-                logger.info(
-                    "B-roll: %d reference images uploaded (source=%s)",
-                    len(asset_urls), source_label,
-                )
 
                 # Cap aligned with composer spec (up to 5 inserts for 90s+).
                 # Build specs synchronously (cheap prep), then fan out the
@@ -426,7 +390,10 @@ async def create_video_job(
                 from app.application.broll_matching_service import (
                     get_asset_url_for_broll,
                 )
-                from app.adapters.video.base import StyleReference
+                from app.adapters.video.base import (
+                    FirstFrame,
+                    StyleReference,
+                )
 
                 for idx, entry in enumerate(broll_plan[:5]):
                     prompt = (entry.get("prompt") or "").strip()
@@ -434,7 +401,11 @@ async def create_video_job(
                         continue
                     shot_type = entry.get("type", "illustrative")
                     asset_id_raw = entry.get("asset_id")
-                    asset_mode = entry.get("asset_mode")  # "direct" | "reference" | None
+                    # "direct" | "first_frame" | "reference" | None.
+                    # Legacy data may still carry "reference"; that path stays
+                    # compatible but will be a no-op for providers without a
+                    # native style_references channel (chanjing/veo today).
+                    asset_mode = entry.get("asset_mode")
 
                     # Retention opener: prepend style cues that nudge Seedance
                     # toward a stopping-power shot. Without this, retention
@@ -475,6 +446,29 @@ async def create_video_job(
                                 db, uuid.UUID(str(asset_id_raw)),
                                 expected_aspect=ar,
                             )
+                            # Direct mode means "splice the asset literally
+                            # into the timeline" — the compositor runs
+                            # ffprobe + ffmpeg on the file expecting a
+                            # video stream. An image has no duration and
+                            # the compositor's segment builder doesn't
+                            # use ``-loop 1``, so an image-as-direct
+                            # silently drops out (or crashes ``concat -c
+                            # copy`` if a sibling segment differs in
+                            # stream layout). Reject early with a clear
+                            # error so the user can switch to
+                            # ``first_frame`` mode (i2v from the image)
+                            # or pick a video asset instead. Frontend
+                            # should already gate this; backend defends
+                            # against MCP / API clients that bypass the UI.
+                            if asset_meta.get("asset_type") == "image":
+                                raise AppError(
+                                    "BROLL_IMAGE_DIRECT_UNSUPPORTED",
+                                    f"Asset {asset_meta.get('file_name', '')} is an "
+                                    "image; direct splice supports videos only. "
+                                    "Use 'first_frame' mode (image-to-video) "
+                                    "or pick a video asset.",
+                                    400,
+                                )
                             # Resolve the asset to its absolute local path
                             # for the compositor to read directly. We
                             # deliberately do NOT call the broll provider's
@@ -545,47 +539,192 @@ async def create_video_job(
                             })
                         continue  # Skip AI submit for this shot.
 
-                    # ── Reference mode: per-shot style hint, AI still generates.
-                    # Soft hint — providers without a native style channel
-                    # (chanjing/Doubao, Veo 3.x) drop these silently rather
-                    # than misuse them as first-frame anchors (v1.3.x bug).
-                    # FirstFrame / LastFrame are intentionally NOT set here:
-                    # per the product decision, those are explicit user-
-                    # uploaded inputs (future UI), never auto-sourced.
-                    shot_asset_urls = list(asset_urls)  # global offer-KB refs
-                    if asset_id_raw and asset_mode == "reference":
+                    # ── AI generation modes with optional per-shot reference.
+                    # Two reference channels are independent (see
+                    # MediaCapabilityOption.supports_first_frame /
+                    # supports_style_references):
+                    #   * first_frame — hard i2v anchor (chanjing i2v / veo)
+                    #   * reference   — soft style hint (no provider today)
+                    #
+                    # Prep is split into three explicit phases so any
+                    # failure in any phase is caught, recorded in
+                    # ``broll_failures``, and skips the AI submit for
+                    # this shot. Earlier we wrapped all three in one
+                    # try/except that swallowed everything to a warning
+                    # and still appended to ``broll_specs`` with
+                    # first_frame_obj=None — the user's picked asset
+                    # got silently ignored and the strict gate at the
+                    # bottom couldn't see the failure (because no
+                    # broll_failures entry was added). Per product
+                    # policy "any broll failure aborts avatar gen",
+                    # prep failures must surface like submit failures.
+                    first_frame_obj: FirstFrame | None = None
+                    style_refs_list: list[StyleReference] = []
+                    if asset_id_raw and asset_mode in ("first_frame", "reference"):
+                        # Phase 1: resolve asset metadata. No
+                        # ``expected_aspect`` here — first_frame /
+                        # reference feed the AI generator (not the
+                        # timeline compositor), so aspect mismatch is
+                        # not a hard error; the model handles framing.
                         try:
                             asset_uri, asset_meta = await get_asset_url_for_broll(
                                 db, uuid.UUID(str(asset_id_raw)),
-                                expected_aspect=ar,
                             )
+                        except Exception as e:
+                            err_str = str(e) or e.__class__.__name__
+                            logger.warning(
+                                "B-roll #%d %s asset resolve failed (asset=%s): %s",
+                                idx, asset_mode, asset_id_raw, e,
+                            )
+                            broll_failures.append({
+                                "idx": idx,
+                                "prompt": prompt[:80],
+                                "error": _classify_broll_error(err_str),
+                            })
+                            continue  # skip submit; strict gate sees the failure
+
+                        # Phase 2: type validation. first_frame is
+                        # image-only at the provider API level:
+                        # chanjing's create_upload_url rejects mp4 with
+                        # code=50000 ("only png/jpeg/jpg/heic"); veo's
+                        # instance.image only takes base64 image bytes.
+                        # Frontend chip strip already prevents this
+                        # (video shows only 'direct' chip), but a stale
+                        # broll_plan or MCP/API caller could still send
+                        # video+first_frame. Reject hard so the user
+                        # sees a clear error instead of a silent
+                        # text-only fallback. ``reference`` channel
+                        # has no live provider yet so we leave its
+                        # type rules permissive until we wire the
+                        # first real consumer.
+                        if asset_mode == "first_frame" and asset_meta.get("asset_type") != "image":
+                            err_str = (
+                                f"first_frame requires image asset; got "
+                                f"{asset_meta.get('asset_type')} "
+                                f"({asset_meta.get('file_name', '')})"
+                            )
+                            logger.warning("B-roll #%d %s", idx, err_str)
+                            broll_failures.append({
+                                "idx": idx,
+                                "prompt": prompt[:80],
+                                "error": _classify_broll_error(
+                                    "BROLL_FIRST_FRAME_REQUIRES_IMAGE: " + err_str,
+                                ),
+                            })
+                            continue
+
+                        # Phase 2.5: aspect-range check for first_frame.
+                        # chanjing/Doubao reject aspect outside [0.5, 2.0]
+                        # with code=50000; veo is more forgiving but still
+                        # has practical limits. Caps come from the same
+                        # registry the picker UI uses, so backend and
+                        # frontend agree on the boundary. Defense-in-
+                        # depth: even when the picker filters correctly,
+                        # an MCP/API caller could still submit a long
+                        # poster image.
+                        if asset_mode == "first_frame":
+                            from app.application.setting_service import _video_model_ref_caps
+                            caps = _video_model_ref_caps(
+                                broll_provider_config.provider,
+                                broll_model_code or "",
+                            )
+                            amin = caps.get("first_frame_aspect_min")
+                            amax = caps.get("first_frame_aspect_max")
+                            w = asset_meta.get("width")
+                            h = asset_meta.get("height")
+                            # Belt-and-braces guard: if the model has a
+                            # documented aspect window but the asset
+                            # record is missing dimensions (parse pipeline
+                            # crashed mid-extraction, or the file slipped
+                            # in via an external API), refuse the submit
+                            # rather than letting the chanjing API reject
+                            # it. Frontend picker also locks these via
+                            # ``assetLockReason='metadata_missing'``;
+                            # this is the API-level defense for non-UI
+                            # callers (MCP tools, CLI).
+                            if amin is not None and amax is not None and (not w or not h):
+                                err_str = (
+                                    f"image asset {asset_meta.get('file_name', '')} "
+                                    f"is missing width/height — re-upload to "
+                                    f"trigger parse, or pick a different image"
+                                )
+                                logger.warning("B-roll #%d %s", idx, err_str)
+                                broll_failures.append({
+                                    "idx": idx,
+                                    "prompt": prompt[:80],
+                                    "error": _classify_broll_error(
+                                        "BROLL_FIRST_FRAME_METADATA_MISSING: " + err_str,
+                                    ),
+                                })
+                                continue
+                            if amin and amax and w and h and h > 0:
+                                # Local name — must NOT shadow the
+                                # outer string ``ar`` (set above to
+                                # "9:16" / "16:9" / "1:1") that gets
+                                # passed to provider.submit_broll_clip
+                                # as ``aspect_ratio``. Using ``ar``
+                                # here once leaked the image's float
+                                # aspect into the chanjing payload,
+                                # which rejected it as code=400 "参数
+                                # 无效" because the field expects a
+                                # canonical aspect-ratio string.
+                                img_ar = w / h
+                                if img_ar < amin or img_ar > amax:
+                                    err_str = (
+                                        f"image aspect {img_ar:.2f} ({w}:{h}) outside "
+                                        f"{broll_provider_config.provider}/"
+                                        f"{broll_model_code} accepted range "
+                                        f"[{amin}, {amax}]"
+                                    )
+                                    logger.warning("B-roll #%d %s", idx, err_str)
+                                    broll_failures.append({
+                                        "idx": idx,
+                                        "prompt": prompt[:80],
+                                        "error": _classify_broll_error(
+                                            "BROLL_FIRST_FRAME_ASPECT_OUT_OF_RANGE: " + err_str,
+                                        ),
+                                    })
+                                    continue
+
+                        # Phase 3: upload to provider's temp file
+                        # service. Network / quota / auth issues land
+                        # here. Pre-strict-gate this was a soft fail
+                        # (warn + continue with text-only AI); under
+                        # the new policy the user-explicit broll
+                        # opt-in means any prep failure is a hard
+                        # failure surfaced via the strict gate.
+                        try:
                             file_bytes = await storage.get_file(asset_uri)
                             ref_url = await broll_video_provider.upload_temp_file(
                                 file_bytes,
-                                asset_meta.get("file_name") or "ref.mp4",
+                                asset_meta.get("file_name") or "ref.png",
                             )
-                            shot_asset_urls.append(ref_url)
+                            if asset_mode == "first_frame":
+                                first_frame_obj = FirstFrame(url=ref_url)
+                            else:
+                                style_refs_list.append(StyleReference(url=ref_url))
                             logger.info(
-                                "B-roll #%d reference-mode asset=%s",
-                                idx, asset_id_raw,
+                                "B-roll #%d %s-mode asset=%s",
+                                idx, asset_mode, asset_id_raw,
                             )
                         except Exception as e:
-                            # Reference mode is a soft hint. Drop it on
-                            # failure rather than blocking the AI submit.
+                            err_str = str(e) or e.__class__.__name__
                             logger.warning(
-                                "B-roll #%d reference upload failed (asset=%s): %s — "
-                                "falling back to AI without this reference",
-                                idx, asset_id_raw, e,
+                                "B-roll #%d %s upload failed (asset=%s): %s",
+                                idx, asset_mode, asset_id_raw, e,
                             )
+                            broll_failures.append({
+                                "idx": idx,
+                                "prompt": prompt[:80],
+                                "error": _classify_broll_error(err_str),
+                            })
+                            continue
 
-                    style_refs = (
-                        [StyleReference(url=u) for u in shot_asset_urls]
-                        if shot_asset_urls else None
-                    )
                     submit_kwargs: dict = dict(
                         prompt=prompt, duration=dur,
                         aspect_ratio=ar,
-                        style_references=style_refs,
+                        style_references=style_refs_list or None,
+                        first_frame=first_frame_obj,
                     )
                     if broll_model_code:
                         submit_kwargs["model_code"] = broll_model_code
@@ -652,27 +791,30 @@ async def create_video_job(
                     params["broll_provider_config_id"] = str(broll_provider_config.id)
                     job.params = params
 
-                # Surface broll submit failures on the job. Avatar generation
-                # continues either way — we don't want a quota / auth issue
-                # on the B-roll provider to drop the whole job — but the user
-                # MUST be told something was lost.
+                # Surface broll submit failures on the job for the UI's
+                # warnings panel. The strict gate below decides whether
+                # the job continues; this block only persists the
+                # structured warning details so the failed-job row can
+                # render per-shot reasons.
                 if broll_failures:
                     params["broll_warnings"] = broll_failures
                     params["broll_warning_provider"] = broll_provider_config.provider
+                    # ``broll_status`` is set authoritatively by the
+                    # strict gate below (always ``failed_strict`` when
+                    # any failure exists, since strict policy is
+                    # "abort avatar on any broll failure"). The legacy
+                    # partial / all_failed values are no longer used —
+                    # the gate overwrites them. Don't write them here.
                     if not broll_tasks:
-                        # All shots failed → also bubble through error_message
-                        # so the existing red-text channel renders it without
-                        # any extra UI work, in addition to the structured
-                        # warnings list. Status stays as-is so the avatar can
-                        # still complete (broll is additive, not gating).
+                        # All shots failed → seed ``error_message`` so
+                        # the strict gate's overwrite has an existing
+                        # value to either reuse or replace; also helps
+                        # debug logs read in chronological order.
                         first = broll_failures[0].get("error", "?")
                         job.error_message = (
                             f"B-roll generation failed for all {len(broll_failures)} shot(s) "
                             f"via {broll_provider_config.provider}: {first}"
                         )
-                        params["broll_status"] = "all_failed"
-                    else:
-                        params["broll_status"] = "partial"
                     job.params = params
 
                 # Strict gate: ANY B-roll failure aborts avatar
@@ -683,21 +825,33 @@ async def create_video_job(
                 # planned cutaways, or with one shot missing) is a
                 # quality regression they didn't ask for.
                 #
-                # This applies to BOTH chanjing and jogg avatars (gate
-                # is provider-agnostic) and to BOTH hard and soft
-                # broll failures. Pre-v1.4 we only bailed on
-                # all-failures-and-all-hard; that produced inconsistent
-                # output that surprised users.
+                # We're inside the broll generation block so reaching
+                # this point already implies the user opted into broll;
+                # any non-empty ``broll_failures`` is sufficient to
+                # bail. The pre-v1.4.5 condition (``broll_specs and
+                # broll_failures``) only caught failures from the AI
+                # submit phase, missing failures from:
+                #   * direct-mode prep (asset deleted between pick
+                #     and submit) — broll_specs would be empty if all
+                #     shots were direct
+                #   * first_frame / reference prep (asset resolve,
+                #     type mismatch, upload failure) — those used to
+                #     swallow into a warning then fall through to
+                #     text-only submit, leaving broll_failures empty
+                #     even though the user's picked asset was lost.
+                # Both classes of prep failure now append to
+                # broll_failures + ``continue``, so a single condition
+                # covers everything.
                 #
-                # Caveat: shots that were already accepted by the
-                # provider (have task_ids in ``broll_tasks``) keep
-                # generating server-side and consume credits — neither
-                # chanjing nor jogg expose a cancel API. We surface
-                # this in the error message so the user understands
-                # why the credit ledger moved.
-                if broll_specs and broll_failures:
+                # Caveat: AI shots already accepted by the provider
+                # (in ``broll_tasks``) keep generating server-side and
+                # consume credits — neither chanjing nor jogg expose
+                # a cancel API. We surface this in the error message
+                # so the user understands why the credit ledger moved.
+                if broll_failures:
                     succeeded_count = len(broll_tasks)
                     failed_count = len(broll_failures)
+                    total = succeeded_count + failed_count
                     first = broll_failures[0].get("error", "?")
                     suffix = ""
                     if succeeded_count > 0:
@@ -707,7 +861,7 @@ async def create_video_job(
                         )
                     job.status = "failed"
                     job.error_message = (
-                        f"B-roll 生成失败：{failed_count}/{len(broll_specs)} 个分镜在 "
+                        f"B-roll 生成失败：{failed_count}/{total} 个分镜在 "
                         f"{broll_provider_config.provider} 上报错（首个错误：{first}）。"
                         f"为避免输出不完整的视频，已跳过数字人合成。{suffix}"
                     )

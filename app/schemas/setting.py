@@ -82,6 +82,28 @@ class MediaCapabilityOption(BaseModel):
     display_label: str        # "🎬 蝉镜 · Doubao-Seedance-1.0-pro"
     available: bool = True
 
+    # Reference-image capabilities (video_gen only). Each axis is independent:
+    # ``first_frame`` = hard constraint, video starts from this image (i2v).
+    # ``style_references`` = soft guidance, model "looks at" these images.
+    # Default False — frontend hides the matched-asset chip when the active
+    # model can't actually consume the corresponding reference channel.
+    # Adding new axes (last_frame, identity_reference) is just one more
+    # bool field with default=False — non-breaking for existing options.
+    supports_first_frame: bool = False
+    supports_style_references: bool = False
+    # Aspect-ratio constraints for the first_frame channel (only meaningful
+    # when ``supports_first_frame`` is True). Different vision-to-video
+    # providers reject inputs outside their accepted aspect window:
+    # chanjing/Doubao-Seedance returns code=50000 for anything outside
+    # [0.5, 2.0]; veo's API is more forgiving but extremely tall/wide
+    # images still degrade. We surface the window so the picker can
+    # disable out-of-range thumbnails BEFORE submit, instead of users
+    # discovering the limit via a strict-gate failure mid-generation.
+    # ``None`` means the provider has no documented hard limit — no
+    # client-side filtering applied.
+    first_frame_aspect_min: float | None = None
+    first_frame_aspect_max: float | None = None
+
 
 class MediaCapabilityConfig(BaseModel):
     capability: str          # image_gen | video_gen | tts

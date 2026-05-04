@@ -80,11 +80,6 @@
       <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
       <span class="text-sm font-medium text-gray-800" x-text="offer?.name || '...'"></span>
       <div class="flex-1"></div>
-      <button @click="openTopicPicker()"
-              class="ai-cta bg-gradient-to-r from-purple-600 to-accent text-white px-4 py-[7px] rounded-lg text-[13px] font-medium flex items-center gap-1.5">
-        <svg class="w-4 h-4 ai-spark" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l1.8 5.5L19 9l-5.2 1.5L12 16l-1.8-5.5L5 9l5.2-1.5z"/><path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8z"/></svg>
-        <span x-text="t('generate_topics')"></span>
-      </button>
 
       <!-- More actions dropdown -->
       <div class="relative owner-only" x-data="{ open: false }" @click.outside="open = false">
@@ -501,13 +496,54 @@
 
         <!-- ====== ASSETS TAB ====== -->
         <div x-show="tab==='assets'" x-cloak>
-          <label class="flex items-center justify-center w-full h-28 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:border-accent/40 hover:bg-accent-light/30 bg-white transition-all mb-5"
-                 :class="(uploading || hashing) && 'pointer-events-none opacity-60'">
-            <div class="text-center">
-              <svg class="w-6 h-6 text-gray-300 mx-auto mb-1" :class="(uploading || hashing) && 'animate-pulse'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-              <span class="text-sm text-gray-400" x-text="hashing ? t('loading') : uploading ? t('saving') : t('upload_asset')"></span>
+          <!-- Upload drop zone — click to pick or drag files in.
+               Both paths funnel into ``uploadAssetFiles(files)`` which
+               iterates, hashes, dedupes against the offer's existing
+               assets, and uploads sequentially. Sequential (not
+               parallel) is the right call here:
+                 (a) keeps the duplicate-check race-free (a batch of
+                     10 identical files would otherwise all upload),
+                 (b) parser/tagger pipeline already runs async on the
+                     server, so client-side parallelism doesn't speed
+                     up the user-visible "ready" state,
+                 (c) avoids hammering the upload endpoint with multi-MB
+                     videos on slow uplinks. -->
+          <label class="flex items-center justify-center w-full h-28 border-2 border-dashed rounded-xl cursor-pointer transition-all mb-5"
+                 :class="
+                   (uploading || hashing) ? 'pointer-events-none opacity-60 border-gray-200 bg-white' :
+                   dragHover ? 'border-accent bg-accent-light/40' :
+                   'border-gray-200 bg-white hover:border-accent/40 hover:bg-accent-light/30'
+                 "
+                 @dragenter.prevent="if (!uploading && !hashing) dragHover = true"
+                 @dragover.prevent="if (!uploading && !hashing) dragHover = true"
+                 @dragleave.prevent="dragHover = false"
+                 @drop.prevent="dragHover = false; if (!uploading && !hashing) uploadAssetFiles($event.dataTransfer.files)">
+            <div class="text-center pointer-events-none">
+              <!-- Icon switches based on state -->
+              <svg x-show="!uploading && !hashing && !dragHover" class="w-6 h-6 text-gray-300 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+              </svg>
+              <svg x-show="dragHover && !uploading && !hashing" class="w-6 h-6 text-accent mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+              </svg>
+              <svg x-show="uploading || hashing" class="w-6 h-6 text-accent mx-auto mb-1 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+              <!-- Label switches: drag-hover prompt > batch progress > default -->
+              <span x-show="dragHover && !uploading && !hashing"
+                    class="text-sm text-accent font-medium"
+                    x-text="t('upload_drop_release')"></span>
+              <span x-show="(uploading || hashing) && uploadProgress.total > 1"
+                    class="text-sm text-gray-700 font-medium tabular-nums"
+                    x-text="t('upload_batch_progress').replace('{done}', uploadProgress.done).replace('{total}', uploadProgress.total)"></span>
+              <span x-show="(uploading || hashing) && uploadProgress.total <= 1"
+                    class="text-sm text-gray-400"
+                    x-text="hashing ? t('loading') : t('saving')"></span>
+              <span x-show="!uploading && !hashing && !dragHover"
+                    class="text-sm text-gray-400"
+                    x-text="t('upload_drop_hint')"></span>
             </div>
-            <input type="file" class="hidden" @change="uploadAsset($event)" :disabled="uploading || hashing" accept="image/*,video/*,audio/*">
+            <input type="file" class="hidden" multiple @change="uploadAssetFiles($event.target.files); $event.target.value = ''" :disabled="uploading || hashing" accept="image/*,video/*,audio/*">
           </label>
 
           <!-- Duplicate file dialog -->
@@ -550,6 +586,88 @@
               </div>
             </div>
           </div>
+          <!-- Global parse-status progress strip — visible only while at
+               least one asset is non-terminal (pending/processing/tagging).
+               Lives at the top of the assets tab so the user keeps seeing
+               progress even if they scroll past pending cards in the grid.
+               role=status + aria-live=polite announces "N of M analyzed"
+               to screen readers without stealing focus. -->
+          <div x-show="parseProgress.pending > 0" x-cloak
+               role="status" aria-live="polite"
+               x-transition:enter="transition ease-out duration-200"
+               x-transition:enter-start="opacity-0 -translate-y-1"
+               x-transition:enter-end="opacity-100 translate-y-0"
+               x-transition:leave="transition ease-in duration-150"
+               x-transition:leave-start="opacity-100"
+               x-transition:leave-end="opacity-0"
+               class="mb-3 px-3 py-2.5 rounded-lg bg-purple-50 border border-purple-100">
+            <div class="flex items-center gap-2 mb-1.5 flex-wrap">
+              <svg class="w-3.5 h-3.5 text-purple-500 shrink-0 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+              </svg>
+              <span class="text-[12px] text-purple-800 font-medium tabular-nums flex-1 min-w-0 truncate"
+                    x-text="t('assets_analyzing_progress')
+                              .replace('{done}', parseProgress.done)
+                              .replace('{total}', parseProgress.total)"></span>
+              <span class="text-[10px] text-purple-500/80 tabular-nums shrink-0"
+                    x-text="parseElapsedLabel"></span>
+            </div>
+            <!-- Progress bar — animates the fill width via transform-friendly
+                 width transition (paint only, no layout). -->
+            <div class="h-1 rounded-full bg-purple-100 overflow-hidden">
+              <div class="h-full bg-purple-500 rounded-full transition-all duration-500 ease-out"
+                   :style="`width: ${Math.max(2, Math.round(parseProgress.done / Math.max(parseProgress.total, 1) * 100))}%`"></div>
+            </div>
+            <!-- Inline capability hint while tagging is in progress.
+                 Visible only when:
+                   (a) at least one asset is being tagged (parent x-show)
+                   (b) the active vision_llm model name doesn't match the
+                       odLooksLikeVisionModel heuristic
+                 We surface this DURING the tagging window so the user
+                 can switch models before the call fails — much better
+                 than the post-failure "无标签" indicator on cards. -->
+            <div x-show="taggingModelLikelyTextOnly"
+                 class="mt-2 pt-2 border-t border-purple-200/60 flex items-center gap-1.5 text-[11px] text-amber-800">
+              <svg class="w-3.5 h-3.5 text-amber-500 shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+              </svg>
+              <span class="flex-1 min-w-0" x-text="t('assets_tagging_model_warning')"></span>
+              <a href="/setting.html?section=llm" class="font-medium text-amber-900 underline hover:text-amber-950 shrink-0"
+                 x-text="t('assets_open_settings')"></a>
+            </div>
+          </div>
+
+          <!-- Aggregate "no tags" banner — appears after tagging settles
+               if any done asset ended up with zero tags. Single global
+               message instead of decorating every card with the same
+               "fix your model config" hint; CTA jumps straight to
+               Settings → LLM scenes. Dismissible per-offer-per-day so
+               users who genuinely want untagged assets aren't nagged. -->
+          <div x-show="parseProgress.pending === 0
+                        && untaggedDoneCount > 0
+                        && !noTagsBannerDismissed" x-cloak
+               role="status"
+               class="mb-3 px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-2.5">
+            <svg class="w-4 h-4 text-amber-500 shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+              <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+            </svg>
+            <div class="flex-1 min-w-0">
+              <p class="text-[12px] font-medium text-amber-900"
+                 x-text="t('assets_untagged_banner_title').replace('{n}', untaggedDoneCount)"></p>
+              <p class="text-[11px] text-amber-800/90 mt-0.5 leading-relaxed"
+                 x-text="t('assets_untagged_banner_body')"></p>
+              <div class="mt-1.5 flex items-center gap-3">
+                <a href="/setting.html?section=llm"
+                   class="text-[11px] font-medium text-amber-900 underline hover:text-amber-950"
+                   x-text="t('assets_open_settings')"></a>
+                <button type="button" @click="dismissNoTagsBanner()"
+                        class="text-[11px] text-amber-700/80 hover:text-amber-900"
+                        x-text="t('btn_dismiss') || 'Dismiss'"></button>
+              </div>
+            </div>
+          </div>
+
           <!-- Search bar -->
           <div class="mb-4 space-y-2">
             <div class="flex gap-2">
@@ -614,7 +732,10 @@
           <div x-show="assets.length === 0 && isSearchActive()" class="text-center py-12 text-gray-400 text-sm" x-text="t('none_yet')"></div>
           <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             <template x-for="a in assets" :key="a.id">
-              <div class="bg-white rounded-xl border border-gray-100 overflow-hidden hover:border-blue-200 hover:shadow-md transition-all group cursor-pointer relative"
+              <div class="bg-white rounded-xl border overflow-hidden hover:shadow-md transition-all group cursor-pointer relative"
+                   :class="a._justFinished
+                             ? 'border-green-400 ring-2 ring-green-200'
+                             : 'border-gray-100 hover:border-blue-200'"
                    :data-asset-id="a.id" @click="previewAsset = a">
                 <!-- Dropdown menu button -->
                 <div class="absolute top-1.5 right-1.5 z-10" @click.stop>
@@ -694,21 +815,46 @@
                 <div class="p-2.5">
                   <p class="text-[13px] font-medium text-gray-800 truncate" x-text="a.title || a.file_name"></p>
                   <div class="flex items-center gap-1.5 mt-1">
+                    <!-- Status pill — split 'done' into two visually
+                         distinct outcomes:
+                           done + has tags  → green "已打标"  (success)
+                           done + no tags   → amber "无标签"  (config warning)
+                         The amber state surfaces when the AI vision call
+                         failed but the parse pipeline still marked the
+                         asset done (typical cause: the configured
+                         vision_llm model doesn't actually accept
+                         images). Without this split, users couldn't
+                         tell "tagging worked" from "tagging silently
+                         produced nothing". -->
                     <span class="inline-flex items-center gap-1 text-[10px] font-medium"
                       :class="{
-                        'text-green-600': a.parse_status==='done',
+                        'text-green-600': a.parse_status==='done' && hasAssetTags(a),
+                        'text-amber-700': a.parse_status==='done' && !hasAssetTags(a),
                         'text-blue-500': a.parse_status==='processing' || a.parse_status==='pending',
                         'text-purple-500': a.parse_status==='tagging',
                         'text-red-500': a.parse_status==='failed'
                       }">
-                      <span class="w-1.5 h-1.5 rounded-full"
-                        :class="{
-                          'bg-green-500': a.parse_status==='done',
-                          'bg-blue-400 animate-pulse': a.parse_status==='processing' || a.parse_status==='pending',
-                          'bg-purple-400 animate-pulse': a.parse_status==='tagging',
-                          'bg-red-500': a.parse_status==='failed'
-                        }"></span>
-                      <span x-text="({pending: t('status_draft'), processing: t('loading'), tagging: t('ai_analyzing'), done: t('done'), failed: t('unknown_error')})[a.parse_status] || a.parse_status"></span>
+                      <!-- Green dot for tagged-success -->
+                      <span x-show="a.parse_status==='done' && hasAssetTags(a)"
+                            class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                      <!-- Amber warning triangle for done-but-empty -->
+                      <svg x-show="a.parse_status==='done' && !hasAssetTags(a)"
+                           class="w-3 h-3 text-amber-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+                      </svg>
+                      <!-- Existing dots for non-done states -->
+                      <span x-show="a.parse_status!=='done'"
+                            class="w-1.5 h-1.5 rounded-full"
+                            :class="{
+                              'bg-blue-400 animate-pulse': a.parse_status==='processing' || a.parse_status==='pending',
+                              'bg-purple-400 animate-pulse': a.parse_status==='tagging',
+                              'bg-red-500': a.parse_status==='failed'
+                            }"></span>
+                      <span x-text="(a.parse_status==='done' && !hasAssetTags(a))
+                                      ? t('asset_status_no_tags')
+                                      : (a.parse_status==='done' && hasAssetTags(a))
+                                        ? t('asset_status_tagged')
+                                        : ({pending: t('status_draft'), processing: t('loading'), tagging: t('ai_analyzing'), failed: t('unknown_error')})[a.parse_status] || a.parse_status"></span>
                     </span>
                     <template x-if="a.metadata_json?.file_size_bytes">
                       <span class="text-[10px] text-gray-400" x-text="formatAssetBytes(a.metadata_json.file_size_bytes)"></span>
@@ -1457,6 +1603,29 @@
         // Assets
         assets: [], assetsTotal: 0, uploading: false, hashing: false,
         duplicateDialog: null, // { asset, file, event } when duplicate detected
+        // Drag-hover state for the upload box border highlight.
+        dragHover: false,
+        // Parse-status watcher state. _pollTimer is the active
+        // setInterval handle (null when nothing's pending);
+        // _pollStartedAt is the wall-clock start used for adaptive
+        // backoff and the elapsed-time display in the progress strip.
+        _pollTimer: null,
+        _pollStartedAt: null,
+        // Active vision_llm scene config for asset_tagging — used to
+        // decide whether to show "your model probably can't see images"
+        // warnings. Null means "not yet fetched"; an empty string means
+        // "fetched but no model name". The fetch is owner-only and may
+        // fail silently for guests; that's fine, the warnings only
+        // help the user who can actually fix the config.
+        _taggingModelName: null,
+        // Per-offer-per-day localStorage key remembers when the user
+        // dismissed the "no tags" banner so they aren't nagged.
+        noTagsBannerDismissed: false,
+        // Batch upload counters: total = files in current batch,
+        // done = files finished (success or skip), skipped = duplicates,
+        // failed = upload errors. Used by the upload-box label and the
+        // post-batch summary toast.
+        uploadProgress: { total: 0, done: 0, skipped: 0, failed: 0 },
         previewAsset: null,   // asset object for preview modal
         assetMenu: null,      // asset id for dropdown menu
         editTagsAsset: null,  // asset object for tag editing modal
@@ -1575,9 +1744,10 @@
           this.offer = await res.json();
           document.title = `${this.offer.name} - OpenLucid`;
           this.hintDismissed = localStorage.getItem(`od_dismissed_mcp_hint_${this.offerId}`) === '1';
+          this._restoreNoTagsBannerState();
           await Promise.all([
             this.fetchKnowledge(),
-            this.fetchAssets(),
+            this.fetchAssets(),  // calls _ensureParseWatcher() internally
             this.fetchOverview(),
             this.fetchMerchantName(),
             this.fetchMcpTokenStatus(),
@@ -1585,7 +1755,21 @@
             this.fetchTagVocabulary(),
             this.fetchChannelFitSuggestions(),
             this.fetchLogo(),
+            this.fetchTaggingSceneConfig(),  // owner-only, silent for guests
           ]);
+          // Page Visibility hook: when the user comes back to the tab
+          // after switching away (common pattern: kick off long-running
+          // tagging then check email / Slack), refresh immediately and
+          // restart the watcher. Without this, polling that paused due
+          // to ``document.hidden`` never resumes until something else
+          // triggers a fetch.
+          if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', () => {
+              if (!document.hidden && this.tab === 'assets') {
+                this.fetchAssets();
+              }
+            });
+          }
         },
 
         async fetchLogo() {
@@ -1921,46 +2105,165 @@
         async fetchAssets() {
           const res = await fetch(`${API}/assets?scope_type=offer&scope_id=${this.offerId}&page_size=50`);
           const data = await res.json();
-          this.assets = data.items; this.assetsTotal = data.total;
+          // Detect "just-finished" assets so the card can flash a brief
+          // success ring (visual confirmation that AI tagging completed).
+          // Compare new parse_status to previous state by id; only flag
+          // assets whose status JUST transitioned to 'done' on this
+          // refresh, not every asset that's done. The flag auto-clears
+          // after 800ms via setTimeout.
+          const prevById = {};
+          for (const a of (this.assets || [])) prevById[a.id] = a.parse_status;
+          this.assets = data.items;
+          this.assetsTotal = data.total;
+          for (const a of this.assets) {
+            const prev = prevById[a.id];
+            if (prev && prev !== 'done' && a.parse_status === 'done') {
+              a._justFinished = true;
+              setTimeout(() => { a._justFinished = false; }, 800);
+            }
+          }
+          // Whenever assets state may have changed, ensure the parse
+          // watcher reflects reality: start it if there's anything
+          // non-terminal, stop it if everything's settled. Idempotent.
+          this._ensureParseWatcher();
         },
         async _hashFile(file) {
           const buf = await file.arrayBuffer();
           const digest = await crypto.subtle.digest('SHA-256', buf);
           return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
         },
-        async uploadAsset(event) {
-          const file = event.target.files[0];
-          if (!file) return;
+        // Single-file uploads keep the interruptive duplicate dialog
+        // (so the user can jump to the existing asset rather than
+        // silently dropping their action). Batch uploads (>1 file)
+        // skip duplicates and report counts in a final summary toast
+        // — popping N modals for an N-file drop would be hostile.
+        async _uploadOneFile(file, opts = {}) {
+          const { skipDuplicateDialog = false } = opts;
+          if (!file) return { ok: false, skipped: false, reason: 'empty' };
+          // Filter unsupported types up-front. The <input accept=> only
+          // hints the picker; drag-drop bypasses it entirely.
+          const okType = file.type.startsWith('image') || file.type.startsWith('video') || file.type.startsWith('audio');
+          if (!okType) return { ok: false, skipped: false, reason: 'unsupported' };
 
-          // 1. Compute hash
-          this.hashing = true;
+          // Hash for duplicate detection. Failure (e.g. crypto.subtle
+          // unavailable on insecure origins) just disables the dedupe
+          // shortcut; upload proceeds.
           let hash;
           try { hash = await this._hashFile(file); }
           catch { hash = null; }
-          this.hashing = false;
 
-          // 2. Check for duplicate in this offer
           if (hash) {
             const res = await fetch(`${API}/assets/check-duplicate?hash=${hash}&scope_type=offer&scope_id=${this.offerId}`);
             if (res.ok) {
               const data = await res.json();
               if (data.exists) {
-                this.duplicateDialog = { asset: data.asset, file };
-                event.target.value = '';
-                return;
+                if (!skipDuplicateDialog) {
+                  // Single-file path: preserve interactive choice.
+                  this.duplicateDialog = { asset: data.asset, file };
+                  return { ok: false, skipped: true, reason: 'duplicate' };
+                }
+                // Batch path: silent skip, summarized at end.
+                return { ok: false, skipped: true, reason: 'duplicate' };
               }
             }
           }
 
-          // 3. Upload
-          this.uploading = true;
           const fd = new FormData();
-          fd.append('file', file); fd.append('scope_type', 'offer'); fd.append('scope_id', this.offerId);
-          fd.append('asset_type', file.type.startsWith('video') ? 'video' : file.type.startsWith('audio') ? 'audio' : 'image');
-          await fetch(`${API}/assets/upload`, { method: 'POST', body: fd });
-          await this.fetchAssets();
-          this.uploading = false; event.target.value = '';
-          this._pollParseStatus();
+          fd.append('file', file);
+          fd.append('scope_type', 'offer');
+          fd.append('scope_id', this.offerId);
+          fd.append('asset_type',
+            file.type.startsWith('video') ? 'video' :
+            file.type.startsWith('audio') ? 'audio' : 'image');
+          try {
+            const r = await fetch(`${API}/assets/upload`, { method: 'POST', body: fd });
+            if (!r.ok) return { ok: false, skipped: false, reason: 'http_' + r.status };
+            return { ok: true, skipped: false };
+          } catch (e) {
+            return { ok: false, skipped: false, reason: e.message || 'network' };
+          }
+        },
+
+        // Public entry point used by the file input change event AND
+        // the drop handler. ``files`` is a FileList; we take a snapshot
+        // because some browsers clear the FileList synchronously after
+        // the drop event resolves.
+        async uploadAssetFiles(files) {
+          const list = Array.from(files || []);
+          if (list.length === 0) return;
+          // Pre-filter to count unsupported types for the summary toast.
+          const supported = list.filter(f =>
+            f.type.startsWith('image') || f.type.startsWith('video') || f.type.startsWith('audio'));
+          const unsupportedCount = list.length - supported.length;
+          if (supported.length === 0) {
+            const msg = (t('upload_unsupported_filtered') || '').replace('{n}', unsupportedCount);
+            if (window.toast && window.toast.warning) window.toast.warning(msg);
+            return;
+          }
+          // Single file → keep the dialog UX. Multi-file → silent dedupe
+          // with a final summary so a 10-file drop doesn't pop 10 dialogs.
+          const isBatch = supported.length > 1;
+          this.uploadProgress = { total: supported.length, done: 0, skipped: 0, failed: 0 };
+          this.uploading = true;
+          this.hashing = true;  // spinner stays on through hashing+upload
+          // try/finally guarantees the upload-box state resets even
+          // when _uploadOneFile / fetchAssets / toast throws or when
+          // we early-return on single-file duplicate. Without it, an
+          // uncaught network error mid-batch (or a thrown exception
+          // from any helper) would strand uploading=true forever and
+          // the user would have to refresh the page to recover.
+          try {
+            for (const f of supported) {
+              const res = await this._uploadOneFile(f, { skipDuplicateDialog: isBatch });
+              this.uploadProgress.done += 1;
+              if (res.skipped) this.uploadProgress.skipped += 1;
+              else if (!res.ok) this.uploadProgress.failed += 1;
+              // Refresh incrementally so the user sees uploads appear
+              // as they land. Cheap — assets list is paginated.
+              if (res.ok) await this.fetchAssets();
+              // Single-file duplicate: dialog is now showing. Return
+              // here (finally still runs, resetting state) — we don't
+              // want a summary toast competing with the dialog or
+              // _pollParseStatus ticking for an upload that never
+              // happened.
+              if (!isBatch && res.skipped && res.reason === 'duplicate') {
+                return;
+              }
+            }
+            if (isBatch) {
+              const ok = this.uploadProgress.done - this.uploadProgress.skipped - this.uploadProgress.failed;
+              const parts = [t('upload_summary_ok').replace('{n}', ok)];
+              if (this.uploadProgress.skipped > 0) parts.push(t('upload_summary_skipped').replace('{n}', this.uploadProgress.skipped));
+              if (this.uploadProgress.failed > 0) parts.push(t('upload_summary_failed').replace('{n}', this.uploadProgress.failed));
+              if (unsupportedCount > 0) parts.push(t('upload_unsupported_filtered').replace('{n}', unsupportedCount));
+              const msg = parts.join(' · ');
+              if (window.toast) {
+                if (this.uploadProgress.failed > 0) window.toast.warning(msg);
+                else window.toast.success(msg);
+              }
+            } else if (unsupportedCount > 0) {
+              // Single-file path with at least one supported but other
+              // ignored types — surface the ignored count without
+              // shouting over the success path.
+              const msg = (t('upload_unsupported_filtered') || '').replace('{n}', unsupportedCount);
+              if (window.toast?.info) window.toast.info(msg);
+            }
+            // Only reach here on the non-duplicate, non-throwing path.
+            // Kick off the parse-status poll so video/audio assets
+            // refresh from "pending" to "done" as the parser finishes.
+            this._pollParseStatus();
+          } finally {
+            this.uploading = false;
+            this.hashing = false;
+          }
+        },
+
+        // Backward-compat shim — older call sites passed an event
+        // directly. Kept so any deep links or memory continue to work
+        // until we sweep them out.
+        async uploadAsset(event) {
+          await this.uploadAssetFiles(event?.target?.files);
+          if (event?.target) event.target.value = '';
         },
         goToDuplicateAsset() {
           if (!this.duplicateDialog) return;
@@ -1972,15 +2275,191 @@
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
           });
         },
-        _pollParseStatus() {
-          if (this._pollTimer) clearInterval(this._pollTimer);
-          let polls = 0;
-          this._pollTimer = setInterval(async () => {
-            await this.fetchAssets();
-            polls++;
-            const pending = this.assets.some(a => ['pending','processing','tagging'].includes(a.parse_status));
-            if (!pending || polls >= 90) clearInterval(this._pollTimer);  // stop after 3 min max
-          }, 2000);
+        // ── Parse-status watcher ──────────────────────────────────────
+        // Idempotent: call after any operation that may have changed the
+        // assets list (fetchAssets, tab switch, page becoming visible).
+        // Starts a polling timer iff at least one asset is in a non-
+        // terminal state; stops the timer when everything's settled or
+        // the hard cap is reached.
+        //
+        // Adaptive intervals:
+        //   0–60s   : 2s   (fresh upload, user expects fast feedback)
+        //   60s–5m  : 5s   (typical tagging window)
+        //   5m–30m  : 10s  (long queue, e.g. local ollama under load)
+        //   30m+    : stop, surface a "stalled" toast
+        //
+        // Page Visibility: when the tab is hidden, ticks skip the fetch
+        // (saves bandwidth and ollama load). The visibility-change hook
+        // installed in init() triggers an immediate refresh + restart
+        // when the tab regains focus.
+        _ensureParseWatcher() {
+          const pending = (this.assets || []).some(a =>
+            ['pending', 'processing', 'tagging'].includes(a.parse_status));
+          if (!pending) {
+            if (this._pollTimer) {
+              clearInterval(this._pollTimer);
+              this._pollTimer = null;
+            }
+            this._pollStartedAt = null;
+            return;
+          }
+          if (this._pollTimer) return;  // already running
+
+          this._pollStartedAt = Date.now();
+          let currentInterval = 2000;
+          const start = this._pollStartedAt;
+
+          const tick = async () => {
+            // Tab not visible — skip the fetch. The visibility change
+            // listener will trigger a manual refresh on return.
+            if (typeof document !== 'undefined' && document.hidden) return;
+            try {
+              await this.fetchAssets();
+            } catch (e) {
+              // Network glitch — keep the timer alive so we retry.
+              return;
+            }
+            const elapsed = Date.now() - start;
+            const stillPending = (this.assets || []).some(a =>
+              ['pending', 'processing', 'tagging'].includes(a.parse_status));
+            if (!stillPending) {
+              clearInterval(this._pollTimer);
+              this._pollTimer = null;
+              this._pollStartedAt = null;
+              return;
+            }
+            // Hard cap: 30 min. Beyond this something's wrong upstream
+            // (provider stuck, model crashed); stop wasting requests.
+            if (elapsed > 30 * 60 * 1000) {
+              clearInterval(this._pollTimer);
+              this._pollTimer = null;
+              this._pollStartedAt = null;
+              if (window.toast?.warning) {
+                window.toast.warning(t('assets_analyzing_stalled'));
+              }
+              return;
+            }
+            // Adaptive backoff — restart timer at slower interval.
+            const desiredInterval =
+              elapsed > 5 * 60 * 1000 ? 10000 :
+              elapsed > 60 * 1000 ? 5000 : 2000;
+            if (desiredInterval !== currentInterval) {
+              currentInterval = desiredInterval;
+              clearInterval(this._pollTimer);
+              this._pollTimer = setInterval(tick, currentInterval);
+            }
+          };
+
+          this._pollTimer = setInterval(tick, currentInterval);
+          // Don't wait for the first interval — kick off an immediate
+          // tick so the user sees state advance right away.
+          tick();
+        },
+
+        // Backward-compat shim for callers still using the old name.
+        _pollParseStatus() { this._ensureParseWatcher(); },
+
+        // Computed-style reactive properties used by the global progress
+        // strip. Kept as Alpine getters so they re-evaluate whenever
+        // ``this.assets`` changes (Alpine tracks the property access).
+        get parseProgress() {
+          const assets = this.assets || [];
+          const total = assets.length;
+          const pending = assets.filter(a =>
+            ['pending', 'processing', 'tagging'].includes(a.parse_status)
+          ).length;
+          return { total, pending, done: total - pending };
+        },
+
+        // Truthy iff the asset has at least one structured tag in any
+        // category. Distinguishes "tagging finished successfully with
+        // results" from "parse pipeline finished but AI tagging
+        // silently produced nothing" — the second state happens when
+        // the configured vision_llm model can't actually see images
+        // (e.g. user picked deepseek-chat for the asset_tagging scene),
+        // and the empty result lets the user decide whether to switch
+        // models or hand-tag.
+        hasAssetTags(a) {
+          const t = a && a.tags_json;
+          if (!t || typeof t !== 'object' || Array.isArray(t)) return false;
+          return Object.values(t).some(v => Array.isArray(v) && v.length > 0);
+        },
+
+        // Count of done-but-untagged assets — drives the global banner
+        // above the asset grid. Surfaces "your tagging config probably
+        // isn't working" without forcing the user to scan every card.
+        get untaggedDoneCount() {
+          return (this.assets || []).filter(a =>
+            a.parse_status === 'done' && !this.hasAssetTags(a)
+          ).length;
+        },
+
+        // True when something is being tagged AND the configured model
+        // looks text-only by name. We don't block, just inform — the
+        // heuristic can be wrong; ``odLooksLikeVisionModel`` is
+        // documented as best-effort. If the heuristic is wrong and the
+        // model actually IS vision-capable, the warning is harmless;
+        // if right, the user saves time by switching now.
+        get taggingModelLikelyTextOnly() {
+          if (this.parseProgress.pending === 0) return false;
+          if (!this._taggingModelName) return false;
+          const fn = window.odLooksLikeVisionModel;
+          if (typeof fn !== 'function') return false;
+          return !fn(this._taggingModelName);
+        },
+
+        async fetchTaggingSceneConfig() {
+          // /settings/llm/scenes is owner-only; failures (403 for
+          // guests) are silent — the warning UI just won't show.
+          try {
+            const r = await fetch(`${API}/settings/llm/scenes`);
+            if (!r.ok) return;
+            const data = await r.json();
+            const sections = data?.sections || [];
+            const tagging = sections.find(s => s.scene_key === 'asset_tagging');
+            const visionConfig = (tagging?.model_configs || [])
+              .find(c => c.model_type === 'vision_llm');
+            // model_name is the explicit override; fall back to
+            // config_label resolution? Server returns ``model_name``
+            // when set, else null — null means "no override, use the
+            // config's default", which we don't have visibility into
+            // here. Empty string is a fine fallback (heuristic returns
+            // false → no warning).
+            this._taggingModelName = visionConfig?.model_name || '';
+          } catch {
+            this._taggingModelName = '';
+          }
+        },
+
+        dismissNoTagsBanner() {
+          this.noTagsBannerDismissed = true;
+          // Per-offer-per-day so a flurry of bad uploads in one session
+          // doesn't keep nagging, but a return tomorrow surfaces it
+          // again if the underlying config issue persists.
+          try {
+            const today = new Date().toISOString().slice(0, 10);
+            localStorage.setItem(
+              `od_no_tags_dismissed_${this.offerId}`,
+              today,
+            );
+          } catch { /* private mode — no harm */ }
+        },
+
+        _restoreNoTagsBannerState() {
+          try {
+            const today = new Date().toISOString().slice(0, 10);
+            const prev = localStorage.getItem(`od_no_tags_dismissed_${this.offerId}`);
+            this.noTagsBannerDismissed = (prev === today);
+          } catch { /* ignore */ }
+        },
+
+        get parseElapsedLabel() {
+          if (!this._pollStartedAt) return '';
+          const sec = Math.round((Date.now() - this._pollStartedAt) / 1000);
+          if (sec < 60) return sec + 's';
+          const m = Math.floor(sec / 60);
+          const s = sec % 60;
+          return `${m}m ${s}s`;
         },
         formatAssetDuration(sec) {
           if (sec == null) return '';

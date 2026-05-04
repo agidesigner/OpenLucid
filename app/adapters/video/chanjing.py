@@ -20,6 +20,7 @@ Non-zero `code` means failure; `msg` carries the error description.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -129,6 +130,26 @@ _EMOJI_PATTERN = re.compile(
     "\u200D"                 # Zero-width joiner
     "\uFE0F"                 # Variation Selector-16
     "]"
+)
+
+
+# Markers for chanjing video models that do NOT support first-frame
+# anchoring (image-to-video). Two reasons a model lands here:
+#   * pure text-to-video (Hailuo / HappyHorse t2v variants), or
+#   * first-frame support is undocumented / unverified (Vidu Q1) and
+#     guessing wrong yields a cryptic chanjing error.
+#
+# This tuple is the single source of truth: ``submit_broll_clip`` raises
+# ``UnsupportedReferenceMode`` for these models, and
+# ``setting_service._video_model_ref_caps`` reads the same list to mark
+# ``supports_first_frame=False`` on the capability API. Pre-fix, the
+# adapter and the capability API drifted (viduq1 was in setting_service
+# but not in the adapter), letting MCP/API callers smuggle a first_frame
+# past the UI guard only to fail at the chanjing layer.
+CHANJING_NO_FIRST_FRAME_MARKERS: tuple[str, ...] = (
+    "hailuo",
+    "happyhorse-1.0-t2v",
+    "viduq1",
 )
 
 
@@ -411,9 +432,35 @@ class ChanjingVideoProvider:
                 continue  # retry with fresh token
             if code != 0:
                 msg = body.get("msg", "unknown error")
+                # Chanjing's top-level ``msg`` is often a generic Chinese
+                # phrase like "参数无效" with no indication of which
+                # parameter failed validation. Log the full response
+                # body (and the request payload that triggered it) so
+                # we can debug 400-class rejections without making the
+                # user re-run with a packet sniffer. The truncation
+                # cap keeps a single oversized response from blowing
+                # up the log.
+                try:
+                    body_dump = json.dumps(body, ensure_ascii=False)[:1500]
+                    payload_dump = json.dumps(json_body, ensure_ascii=False)[:1500] if json_body else "{}"
+                    logger.warning(
+                        "Chanjing %s rejected (code=%s msg=%r) body=%s payload=%s",
+                        path, code, msg, body_dump, payload_dump,
+                    )
+                except Exception:
+                    pass  # logging must never raise
+                # Surface ``data`` if present — chanjing sometimes puts
+                # field-specific diagnostics there (e.g. aspect range,
+                # rejected file format) even when ``msg`` is generic.
+                detail = body.get("data") or body.get("detail") or body.get("error")
+                msg_full = msg
+                if detail:
+                    detail_str = str(detail) if not isinstance(detail, (dict, list)) else json.dumps(detail, ensure_ascii=False)
+                    if detail_str and detail_str not in msg_full:
+                        msg_full = f"{msg} | {detail_str[:300]}"
                 raise AppError(
                     "CHANJING_API_ERROR",
-                    f"Chanjing {path} returned code={code}: {msg}",
+                    f"Chanjing {path} returned code={code}: {msg_full}",
                     502,
                 )
             return body
@@ -1022,11 +1069,15 @@ class ChanjingVideoProvider:
             raise UnsupportedReferenceMode(
                 f"chanjing/{model_code} does not support last_frame anchoring"
             )
-        # T2V-only chanjing models — no first-frame anchoring. Each one
-        # has its own dedicated -i2v sibling code if image-driven
-        # generation is needed (e.g. happyhorse-1.0-i2v).
-        T2V_ONLY_MARKERS = ("hailuo", "happyhorse-1.0-t2v")
-        if first_frame is not None and any(t in model_code.lower() for t in T2V_ONLY_MARKERS):
+        # T2V-only / unverified chanjing models — no first-frame
+        # anchoring. Source of truth lives at module scope so the
+        # capability API reads the same list (see
+        # ``CHANJING_NO_FIRST_FRAME_MARKERS``). Each model that supports
+        # i2v has its own dedicated sibling code (e.g.
+        # ``happyhorse-1.0-i2v``); the user picks that explicitly.
+        if first_frame is not None and any(
+            t in model_code.lower() for t in CHANJING_NO_FIRST_FRAME_MARKERS
+        ):
             raise UnsupportedReferenceMode(
                 f"chanjing/{model_code} is text-to-video only; "
                 "first_frame anchoring not supported (use the matching -i2v variant)"

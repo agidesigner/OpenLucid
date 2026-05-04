@@ -696,6 +696,33 @@ def format_offer_for_tagging(
     if not offer_context:
         return ""
     is_en = language.startswith("en")
+    knowledge_items = offer_context.get("knowledge_items") or []
+    knowledge_lines = []
+    for item in knowledge_items[:24]:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        k_type = str(item.get("knowledge_type") or "general").strip()
+        content = re.sub(r"\s+", " ", str(item.get("content_raw") or "")).strip()
+        if len(content) > 260:
+            content = content[:257].rstrip() + "..."
+        knowledge_lines.append(f"- [{k_type}] {title}: {content}" if content else f"- [{k_type}] {title}")
+    if knowledge_lines:
+        if is_en:
+            knowledge_section = (
+                "\nRelevant knowledge items for business association "
+                "(do not use these as visual facts unless visible/OCR evidence supports them):\n"
+                + "\n".join(knowledge_lines)
+            )
+        else:
+            knowledge_section = (
+                "\n相关知识条目（用于卖点/场景/用途关联；不能当作画面事实，除非图片可见或 OCR 明确支持）：\n"
+                + "\n".join(knowledge_lines)
+            )
+    else:
+        knowledge_section = ""
     if is_en:
         return f"""
 ## Product Context
@@ -704,6 +731,7 @@ def format_offer_for_tagging(
 - Core selling points: {json.dumps(offer_context.get('core_selling_points', []), ensure_ascii=False)}
 - Target scenarios: {json.dumps(offer_context.get('target_scenarios', []), ensure_ascii=False)}
 - Target audience: {json.dumps(offer_context.get('target_audience', []), ensure_ascii=False)}
+{knowledge_section}
 """
     return f"""
 ## 商品上下文
@@ -712,6 +740,7 @@ def format_offer_for_tagging(
 - 核心卖点：{json.dumps(offer_context.get('core_selling_points', []), ensure_ascii=False)}
 - 目标场景：{json.dumps(offer_context.get('target_scenarios', []), ensure_ascii=False)}
 - 目标人群：{json.dumps(offer_context.get('target_audience', []), ensure_ascii=False)}
+{knowledge_section}
 """
 
 

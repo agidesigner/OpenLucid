@@ -349,9 +349,11 @@ async def get_asset_url_for_broll(
     asset_id: uuid.UUID,
     expected_aspect: str | None = None,
 ) -> tuple[str, dict]:
-    """Resolve an asset_id to a file URL + metadata for direct-use in
-    video synthesis. Used by video_service when broll item carries
-    ``asset_id`` + ``asset_mode="direct"``.
+    """Resolve an asset_id to a file URL + metadata for use in
+    video synthesis. Used by video_service for any broll item that
+    carries ``asset_id`` regardless of ``asset_mode`` ("direct" /
+    "first_frame" / "reference") — each mode reads the same asset,
+    routes it differently downstream.
 
     expected_aspect (when provided) re-validates aspect at submit time
     in case the user changed video orientation after picking the asset.

@@ -276,7 +276,133 @@ def test_strict_gate_module_state():
         "Strict gate sets params['broll_status'] = 'failed_strict' — "
         "missing means the gate has been weakened."
     )
-    assert "broll_specs and broll_failures" in src, (
-        "Strict gate fires on ANY failure (broll_failures non-empty), "
-        "not the legacy 'all shots failed AND all hard' rule."
+    # The strict gate must fire on ANY broll failure, not just AI-submit
+    # failures. Pre-v1.4.5 the gate read ``broll_specs and broll_failures``
+    # which silently let through:
+    #   * all-direct shots (broll_specs empty when no AI submits)
+    #   * first_frame/reference prep failures that pre-v1.4.5 fell
+    #     through to text-only AI submit (so broll_failures stayed empty)
+    # The fixed gate reads ``if broll_failures:`` — anything in the
+    # failure list bails out (we're inside the broll block already, so
+    # reaching the gate already implies user opted into broll).
+    assert "if broll_failures:" in src, (
+        "Strict gate must fire on ANY failure (broll_failures non-empty); "
+        "the legacy ``broll_specs and broll_failures`` form left direct/"
+        "prep failures bypassing the gate."
     )
+    assert "broll_specs and broll_failures" not in src, (
+        "Stale lenient form ``broll_specs and broll_failures`` reappeared — "
+        "it falsely scopes strictness to AI-submit failures only."
+    )
+
+
+def test_asset_auto_tagging_has_timeout_and_concurrency_guard():
+    """Asset parsing must not stay in parse_status='tagging' forever when
+    a local vision model stalls. Pin the module-level safeguards."""
+    import inspect
+
+    from app.application import asset_service as svc
+
+    assert hasattr(svc, "AUTO_TAG_TIMEOUT_SECONDS")
+    assert svc.AUTO_TAG_TIMEOUT_SECONDS > 0
+    assert hasattr(svc, "_auto_tag_semaphore")
+
+    src = inspect.getsource(svc.AssetService.run_parse)
+    assert "asyncio.wait_for" in src, (
+        "AI auto-tagging must be bounded so stalled vision calls still let "
+        "the asset move from tagging to done."
+    )
+    assert "async with _auto_tag_semaphore()" in src, (
+        "Batch uploads should not fire unlimited concurrent vision requests."
+    )
+    assert "except asyncio.TimeoutError" in src, (
+        "Timeout must be handled as a non-fatal auto-tag skip."
+    )
+
+
+def test_asset_auto_tagging_uses_kb_and_scoped_existing_tags():
+    """Asset tagging should use real offer KB context and avoid reusing
+    visual subject tags from unrelated assets."""
+    import inspect
+
+    from app.application import asset_service as svc
+
+    src = inspect.getsource(svc.AssetService._auto_tag)
+    assert "KnowledgeItemRepository" in src
+    assert '"knowledge_items"' in src
+    assert "existing_tags_by_category" in src
+    assert '"subject"' not in src.split("reusable_categories", 1)[1].split(")", 1)[0]
+    assert '"existing_tags_sample": {' in src
+
+
+def test_asset_tagging_prompt_guards_visual_facts_and_promo_mechanics():
+    """Prompt constraints should prevent KB/history from polluting visual
+    facts and keep campaign_type tied to explicit promo evidence."""
+    import inspect
+
+    from app.adapters import ai
+    from app.adapters import prompt_builder
+
+    prompt_src = inspect.getsource(ai.OpenAICompatibleAdapter.extract_asset_tags)
+    assert "subject 必须只描述当前图片里确实可见" in prompt_src
+    assert "ordinary event dates" in prompt_src
+    assert "普通活动日期" in prompt_src
+    assert "existing_sample, dict" in prompt_src
+    assert "category-specific non-subject tags" in prompt_src
+
+    offer_src = inspect.getsource(prompt_builder.format_offer_for_tagging)
+    assert "knowledge_items" in offer_src
+    assert "相关知识条目" in offer_src
+    assert "不能当作画面事实" in offer_src
+
+
+def test_chanjing_no_first_frame_markers_single_source_of_truth():
+    """The chanjing adapter and the capability registry must agree on
+    which models lack first-frame support. Pre-fix the two lists drifted
+    (``viduq1`` was in setting_service but not in chanjing.py), letting
+    MCP/API callers smuggle a first_frame past the UI guard. Pin the
+    invariant so a future driver-by edit can't reintroduce the gap."""
+    from app.adapters.video.chanjing import CHANJING_NO_FIRST_FRAME_MARKERS
+    from app.application.setting_service import _video_model_ref_caps
+
+    # Adapter exports the canonical list.
+    assert "viduq1" in CHANJING_NO_FIRST_FRAME_MARKERS, (
+        "viduq1 first-frame support is unverified — keep it on the no-i2v list"
+    )
+    assert "hailuo" in CHANJING_NO_FIRST_FRAME_MARKERS
+    assert "happyhorse-1.0-t2v" in CHANJING_NO_FIRST_FRAME_MARKERS
+
+    # Capability API must return supports_first_frame=False for every
+    # marker, so the picker UI disables the i2v chip everywhere the
+    # adapter would also reject.
+    for marker in CHANJING_NO_FIRST_FRAME_MARKERS:
+        caps = _video_model_ref_caps("chanjing", marker)
+        assert caps["supports_first_frame"] is False, (
+            f"chanjing/{marker} marked supports_first_frame=True in caps but "
+            f"adapter rejects it — UI would offer a chip the adapter denies"
+        )
+
+    # Sanity: an i2v-capable model still reports True (regression guard).
+    assert _video_model_ref_caps("chanjing", "Doubao-Seedance-1.0-pro")["supports_first_frame"] is True
+
+
+def test_auto_tag_clears_stale_tags_before_running():
+    """Re-tagging an already-tagged asset must clear its old tags first.
+    Without this, a vision-call failure (model swapped to a non-vision
+    one, network glitch, timeout) would leave the asset showing its
+    PREVIOUS tags forever — the user sees "tagged" when actually nothing
+    new came back. The "no tags" UI banner relies on tags_json being
+    empty after a failed run."""
+    import inspect
+
+    from app.application import asset_service as svc
+
+    src = inspect.getsource(svc.AssetService.run_parse)
+    # Must reset tag-output fields on the same update that flips status
+    # to 'tagging' — atomic with the lock acquisition so we never have
+    # a window where the asset shows stale tags + 'tagging' status at
+    # the same time.
+    assert 'tags_json={}' in src, (
+        "Stale-tag guard removed — re-tag failures will keep showing old data"
+    )
+    assert 'parse_status="tagging"' in src

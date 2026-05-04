@@ -180,8 +180,11 @@ async def broll_suggestions(
     batch rerank must affirm semantic overlap with the shot prompt.
 
     The suggestion is purely advisory — the client decides whether to
-    bind it (asset_mode="direct" / "reference") into the broll_plan
-    payload at video-submit time."""
+    bind it (``asset_mode``: "direct" / "first_frame" / "reference")
+    into the broll_plan payload at video-submit time. Which modes are
+    actually selectable depends on the chosen B-roll model's capability
+    flags (``supports_first_frame`` / ``supports_style_references``)
+    surfaced via ``/settings/media-capabilities``."""
     from app.application.broll_matching_service import match_assets_for_broll
 
     matches = await match_assets_for_broll(db, creation_id, aspect)

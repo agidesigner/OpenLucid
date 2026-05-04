@@ -17,6 +17,23 @@ from app.schemas.asset import AssetCopyCreate, AssetUploadMeta
 
 logger = logging.getLogger(__name__)
 
+_AUTO_TAG_SEMAPHORE: asyncio.Semaphore | None = None
+AUTO_TAG_TIMEOUT_SECONDS = 120
+
+
+def _auto_tag_semaphore() -> asyncio.Semaphore:
+    """Limit concurrent vision tagging calls per app process.
+
+    Local vision models such as Ollama/qwen3-vl can stall when several
+    multi-megabyte image requests hit at once. Keep upload parsing moving by
+    serializing the expensive AI tagging phase; metadata extraction and slice
+    generation still run normally before this point.
+    """
+    global _AUTO_TAG_SEMAPHORE
+    if _AUTO_TAG_SEMAPHORE is None:
+        _AUTO_TAG_SEMAPHORE = asyncio.Semaphore(1)
+    return _AUTO_TAG_SEMAPHORE
+
 
 class AssetService:
     def __init__(self, session: AsyncSession, storage: StorageAdapter):
@@ -225,11 +242,38 @@ class AssetService:
             for s in slices_data:
                 await self.slice_repo.create(**s)
 
-            # Step 4: AI auto-tagging
-            await self.repo.update(asset, parse_status="tagging")
-            await self.session.commit()
+            # Step 4: AI auto-tagging. Keep the status as "processing"
+            # while waiting for the per-process AI slot; only the asset
+            # actively calling the vision model should show "tagging".
             try:
-                await self._auto_tag(asset, metadata)
+                async with _auto_tag_semaphore():
+                    # Before invoking the model, clear any stale tag
+                    # output so a re-parse of an already-tagged asset
+                    # can't keep its old tags when this run silently
+                    # fails (vision model misconfigured, network
+                    # timeout, etc.). On success, ``_auto_tag``'s own
+                    # update writes the fresh values back; on failure,
+                    # the asset ends up with empty tags_json — which
+                    # is what the "no tags" UI banner watches for.
+                    await self.repo.update(
+                        asset,
+                        parse_status="tagging",
+                        tags_json={},
+                        confidence=None,
+                        hook_score=None,
+                        reuse_score=None,
+                    )
+                    await self.session.commit()
+                    await asyncio.wait_for(
+                        self._auto_tag(asset, metadata),
+                        timeout=AUTO_TAG_TIMEOUT_SECONDS,
+                    )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "AI tagging timed out after %ss for asset %s, skipping",
+                    AUTO_TAG_TIMEOUT_SECONDS,
+                    asset_id,
+                )
             except Exception:
                 logger.warning("AI tagging failed for asset %s, skipping", asset_id, exc_info=True)
 
@@ -264,28 +308,63 @@ class AssetService:
         language = asset.language or "zh-CN"
         if asset.scope_type == "offer":
             from app.infrastructure.offer_repo import OfferRepository
+            from app.infrastructure.knowledge_repo import KnowledgeItemRepository
+
             offer_repo = OfferRepository(self.session)
             offer = await offer_repo.get_by_id(asset.scope_id)
             if offer:
                 language = offer.locale or language
+                knowledge_repo = KnowledgeItemRepository(self.session)
+                knowledge_items, _ = await knowledge_repo.list(
+                    scope_type="offer",
+                    scope_id=asset.scope_id,
+                    knowledge_type=[
+                        "selling_point",
+                        "scenario",
+                        "audience",
+                        "pain_point",
+                        "objection",
+                        "proof",
+                    ],
+                    offset=0,
+                    limit=30,
+                )
                 offer_context = {
                     "name": offer.name,
                     "positioning": offer.positioning,
                     "core_selling_points": offer.core_selling_points_json or [],
                     "target_scenarios": offer.target_scenarios_json or [],
                     "target_audience": offer.target_audience_json or [],
+                    "knowledge_items": [
+                        {
+                            "knowledge_type": item.knowledge_type,
+                            "title": item.title,
+                            "content_raw": item.content_raw or "",
+                        }
+                        for item in knowledge_items
+                    ],
                 }
 
-        # 2. Collect existing tags sample for consistency
+        # 2. Collect existing tags by category for consistency. Keep visual
+        # subject tags out of the sample: they are facts about the current
+        # image, and reusing old subject tags can hallucinate people/objects.
         existing_assets, _ = await self.repo.list(
             scope_type=asset.scope_type, scope_id=asset.scope_id, offset=0, limit=5
         )
-        existing_tags: set[str] = set()
+        reusable_categories = (
+            "usage", "selling_point", "scenario", "channel_fit",
+            "content_form", "campaign_type",
+        )
+        existing_tags_by_category: dict[str, list[str]] = {cat: [] for cat in reusable_categories}
         for ea in existing_assets:
             if ea.tags_json and isinstance(ea.tags_json, dict):
-                for tags_list in ea.tags_json.values():
-                    if isinstance(tags_list, list):
-                        existing_tags.update(tags_list)
+                for cat in reusable_categories:
+                    tags_list = ea.tags_json.get(cat)
+                    if not isinstance(tags_list, list):
+                        continue
+                    for tag in tags_list:
+                        if isinstance(tag, str) and tag not in existing_tags_by_category[cat]:
+                            existing_tags_by_category[cat].append(tag)
 
         # 3. Build image path
         image_path = None
@@ -299,7 +378,11 @@ class AssetService:
             "file_name": asset.file_name,
             "asset_type": asset.asset_type,
             "mime_type": asset.mime_type,
-            "existing_tags_sample": list(existing_tags)[:30],
+            "existing_tags_sample": {
+                cat: tags[:10]
+                for cat, tags in existing_tags_by_category.items()
+                if tags
+            },
             **(metadata or {}),
         }
         result = await ai.extract_asset_tags(

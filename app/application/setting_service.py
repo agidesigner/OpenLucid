@@ -301,6 +301,59 @@ async def update_scene_configs(db: AsyncSession, data: LLMSceneConfigsUpdate, la
 
 # ── Media capability defaults (image / video / tts) ───────────────
 
+
+def _video_model_ref_caps(provider: str, model_code: str) -> dict[str, bool]:
+    """Reference-image capabilities for a video_gen model.
+
+    Two independent axes today (more axes = more bool fields, default False
+    keeps it non-breaking for older entries):
+      - ``supports_first_frame`` — i2v: model accepts a single image as
+        the literal frame-0 anchor and animates from there.
+      - ``supports_style_references`` — soft guidance: model accepts one
+        or more images as conditioning hints (style/content/identity).
+
+    Truth lives next to the adapter — when chanjing.py raises
+    ``UnsupportedReferenceMode`` for a model, this function must return
+    False here, otherwise the UI promises a chip the adapter then rejects.
+    """
+    if provider == "chanjing":
+        # Single source of truth — same constant the chanjing adapter
+        # uses to raise ``UnsupportedReferenceMode``. Prevents the UI
+        # from offering an i2v chip the adapter would reject.
+        from app.adapters.video.chanjing import CHANJING_NO_FIRST_FRAME_MARKERS
+        is_text_only = any(t in model_code.lower() for t in CHANJING_NO_FIRST_FRAME_MARKERS)
+        if is_text_only:
+            return {"supports_first_frame": False, "supports_style_references": False}
+        return {
+            "supports_first_frame": True,
+            # chanjing relay doesn't expose Volcano SD2's reference_images
+            # channel yet — the dataclass is still passed through but the
+            # adapter drops it (see chanjing.py:1044). Mark False.
+            "supports_style_references": False,
+            # Doubao-Seedance / Kling on chanjing reject aspect outside
+            # [0.5, 2.0] with code=50000. Verified in production logs:
+            # ``参考图宽高比 0.19 (1125:5902) 不在模型要求的宽高比范围内 [0.5, 2.0]``.
+            # All chanjing i2v models share this limit per the public
+            # docs.
+            "first_frame_aspect_min": 0.5,
+            "first_frame_aspect_max": 2.0,
+        }
+    if provider == "google":
+        # Veo 3.x: image input goes to instance.image (first-frame anchor).
+        # No separate reference_images channel exposed.
+        # Veo's docs don't publish a hard aspect range — it accepts a
+        # wider window than chanjing but extreme aspects (>4:1 or worse)
+        # still produce poor results / occasional rejections. Use a
+        # generous window that filters only obviously-broken inputs.
+        return {
+            "supports_first_frame": True,
+            "supports_style_references": False,
+            "first_frame_aspect_min": 0.25,  # taller than 1:4
+            "first_frame_aspect_max": 4.0,   # wider than 4:1
+        }
+    return {"supports_first_frame": False, "supports_style_references": False}
+
+
 # What each capability is, what providers + models support it.
 # If a provider has this capability, we list its offerings here.
 # Label / description values are (zh, en) tuples; callers localize via pick_label().
@@ -429,6 +482,7 @@ async def get_media_capability_configs(
                         ))
                     else:
                         for code, title in models:
+                            ref_caps = _video_model_ref_caps(p.provider, code) if cap == "video_gen" else {}
                             options.append(MediaCapabilityOption(
                                 provider_config_id=str(p.id),
                                 provider=p.provider,
@@ -436,6 +490,7 @@ async def get_media_capability_configs(
                                 model_code=code,
                                 voice_id=None,
                                 display_label=pick_label(title, language),
+                                **ref_caps,
                             ))
             else:
                 # No credential row for this provider — emit ghost options so
@@ -453,6 +508,7 @@ async def get_media_capability_configs(
                     ))
                 else:
                     for code, title in models:
+                        ref_caps = _video_model_ref_caps(provider_name, code) if cap == "video_gen" else {}
                         options.append(MediaCapabilityOption(
                             provider_config_id="",
                             provider=provider_name,
@@ -461,6 +517,7 @@ async def get_media_capability_configs(
                             voice_id=None,
                             display_label=pick_label(title, language) + unconfigured_suffix,
                             available=False,
+                            **ref_caps,
                         ))
 
         d = defaults.get(cap)

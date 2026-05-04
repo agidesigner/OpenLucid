@@ -94,14 +94,7 @@
 
       <!-- Settings left nav -->
       <nav class="w-52 bg-white border-r flex flex-col py-4 px-3 shrink-0 gap-0.5">
-        <p class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-2 mb-1" x-text="t('nav_general')"></p>
-        <a href="?section=language" @click.prevent="section='language'; pushState('language')"
-           class="setting-nav-item" :class="section==='language' && 'active'">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"/></svg>
-          <span x-text="t('nav_language')"></span>
-        </a>
-
-        <p class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-2 mt-4 mb-1" x-text="t('nav_ai')"></p>
+        <p class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-2 mb-1" x-text="t('nav_ai')"></p>
         <a href="?section=llm" @click.prevent="section='llm'; pushState('llm'); loadLLMConfigs()"
            class="setting-nav-item" :class="section==='llm' && 'active'">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2"/></svg>
@@ -141,6 +134,13 @@
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
           <span x-text="t('nav_update')"></span>
           <span x-show="updateAvailable" x-cloak class="w-2 h-2 rounded-full bg-red-500 shrink-0"></span>
+        </a>
+
+        <p class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-2 mt-4 mb-1" x-text="t('nav_general')"></p>
+        <a href="?section=language" @click.prevent="section='language'; pushState('language')"
+           class="setting-nav-item" :class="section==='language' && 'active'">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"/></svg>
+          <span x-text="t('nav_language')"></span>
         </a>
 
         <!-- External link footer — quiet, separated from the internal nav -->
@@ -1798,6 +1798,28 @@
                 </optgroup>
               </template>
             </select>
+            <!-- Capability hint — fires when the picked model name
+                 doesn't match our heuristic for vision-capable models.
+                 We don't block selection (the user might have a real
+                 vision model with an unfamiliar name), but we surface
+                 the risk inline so they don't discover it post-hoc on
+                 every uploaded asset. ``odLooksLikeVisionModel`` is
+                 documented as best-effort; the wording reflects that. -->
+            <div x-show="(() => {
+                   const k = sceneConfigKey(section.scene_key, 'vision_llm');
+                   const v = sceneConfigs[k];
+                   if (!v) return false;
+                   const modelName = v.split('::')[1] || '';
+                   if (!modelName) return false;
+                   const fn = window.odLooksLikeVisionModel;
+                   return typeof fn === 'function' && !fn(modelName);
+                 })()"
+                 class="mt-2 flex items-start gap-1.5 text-[11px] text-amber-800 leading-relaxed">
+              <svg class="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+              </svg>
+              <span x-text="t('cap_vision_model_warning')"></span>
+            </div>
           </div>
         </template>
 
@@ -2583,7 +2605,10 @@
     function settingApp() {
       return {
         PROVIDER_PRESETS,
-        section: new URLSearchParams(location.search).get('section') || 'language',
+        // Default landing → AI Models. Most users come to Settings to
+        // configure LLM endpoints; language is a one-time setup that
+        // belongs at the bottom. Explicit ?section= URL still wins.
+        section: new URLSearchParams(location.search).get('section') || 'llm',
         lang: localStorage.getItem('od_lang') || 'en',
         langSaved: false,
         langOptions: [

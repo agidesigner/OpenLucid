@@ -444,9 +444,22 @@
                    dump). Progressive-disclosure pattern: show only the
                    cause summary; everything else is one click away. -->
               <template x-if="job.status === 'failed'">
-              <div x-data="{ expanded: false }"
+              <!-- Auto-expand the freshly-submitted job when it comes
+                   back failed. Two paths to cover:
+                     (a) backend strict-gate hit on broll prep — POST
+                         already returns ``status=failed``, so the
+                         x-data initializer captures it on first render.
+                     (b) provider rejected after polling started — job
+                         entered the list as ``pending``, then transitioned;
+                         the $watch flips ``expanded`` when status changes.
+                   Without this, users press Generate, get no obvious
+                   feedback, and re-submit the same broken config (we
+                   saw 3 identical failures in the logs). The user can
+                   still collapse the row manually after seeing it. -->
+              <div x-data="{ expanded: idx === 0 && job.status === 'failed' }"
+                   x-init="$watch(() => job.status, (s) => { if (s === 'failed' && idx === 0) expanded = true })"
                    class="rounded-xl bg-red-50/40 border border-red-100/70 transition-colors"
-                   :class="videoModal.flashJobId === job.id ? 'bg-amber-50 ring-2 ring-amber-300 border-transparent' : ''">
+                   :class="videoModal.flashJobId === job.id ? 'bg-red-100/60 ring-2 ring-red-300 border-transparent' : ''">
                 <div class="flex items-center gap-2 px-3 py-2">
                   <!-- Toggle: red dot + caption + truncated error.
                        Sibling-of-delete (not parent) so we don't
@@ -889,7 +902,7 @@
                         <template x-if="videoModal.brollModelOptions.some(o => o.available)">
                           <div class="relative">
                             <select :aria-label="t('vg_broll_model_aria')"
-                                    @change="(() => { const sel = videoModal.brollModelOptions.find(o => (o.provider_config_id + '::' + o.model_code) === $event.target.value); if (sel) { videoModal.form.broll_provider_config_id = sel.provider_config_id; videoModal.form.broll_model_code = sel.model_code; } })()"
+                                    @change="(() => { const sel = videoModal.brollModelOptions.find(o => (o.provider_config_id + '::' + o.model_code) === $event.target.value); if (sel) { videoModal.form.broll_provider_config_id = sel.provider_config_id; videoModal.form.broll_model_code = sel.model_code; onBrollModelChange(); } })()"
                                     class="appearance-none text-[11px] font-medium text-gray-700 bg-white border border-gray-200 rounded-md pl-6 pr-6 py-1 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition-colors cursor-pointer max-w-[200px] truncate">
                               <template x-for="opt in videoModal.brollModelOptions" :key="(opt.provider_config_id || 'unset') + '::' + opt.model_code + '::' + opt.provider">
                                 <option :value="opt.available ? (opt.provider_config_id + '::' + opt.model_code) : ''"
@@ -918,6 +931,22 @@
                         </button>
                       </div>
                     </div>
+
+                    <!-- Capability helper: visible only when the chosen broll
+                         model can't actually consume any reference image
+                         (T2V-only / unverified model). Tells the user *why*
+                         the asset cards have only "Use directly" available
+                         and how to unlock i2v. Amber, not red — this is a
+                         capability boundary, not an error. -->
+                    <template x-if="(() => { const c = currentBrollCaps(); return !c.first_frame && !c.style_ref; })()">
+                      <p role="note"
+                         class="text-[11px] text-amber-700 bg-amber-50/40 border-l-2 border-amber-400 px-3 py-2 rounded-r leading-relaxed flex items-start gap-1.5">
+                        <svg class="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <span x-text="t('vg_broll_no_ref_helper')"></span>
+                      </p>
+                    </template>
 
                     <template x-if="(videoModal.form.broll_plan || []).length === 0">
                       <p class="text-[11px] text-gray-400 italic" x-text="t('vg_broll_empty_hint')"></p>
@@ -995,6 +1024,14 @@
                              actual asset to bind to. -->
                         <template x-if="shot.matched_asset">
                           <div class="p-2.5 rounded-lg bg-gray-50 border border-gray-100 relative">
+                            <!-- Top-right ✕ dismisses the asset binding
+                                 entirely → shot falls back to AI gen and
+                                 the "📂 用素材库的素材" entry button
+                                 reappears, so users still have a path to
+                                 pick another asset. The previous ↔ swap
+                                 affordance was a redundant shortcut on
+                                 top of that flow and visually competed
+                                 with the dismiss button. -->
                             <button type="button"
                                     @click="dismissAssetSuggestion(shot)"
                                     :aria-label="t('dismiss_suggestion')"
@@ -1077,34 +1114,96 @@
                                 <p x-show="shot.matched_asset.match_reason"
                                    class="text-[10px] text-gray-400 mb-1.5 italic leading-snug"
                                    x-text="'“' + shot.matched_asset.match_reason + '”'"></p>
-                                <!-- Segmented control: 2 options.
-                                     "Switch back to AI" is covered by the
-                                     dismiss ✕ button on the top-right
-                                     (clears the suggestion entirely → falls
-                                     back to AI generation from prompt).
-                                     A third button would just be a louder
-                                     synonym for dismiss.  -->
-                                <div class="inline-flex rounded-lg bg-gray-100 p-0.5 text-[11px]">
-                                  <button type="button"
-                                          @click="setShotMode(shot, 'direct')"
-                                          :class="(shot.asset_mode === 'direct') ? 'bg-white shadow-sm text-accent' : 'text-gray-500 hover:text-gray-700'"
-                                          class="px-2.5 py-1 rounded-md font-medium transition-all duration-150">
-                                    <span x-text="t('use_directly')"></span>
-                                  </button>
-                                  <button type="button"
-                                          @click="setShotMode(shot, 'reference')"
-                                          :class="(shot.asset_mode === 'reference') ? 'bg-white shadow-sm text-accent' : 'text-gray-500 hover:text-gray-700'"
-                                          class="px-2.5 py-1 rounded-md font-medium transition-all duration-150">
-                                    <span x-text="t('ai_reference')"></span>
-                                  </button>
+                                <!-- Capability-gated segmented control.
+                                     "Use directly" is always available
+                                     (asset compositing has no model
+                                     dependency). The two AI modes are
+                                     gated on the active broll model's
+                                     capability flags surfaced by
+                                     /settings/media-capabilities:
+                                       * first_frame — i2v anchor
+                                       * reference   — soft style hint
+                                     Hidden (not just disabled) when the
+                                     model can't consume them — a chip
+                                     the model would silently drop is
+                                     worse than no chip at all. Switch
+                                     back to AI without binding is the
+                                     ✕ dismiss button on the top-right. -->
+                                <!-- Chip availability is gated on TWO axes:
+                                     (a) the model's capability flags
+                                         (caps.first_frame / caps.style_ref)
+                                     (b) the asset's own type:
+                                         * video → ONLY 'direct' is legal
+                                           (timeline splice). first_frame
+                                           and reference channels at the
+                                           provider level are image-only —
+                                           chanjing's create_upload_url
+                                           rejects mp4 with code=50000;
+                                           veo's instance.image takes
+                                           base64 image bytes only. We
+                                           hit this in v1.4.5 and shipped
+                                           a backend block + this UI gate.
+                                         * image → CANNOT 'direct'
+                                           (compositor expects a video
+                                           stream). Only first_frame /
+                                           reference make sense.
+                                     The two axes are AND-ed: image needs
+                                     both an image-friendly mode AND model
+                                     support for that mode. -->
+                                <div role="radiogroup"
+                                     :aria-label="t('vg_broll_asset_mode_label')"
+                                     class="inline-flex rounded-lg bg-gray-100 p-0.5 text-[11px]">
+                                  <template x-if="shot.matched_asset.asset_type === 'video'">
+                                    <button type="button"
+                                            role="radio"
+                                            :aria-checked="(shot.asset_mode === 'direct').toString()"
+                                            :title="t('vg_broll_chip_direct_tooltip')"
+                                            @click="setShotMode(shot, 'direct')"
+                                            :class="(shot.asset_mode === 'direct') ? 'bg-white shadow-sm text-accent' : 'text-gray-500 hover:text-gray-700'"
+                                            class="px-2.5 py-1 rounded-md font-medium transition-all duration-150 flex items-center gap-1">
+                                      <svg x-show="shot.asset_mode === 'direct'" class="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
+                                      </svg>
+                                      <span x-text="t('vg_broll_chip_direct')"></span>
+                                    </button>
+                                  </template>
+                                  <template x-if="shot.matched_asset.asset_type === 'image' && currentBrollCaps().first_frame">
+                                    <button type="button"
+                                            role="radio"
+                                            :aria-checked="(shot.asset_mode === 'first_frame').toString()"
+                                            :title="t('vg_broll_chip_first_frame_tooltip')"
+                                            @click="setShotMode(shot, 'first_frame')"
+                                            :class="(shot.asset_mode === 'first_frame') ? 'bg-white shadow-sm text-accent' : 'text-gray-500 hover:text-gray-700'"
+                                            class="px-2.5 py-1 rounded-md font-medium transition-all duration-150 flex items-center gap-1">
+                                      <svg x-show="shot.asset_mode === 'first_frame'" class="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
+                                      </svg>
+                                      <span x-text="t('vg_broll_chip_first_frame')"></span>
+                                    </button>
+                                  </template>
+                                  <template x-if="shot.matched_asset.asset_type === 'image' && currentBrollCaps().style_ref">
+                                    <button type="button"
+                                            role="radio"
+                                            :aria-checked="(shot.asset_mode === 'reference').toString()"
+                                            :title="t('vg_broll_chip_reference_tooltip')"
+                                            @click="setShotMode(shot, 'reference')"
+                                            :class="(shot.asset_mode === 'reference') ? 'bg-white shadow-sm text-accent' : 'text-gray-500 hover:text-gray-700'"
+                                            class="px-2.5 py-1 rounded-md font-medium transition-all duration-150 flex items-center gap-1">
+                                      <svg x-show="shot.asset_mode === 'reference'" class="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
+                                      </svg>
+                                      <span x-text="t('vg_broll_chip_reference')"></span>
+                                    </button>
+                                  </template>
                                 </div>
-                                <!-- Reference-mode helper: explains the
-                                     prompt textarea below is still editable
-                                     and feeds AI as guidance alongside the
-                                     asset reference. Direct mode no longer
-                                     needs an explanation — the textarea is
-                                     hidden, the user already sees "this
-                                     asset goes here" without ambiguity. -->
+                                <!-- Mode-specific helper line. first_frame
+                                     and reference both keep the prompt
+                                     textarea active (AI still generates);
+                                     direct mode hides it (asset is the
+                                     content). -->
+                                <p x-show="shot.asset_mode === 'first_frame'"
+                                   class="text-[10px] text-gray-500 mt-1 italic"
+                                   x-text="t('vg_broll_first_frame_helper')"></p>
                                 <p x-show="shot.asset_mode === 'reference'"
                                    class="text-[10px] text-gray-500 mt-1 italic"
                                    x-text="t('asset_reference_helper')"></p>
@@ -1171,6 +1270,390 @@
                                   x-model="shot.prompt" rows="3"
                                   :placeholder="t('vg_broll_prompt_placeholder')"
                                   class="w-full text-[12px] border border-gray-200 rounded px-2 py-1.5 leading-relaxed focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent resize-y bg-white"></textarea>
+
+                        <!-- KB picker entry — primary path for unmatched
+                             shots. Low visual weight (text-link, not a
+                             primary button) so it doesn't compete with
+                             the prompt textarea above (the AI default).
+                             Hidden when a match exists (the matched
+                             card surfaces a ↔ swap icon for that case)
+                             AND when the picker is already open for
+                             this shot (avoids duplicate affordance). -->
+                        <button type="button"
+                                x-show="!shot.matched_asset && videoModal.brollPicker.shotIdx !== idx"
+                                @click="openBrollPicker(idx)"
+                                class="text-[11px] text-accent hover:text-accent-hover font-medium inline-flex items-center gap-1 mt-1.5">
+                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+                          </svg>
+                          <span x-text="t('vg_broll_picker_entry')"></span>
+                        </button>
+
+                        <!-- Inline KB picker. Shows when the user clicks
+                             "Use library clip" (unmatched) or ↔ swap
+                             (matched) for this shot. Not a modal — an
+                             inline collapse panel — so the surrounding
+                             modal scroll/focus context stays intact. -->
+                        <div x-show="videoModal.brollPicker.shotIdx === idx"
+                             x-collapse
+                             role="region"
+                             :aria-label="t('vg_broll_picker_aria')"
+                             @keydown.escape.stop="closeBrollPicker()"
+                             class="mt-2 border border-gray-200 rounded-lg bg-gray-50/60 p-3">
+                          <!-- Header: title + count + refresh + close -->
+                          <div class="flex items-center justify-between gap-2 mb-2">
+                            <div class="text-[11px] text-gray-600 font-medium flex items-center gap-2 min-w-0">
+                              <span class="truncate" x-text="t('vg_broll_picker_title').replace('{n}', (idx + 1))"></span>
+                              <span class="text-gray-400 tabular-nums shrink-0"
+                                    x-show="videoModal.brollPicker.loaded"
+                                    x-text="'· ' + (videoModal.brollPicker.assets.length) + ' ' + t('vg_broll_picker_count_suffix')"></span>
+                            </div>
+                            <div class="flex items-center gap-0.5 shrink-0">
+                              <button type="button"
+                                      @click="refreshBrollPicker()"
+                                      :disabled="videoModal.brollPicker.loading"
+                                      :aria-label="t('vg_broll_picker_refresh')"
+                                      :title="t('vg_broll_picker_refresh')"
+                                      class="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors disabled:opacity-50">
+                                <svg class="w-3.5 h-3.5" :class="videoModal.brollPicker.loading && 'animate-spin'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                </svg>
+                              </button>
+                              <button type="button"
+                                      @click="closeBrollPicker()"
+                                      :aria-label="t('close')"
+                                      :title="t('close')"
+                                      class="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+
+                          <!-- Loading skeleton — show whenever loading is
+                               true OR the picker has never finished a
+                               fetch (loaded=false) and there's no error.
+                               Without the second clause, the brief moment
+                               between picker opening and the first fetch
+                               starting renders nothing (race condition). -->
+                          <div x-show="(videoModal.brollPicker.loading || !videoModal.brollPicker.loaded) && !videoModal.brollPicker.error"
+                               class="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                            <template x-for="i in 6" :key="i">
+                              <div class="aspect-square rounded-lg bg-gray-200/70 animate-pulse"></div>
+                            </template>
+                          </div>
+
+                          <!-- Error -->
+                          <div x-show="videoModal.brollPicker.error"
+                               class="text-[11px] text-red-600 bg-red-50 px-2.5 py-2 rounded"
+                               x-text="videoModal.brollPicker.error"></div>
+
+                          <!-- Empty state — KB has 0 usable assets after
+                               a successful fetch. The ``loaded`` flag
+                               guards against rendering empty UI before
+                               the first fetch completes (skeleton handles
+                               that window above). Substantial layout
+                               (not a one-liner) because this state is
+                               also a teaching moment: the user is here
+                               for the first time and needs to know
+                               (a) where assets come from, (b) what kind
+                               helps, (c) what their options are if they
+                               don't want to upload. -->
+                          <div x-show="videoModal.brollPicker.loaded && !videoModal.brollPicker.loading && (videoModal.brollPicker.assets || []).length === 0 && !videoModal.brollPicker.error"
+                               role="status"
+                               class="text-center py-6 px-2">
+                            <!-- Hero icon: 56px in a soft circle gives it
+                                 enough visual weight to anchor the empty
+                                 state without feeling decorative-only. -->
+                            <div class="inline-flex items-center justify-center w-14 h-14 rounded-full bg-gray-100 mb-3" aria-hidden="true">
+                              <svg class="w-7 h-7 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V7a2 2 0 00-2-2h-7.586l-2-2H4a2 2 0 00-2 2v12a2 2 0 002 2h7"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 16l3 3m0 0l3-3m-3 3v-6"/>
+                              </svg>
+                            </div>
+
+                            <!-- Headline: clear contrast (gray-900) + 14px
+                                 medium weight; this is a real heading,
+                                 not a footnote. -->
+                            <h4 class="text-sm font-medium text-gray-900 mb-1"
+                                x-text="t('vg_broll_picker_empty_title')"></h4>
+
+                            <!-- Body: explains WHY the picker is empty +
+                                 WHERE assets come from (the offer's
+                                 library). Capped line-length keeps it
+                                 readable in this 600px panel. -->
+                            <p class="text-[12px] text-gray-600 leading-relaxed mx-auto max-w-[420px] mb-4"
+                               x-text="t('vg_broll_picker_empty_body')"></p>
+
+                            <!-- Tip card: concrete criteria for what makes
+                                 a good B-roll asset. Without this, users
+                                 upload random junk and wonder why the
+                                 matcher / picker doesn't surface it.
+                                 Soft blue accent (info, not warning) and
+                                 left-aligned bullets so the eye can scan. -->
+                            <div class="text-left bg-blue-50/60 border border-blue-100 rounded-lg p-3 mx-auto max-w-[460px] mb-4">
+                              <div class="flex items-center gap-1.5 mb-2">
+                                <svg class="w-3.5 h-3.5 text-blue-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                                </svg>
+                                <span class="text-[11px] font-medium text-blue-900"
+                                      x-text="t('vg_broll_picker_tips_title')"></span>
+                              </div>
+                              <ul class="space-y-1 text-[11px] text-blue-800 leading-relaxed">
+                                <li class="flex items-start gap-1.5">
+                                  <svg class="w-2.5 h-2.5 mt-1 shrink-0 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M6 4l8 6-8 6V4z"/>
+                                  </svg>
+                                  <span x-text="t('vg_broll_picker_tip_video')"></span>
+                                </li>
+                                <li class="flex items-start gap-1.5">
+                                  <svg class="w-2.5 h-2.5 mt-1 shrink-0 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M6 4l8 6-8 6V4z"/>
+                                  </svg>
+                                  <span x-text="t('vg_broll_picker_tip_aspect')"></span>
+                                </li>
+                                <li class="flex items-start gap-1.5">
+                                  <svg class="w-2.5 h-2.5 mt-1 shrink-0 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M6 4l8 6-8 6V4z"/>
+                                  </svg>
+                                  <span x-text="t('vg_broll_picker_tip_image')"></span>
+                                </li>
+                              </ul>
+                            </div>
+
+                            <!-- Two actions: primary (open KB to upload)
+                                 + secondary (close picker, stay on AI
+                                 generation). Side-by-side equal-weight
+                                 buttons so neither path feels punitive —
+                                 "I don't have assets yet" is a perfectly
+                                 valid choice; pure-AI is the original
+                                 intended workflow. -->
+                            <div class="flex items-center justify-center gap-2 flex-wrap">
+                              <a :href="brollPickerUploadUrl()" target="_blank" rel="noopener"
+                                 class="inline-flex items-center gap-1.5 px-4 py-2 bg-accent text-white text-[12px] font-medium rounded-md hover:bg-accent-hover transition-colors min-w-[140px] justify-center">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                                </svg>
+                                <span x-text="t('vg_broll_picker_open_kb')"></span>
+                              </a>
+                              <button type="button"
+                                      @click="closeBrollPicker()"
+                                      class="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-200 text-gray-700 text-[12px] font-medium rounded-md hover:bg-gray-50 transition-colors min-w-[140px] justify-center">
+                                <svg class="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                                </svg>
+                                <span x-text="t('vg_broll_picker_empty_use_ai')"></span>
+                              </button>
+                            </div>
+
+                            <!-- Footer hint: sets expectation that the
+                                 user can come back. Without this, after
+                                 uploading they might think they need to
+                                 redo the whole modal. -->
+                            <p class="text-[10.5px] text-gray-500 mt-3 inline-flex items-center gap-1">
+                              <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                              </svg>
+                              <span x-text="t('vg_broll_picker_empty_refresh_hint')"></span>
+                            </p>
+                          </div>
+
+                          <!-- Inline block banner: replaces the right-
+                               corner toast that used to fire when a user
+                               clicked an image while the active model
+                               can't accept i2v / style refs. Sits above
+                               the grid where the eye is already focused;
+                               persists until the user dismisses or
+                               switches model (auto-clears in
+                               onBrollModelChange when caps restore).
+                               1-click recovery via suggestedI2VModel
+                               keeps user in flow when their config has
+                               an i2v option available. -->
+                          <div x-show="videoModal.brollPicker.blockReason"
+                               x-transition:enter="transition ease-out duration-200"
+                               x-transition:enter-start="opacity-0 -translate-y-1"
+                               x-transition:enter-end="opacity-100 translate-y-0"
+                               role="alert"
+                               class="mb-2.5 px-3 py-2.5 rounded-lg border border-amber-200 bg-amber-50 flex items-start gap-2.5">
+                            <svg class="w-4 h-4 text-amber-500 shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                              <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <div class="flex-1 min-w-0">
+                              <!-- Two banner variants share layout:
+                                     image_no_i2v — model can't take images at all
+                                     image_aspect — image's aspect outside model's range
+                                   The recovery CTA differs: the first
+                                   suggests switching MODEL; the second
+                                   suggests picking a different IMAGE
+                                   (model swap doesn't help — most i2v
+                                   models share the same aspect window). -->
+                              <p class="text-[12px] font-medium text-amber-900"
+                                 x-text="(videoModal.brollPicker.blockReason?.kind === 'asset_parsing') ? t('vg_broll_picker_block_parsing_title')
+                                       : (videoModal.brollPicker.blockReason?.kind === 'image_metadata_missing') ? t('vg_broll_picker_block_meta_missing_title')
+                                       : (videoModal.brollPicker.blockReason?.kind === 'image_aspect') ? t('vg_broll_picker_block_aspect_title')
+                                               .replace('{actual}', videoModal.brollPicker.blockReason.actual)
+                                               .replace('{w}', videoModal.brollPicker.blockReason.width)
+                                               .replace('{h}', videoModal.brollPicker.blockReason.height)
+                                       : t('vg_broll_picker_block_i2v_title')"></p>
+                              <p class="text-[11px] text-amber-800/90 mt-0.5 leading-relaxed"
+                                 x-text="(videoModal.brollPicker.blockReason?.kind === 'asset_parsing') ? t('vg_broll_picker_block_parsing_body')
+                                       : (videoModal.brollPicker.blockReason?.kind === 'image_metadata_missing') ? t('vg_broll_picker_block_meta_missing_body')
+                                       : (videoModal.brollPicker.blockReason?.kind === 'image_aspect') ? t('vg_broll_picker_block_aspect_body')
+                                               .replace('{min}', videoModal.brollPicker.blockReason.min)
+                                               .replace('{max}', videoModal.brollPicker.blockReason.max)
+                                       : t('vg_broll_picker_block_i2v_body')"></p>
+                              <div class="mt-2 flex items-center gap-3 flex-wrap">
+                                <!-- image_no_i2v: 1-click model swap when
+                                     a vision-capable model is configured.
+                                     image_aspect: no quick fix — user
+                                     needs to pick a different image. -->
+                                <template x-if="videoModal.brollPicker.blockReason?.kind === 'image_no_i2v' && suggestedI2VModel()">
+                                  <button type="button"
+                                          @click="applyI2VModelSwitch()"
+                                          class="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-medium rounded-md transition-colors">
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                    </svg>
+                                    <span x-text="t('vg_broll_picker_block_i2v_switch_to').replace('{model}', suggestedI2VModel().display_label || suggestedI2VModel().model_code)"></span>
+                                  </button>
+                                </template>
+                                <button type="button"
+                                        @click="videoModal.brollPicker.blockReason = null"
+                                        class="text-[11px] text-amber-700/80 hover:text-amber-900 font-medium"
+                                        x-text="t('close')"></button>
+                              </div>
+                            </div>
+                          </div>
+
+                          <!-- Asset grid -->
+                          <div x-show="videoModal.brollPicker.loaded && !videoModal.brollPicker.loading && !videoModal.brollPicker.error && (videoModal.brollPicker.assets || []).length > 0"
+                               class="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                            <template x-for="asset in videoModal.brollPicker.assets" :key="asset.id">
+                              <button type="button"
+                                      @click="pickAssetForShot(idx, asset)"
+                                      :aria-label="t('vg_broll_picker_select') + ': ' + asset.file_name + ' ' + (asset.aspect || '') + ' ' + (asset.duration_seconds ? asset.duration_seconds + 's' : '')"
+                                      :aria-disabled="(assetLockReason(asset) !== null).toString()"
+                                      :title="assetLockReason(asset) === 'parsing' ? t('vg_broll_picker_card_parsing_hint')
+                                              : assetLockReason(asset) === 'metadata_missing' ? t('vg_broll_picker_card_meta_missing_hint')
+                                              : assetLockReason(asset) === 'no_i2v' ? t('vg_broll_picker_card_locked_hint')
+                                              : assetLockReason(asset) === 'aspect' ? t('vg_broll_picker_card_aspect_hint')
+                                                .replace('{actual}', (asset.width && asset.height) ? (asset.width/asset.height).toFixed(2) : '?')
+                                                .replace('{min}', currentBrollCaps().first_frame_aspect_min || '?')
+                                                .replace('{max}', currentBrollCaps().first_frame_aspect_max || '?')
+                                              : null"
+                                      :class="assetLockReason(asset)
+                                                ? 'border-gray-200 opacity-50 grayscale cursor-not-allowed hover:opacity-60'
+                                                : (asset._aspect_target && asset.aspect && asset.aspect !== asset._aspect_target)
+                                                  ? 'border-amber-300 ring-1 ring-amber-200/50 hover:ring-amber-300'
+                                                  : 'border-gray-200 hover:border-accent/50 hover:ring-2 hover:ring-accent/20'"
+                                      class="relative aspect-square rounded-lg overflow-hidden bg-gray-100 border focus:outline-none focus:ring-2 focus:ring-accent/40 transition-all duration-150 active:scale-[0.97]">
+                                <!-- Lock badge — visible only on image
+                                     cards the active model can't pick
+                                     up (no i2v at all OR aspect outside
+                                     the model's accepted window). Tells
+                                     the user "can't pick this" BEFORE
+                                     they click; the inline banner with
+                                     the specific reason only fires on
+                                     the "I'm sure I want to know why"
+                                     click. -->
+                                <span x-show="assetLockReason(asset)"
+                                      class="absolute top-1 left-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-900/75 backdrop-blur-sm text-white shadow-sm z-10"
+                                      :title="assetLockReason(asset) === 'parsing' ? t('vg_broll_picker_card_parsing_hint')
+                                              : assetLockReason(asset) === 'metadata_missing' ? t('vg_broll_picker_card_meta_missing_hint')
+                                              : assetLockReason(asset) === 'aspect' ? t('vg_broll_picker_card_aspect_hint_short')
+                                              : t('vg_broll_picker_card_locked_hint')">
+                                  <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 11c0-1.105.895-2 2-2s2 .895 2 2v2H8v-2zM5 13h14v6a2 2 0 01-2 2H7a2 2 0 01-2-2v-6z"/>
+                                  </svg>
+                                </span>
+                                <!-- Thumbnail. Endpoint per asset type:
+                                       image → /file (the asset itself)
+                                       video → /thumbnail (server-rendered
+                                              poster frame; only exists
+                                              once preview_uri is set)
+                                     Pre-fix the picker hard-coded
+                                     /thumbnail for both kinds and gated
+                                     visibility on preview_uri, which
+                                     images never have — so every image
+                                     in the picker rendered as the gray
+                                     placeholder regardless of how many
+                                     real images sat in the offer KB.
+                                     The matched-asset card at the top
+                                     of this same modal already does
+                                     the per-type endpoint switch
+                                     (line ~1058), this just brings the
+                                     picker into line with it.
+                                     loading="lazy" — large grids stay
+                                     snappy on initial paint. -->
+                                <img x-show="asset.asset_type === 'image' || asset.preview_uri"
+                                     :src="'/api/v1/assets/' + asset.id + '/' + (asset.asset_type === 'image' ? 'file' : 'thumbnail')"
+                                     :alt="asset.file_name"
+                                     loading="lazy"
+                                     class="absolute inset-0 w-full h-full object-cover">
+                                <!-- Fallback for video-without-poster
+                                     (parse_status='processing' / video
+                                     thumbnail not yet generated). -->
+                                <div x-show="asset.asset_type !== 'image' && !asset.preview_uri"
+                                     class="absolute inset-0 flex items-center justify-center text-gray-400">
+                                  <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                  </svg>
+                                </div>
+
+                                <!-- Aspect mismatch badge (top-left).
+                                     Color-not-only: amber border on the
+                                     card + ⚠️ icon + tooltip text on
+                                     hover; selecting still works. -->
+                                <span x-show="asset._aspect_target && asset.aspect && asset.aspect !== asset._aspect_target"
+                                      :title="t('vg_broll_picker_aspect_mismatch_badge').replace('{actual}', asset.aspect).replace('{target}', asset._aspect_target)"
+                                      class="absolute top-1 left-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500 text-white shadow-sm">
+                                  <svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+                                  </svg>
+                                </span>
+
+                                <!-- Top-right aspect badge -->
+                                <span x-show="asset.aspect"
+                                      class="absolute top-1 right-1 px-1 py-0.5 rounded bg-black/55 text-white text-[9px] font-medium leading-none tabular-nums">
+                                  <span x-text="asset.aspect"></span>
+                                </span>
+
+                                <!-- Bottom-right duration / type badge -->
+                                <span x-show="asset.asset_type === 'video' && asset.duration_seconds"
+                                      class="absolute bottom-1 right-1 px-1 py-0.5 rounded bg-black/55 text-white text-[9px] font-medium leading-none tabular-nums">
+                                  <span x-text="asset.duration_seconds + 's'"></span>
+                                </span>
+                                <span x-show="asset.asset_type === 'image'"
+                                      class="absolute bottom-1 right-1 px-1 py-0.5 rounded bg-black/55 text-white text-[9px] font-medium leading-none">
+                                  <span x-text="t('vg_broll_picker_image_badge')"></span>
+                                </span>
+
+                                <!-- Bottom-left filename (truncated, peeks
+                                     on hover only; default is too noisy). -->
+                                <span class="absolute inset-x-0 bottom-0 px-1 py-0.5 text-[9px] text-white bg-black/60 truncate opacity-0 group-hover:opacity-100 transition-opacity"
+                                      x-text="asset.file_name"></span>
+                              </button>
+                            </template>
+                          </div>
+
+                          <!-- Footer: upload-new link.
+                               Hidden in the empty state (handled inline
+                               there with a primary button). Always visible
+                               otherwise so the user has a clear escape
+                               hatch when "none of these are right".  -->
+                          <div x-show="videoModal.brollPicker.loaded && videoModal.brollPicker.assets.length > 0"
+                               class="mt-3 pt-2 border-t border-gray-200/60 flex items-center justify-between gap-2 flex-wrap">
+                            <span class="text-[10px] text-gray-500" x-text="t('vg_broll_picker_no_match_hint')"></span>
+                            <a :href="brollPickerUploadUrl()" target="_blank" rel="noopener"
+                               class="text-[11px] text-accent hover:text-accent-hover font-medium inline-flex items-center gap-1">
+                              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                              </svg>
+                              <span x-text="t('vg_broll_picker_upload_new')"></span>
+                            </a>
+                          </div>
+                        </div>
                         <!-- Advanced: hidden by default. Type/insert_at/
                              duration are LLM-picked; users open this
                              only for fine-tuning. -->
@@ -1543,6 +2026,27 @@
           providers: [],          // active media-provider configs
           providersLoading: false,
           brollModelOptions: [],  // video_gen capability options (Veo / Seedance / Kling …)
+          // Manual KB picker for B-roll shots. Loaded lazily on first
+          // open — once per modal session unless the user hits 🔄 refresh
+          // (e.g. they navigated to Offer KB to upload a new asset and
+          // came back). Shape mirrors the matched_asset shape produced
+          // by /broll-suggestions so the chip strip / capability gate
+          // / submit path are oblivious to whether the asset came from
+          // auto-match or manual pick.
+          brollPicker: {
+            shotIdx: -1,         // which shot's picker is open; -1 = none
+            assets: [],          // canonical match-shaped list, sorted newest-first
+            loading: false,
+            error: '',
+            loaded: false,       // true after first successful fetch this session
+            // Inline blocking banner (replaces the right-corner toast
+            // that used to fire on image-without-i2v clicks). Lives at
+            // the top of the picker grid so the explanation is right
+            // next to the affordance the user just tried. Auto-clears
+            // on model change (cap restored) or picker close.
+            // Shape: { kind: 'image_no_i2v' } | null
+            blockReason: null,
+          },
           selectedProviderId: '',
           jobs: [],
           jobsLoading: false,
@@ -2819,8 +3323,185 @@
           }
         },
 
+        // Capability flags for the currently-selected B-roll model. Driven
+        // by /settings/media-capabilities (each MediaCapabilityOption now
+        // declares supports_first_frame / supports_style_references).
+        // Returns {first_frame, style_ref} — both False when no model is
+        // selected or the picked one is T2V-only. Used by the matched-
+        // asset chip strip and the helper line above the cuts list.
+        currentBrollCaps() {
+          const opts = this.videoModal.brollModelOptions || [];
+          const pcid = this.videoModal.form.broll_provider_config_id;
+          const code = this.videoModal.form.broll_model_code;
+          const sel = opts.find(o => o.provider_config_id === pcid && o.model_code === code);
+          return {
+            first_frame: !!(sel && sel.supports_first_frame),
+            style_ref:   !!(sel && sel.supports_style_references),
+            // Aspect window for first_frame inputs. null when the
+            // provider has no documented limit; concrete numbers for
+            // chanjing ([0.5, 2.0]) and veo ([0.25, 4.0]). Used by the
+            // picker to disable thumbnails outside the window before
+            // the user submits and hits a strict-gate failure.
+            first_frame_aspect_min: sel ? sel.first_frame_aspect_min : null,
+            first_frame_aspect_max: sel ? sel.first_frame_aspect_max : null,
+          };
+        },
+
+        // Returns null when the asset can be picked, or a string
+        // describing why it's locked. The picker uses this both for
+        // the per-card visual disable AND for the inline banner copy.
+        // Reason ladder (most specific first — first match wins):
+        //   * 'parsing'          — parse pipeline still running (any type)
+        //   * 'metadata_missing' — parsed but width/height missing (image, blocks aspect check)
+        //   * 'no_i2v'           — image, current model can't take images at all
+        //   * 'aspect'           — image, aspect outside model's accepted window
+        //   * null               — pickable
+        // Pre-fix the picker only checked image-specific i2v / aspect
+        // reasons, so an asset that was still being parsed could be
+        // picked → its empty metadata bypassed the backend aspect
+        // guard → strict-gate failure at submit time.
+        assetLockReason(asset) {
+          // Block in-progress parse for ALL types — picking a still-
+          // processing video also fails downstream (chanjing rejects
+          // unparsed clips).
+          if (asset.parse_status && asset.parse_status !== 'done') {
+            return 'parsing';
+          }
+          if (asset.asset_type !== 'image') return null;
+          const caps = this.currentBrollCaps();
+          if (!caps.first_frame && !caps.style_ref) return 'no_i2v';
+          // Image needs dimensions to satisfy the backend's first_frame
+          // aspect check. Without them, the backend's belt-and-braces
+          // guard (BROLL_FIRST_FRAME_METADATA_MISSING) would catch it
+          // post-submit, but a pre-submit lock saves the user a round
+          // trip + spurious provider upload.
+          if (caps.first_frame && (!asset.width || !asset.height)) {
+            return 'metadata_missing';
+          }
+          // Aspect check only when the model's i2v channel is the one
+          // we'd route through. style_ref is a soft hint with no
+          // documented aspect limits today.
+          if (caps.first_frame
+              && caps.first_frame_aspect_min
+              && caps.first_frame_aspect_max
+              && asset.width && asset.height) {
+            const ar = asset.width / asset.height;
+            if (ar < caps.first_frame_aspect_min || ar > caps.first_frame_aspect_max) {
+              return 'aspect';
+            }
+          }
+          return null;
+        },
+
+        // Backward-compat alias kept for existing template bindings.
+        imageAssetLockReason(asset) {
+          return this.assetLockReason(asset);
+        },
+
+        // Called when the user picks a different B-roll model. Walks
+        // every shot whose asset_mode requires a capability the new
+        // model doesn't have, degrading where possible and surfacing a
+        // toast count. Image and video assets degrade differently:
+        //   * video, mode requires AI ref capability the new model lacks
+        //     → fall back to 'direct' (asset still goes into the timeline)
+        //   * image, same situation → CAN'T fall back to 'direct'; the
+        //     compositor can't splice an image and the backend rejects
+        //     image+direct (BROLL_IMAGE_DIRECT_UNSUPPORTED). Clear the
+        //     binding entirely and let the shot fall back to pure AI
+        //     text-to-video. The user can re-bind by switching back to
+        //     an i2v-capable model.
+        // Without these branches, switching to a T2V-only model after
+        // picking an image silently dropped the shot at submit time.
+        onBrollModelChange() {
+          const caps = this.currentBrollCaps();
+          // If the picker had a "no i2v" block banner showing and the
+          // newly-selected model now supports first_frame, the banner
+          // is stale — clear it so the user can pick the same image.
+          if (this.videoModal.brollPicker.blockReason && (caps.first_frame || caps.style_ref)) {
+            this.videoModal.brollPicker.blockReason = null;
+          }
+          const plan = this.videoModal.form.broll_plan || [];
+          let degraded = 0;
+          let unbound = 0;  // images that lost their binding
+          for (const shot of plan) {
+            const mode = shot.asset_mode;
+            const needsDowngrade =
+              (mode === 'first_frame' && !caps.first_frame) ||
+              (mode === 'reference' && !caps.style_ref);
+            if (!needsDowngrade) continue;
+            const isImage = shot.matched_asset && shot.matched_asset.asset_type === 'image';
+            if (shot.matched_asset && !isImage) {
+              // Video → direct splice still works.
+              shot.asset_mode = 'direct';
+              degraded += 1;
+            } else if (isImage && (caps.first_frame || caps.style_ref)) {
+              // Image still has a viable AI channel on the new model —
+              // swap mode rather than unbind. Prefer first_frame (i2v
+              // deterministic) over reference (soft hint) when both
+              // are offered. Forward-compat with SD2-style models that
+              // expose style_references but not first_frame.
+              shot.asset_mode = caps.first_frame ? 'first_frame' : 'reference';
+              degraded += 1;
+            } else {
+              // Image with no viable channel left, or unexpected
+              // missing matched_asset → clear binding entirely.
+              shot.matched_asset = null;
+              shot.asset_id = null;
+              shot.asset_mode = null;
+              shot.asset_audio = false;
+              if (isImage) unbound += 1;
+              else degraded += 1;
+            }
+          }
+          const total = degraded + unbound;
+          if (total > 0) {
+            // Keep a single toast — distinguishing image-unbind from
+            // video-downgrade in the message would be more accurate but
+            // also wordier. The shot UI immediately shows the result
+            // (matched-asset card disappears for unbound shots) so the
+            // toast is just acknowledgement, not the source of truth.
+            const msg = (t('vg_broll_mode_degraded') || '').replace('{n}', total);
+            if (window.toast && typeof window.toast.info === 'function') {
+              window.toast.info(msg);
+            }
+          }
+        },
+
         setShotMode(shot, mode) {
-          // mode: 'direct' | 'reference' | 'ai'
+          // mode: 'direct' | 'first_frame' | 'reference' | 'ai'.
+          // 'ai' clears asset binding entirely (fall back to pure
+          // text-to-video for this shot). The other three keep the
+          // asset bound and route it differently downstream:
+          //   direct      — splice as-is, no AI
+          //   first_frame — AI generates with asset as frame-0 anchor
+          //   reference   — AI generates using asset as soft style hint
+          // Defensive: refuse asset_type / mode combinations that the
+          // backend or provider API will reject:
+          //   * image + direct → compositor can't splice an image
+          //   * video + first_frame → chanjing/veo first_frame is image
+          //     only; create_upload_url returns code=50000 on mp4
+          //   * video + reference → no provider currently accepts video
+          //     as a soft style reference (channel doesn't exist)
+          // Frontend chip strip already hides these combos based on
+          // asset_type, but a stale shot or programmatic caller could
+          // still hit this method directly.
+          if (shot.matched_asset) {
+            const at = shot.matched_asset.asset_type;
+            if (mode === 'direct' && at === 'image') {
+              const msg = t('vg_broll_picker_image_needs_i2v') || '';
+              if (window.toast && typeof window.toast.warning === 'function') {
+                window.toast.warning(msg);
+              }
+              return;
+            }
+            if ((mode === 'first_frame' || mode === 'reference') && at === 'video') {
+              const msg = t('vg_broll_video_needs_direct') || '';
+              if (window.toast && typeof window.toast.warning === 'function') {
+                window.toast.warning(msg);
+              }
+              return;
+            }
+          }
           shot.asset_mode = mode;
           if (mode === 'ai') {
             // Mode "ai" disables the asset binding for this shot. Keep
@@ -2828,7 +3509,8 @@
             // the asset_id so submit doesn't include it.
             shot.asset_id = null;
           } else if (shot.matched_asset) {
-            // Restore the binding when switching back into direct/ref.
+            // Restore the binding when switching back into a mode that
+            // uses the asset.
             shot.asset_id = shot.matched_asset.id;
           }
           // Audio toggle is direct-mode-only — clear any leftover state
@@ -2847,6 +3529,275 @@
           shot.asset_mode = null;
           shot.asset_audio = false;  // clear audio toggle alongside the binding
           shot._asset_dismissed = true;
+        },
+
+        // ── Manual KB picker for B-roll shots ────────────────────────────
+        // Goal: when /broll-suggestions doesn't return a match (or returns
+        // one the user wants to swap), surface the offer's existing asset
+        // library inline so the user can bind manually without leaving
+        // the modal. Shape parity with auto-match means downstream
+        // (chip strip / capability gate / submit) sees no difference.
+
+        _aspectRatioToLabel(formAspect) {
+          // Mirrors broll_matching_service.aspect_ratio_to_label so the
+          // client can tag each asset with _aspect_match without a server
+          // round-trip per pick.
+          return ({ portrait: '9:16', landscape: '16:9', square: '1:1' })[formAspect] || null;
+        },
+
+        _computeAspect(w, h) {
+          // Mirrors broll_matching_service.compute_aspect — pick the
+          // canonical label closest to the asset's actual dimensions.
+          if (!w || !h) return null;
+          const r = w / h;
+          // Within ±5% tolerance of canonical aspects.
+          const candidates = [
+            ['9:16', 9/16],   // 0.5625
+            ['1:1',  1],
+            ['16:9', 16/9],   // 1.7778
+          ];
+          for (const [label, target] of candidates) {
+            if (Math.abs(r - target) / target < 0.05) return label;
+          }
+          return null;  // some other aspect, treated as mismatch
+        },
+
+        _assetToMatchShape(a) {
+          // Frontend mirror of broll_matching_service._asset_to_match_dict.
+          // Keep the shape identical so the rest of the UI doesn't need
+          // to branch on "where did this asset come from".
+          const meta = a.metadata_json || {};
+          const w = meta.width;
+          const h = meta.height;
+          const durMs = meta.duration_ms;
+          const durS = durMs ? Math.round(durMs / 1000) : 0;
+          const asp = this._computeAspect(w, h);
+          // Resolution label — short edge driven, mirrors backend.
+          const shortEdge = (w && h) ? Math.min(w, h) : 0;
+          let resLabel = '';
+          if (shortEdge >= 2160) resLabel = '4K';
+          else if (shortEdge >= 1080) resLabel = '1080p';
+          else if (shortEdge >= 720)  resLabel = '720p';
+          else if (shortEdge > 0)     resLabel = `${shortEdge}p`;
+          return {
+            id: a.id,
+            file_name: a.file_name,
+            preview_uri: a.preview_uri,
+            asset_type: a.asset_type,
+            // Forward parse_status so the picker can lock assets that
+            // are still being processed (image dimensions / video
+            // thumbnails aren't ready yet, picking them would fail at
+            // submit). Required by ``assetLockReason``.
+            parse_status: a.parse_status,
+            duration_seconds: durS,
+            width: w, height: h,
+            aspect: asp,
+            resolution_label: resLabel,
+            // No match_reason — that field comes from LLM rerank, not
+            // present for manual picks. Empty is fine; the rationale
+            // line in the matched-asset card hides on falsy.
+            match_reason: '',
+            // Picker-only flag: target aspect at the time the picker was
+            // opened. Used to render the ⚠️ corner badge and trigger
+            // the confirm dialog on selection.
+            _aspect_target: this._aspectRatioToLabel(this.videoModal.form?.aspect_ratio),
+          };
+        },
+
+        async _fetchOfferAssets(force) {
+          // Returns true on success (assets populated), false on failure.
+          const c = this.videoModal.creation;
+          if (!c || !c.offer_id) {
+            this.videoModal.brollPicker.error = t('vg_broll_picker_no_offer');
+            return false;
+          }
+          if (this.videoModal.brollPicker.loaded && !force) return true;
+          this.videoModal.brollPicker.loading = true;
+          this.videoModal.brollPicker.error = '';
+          try {
+            // page_size=100 is the backend-enforced max (PaginationDep
+            // caps ``le=100``). Sending 200 returned 422; the picker
+            // is a curated shortcut for typical offers (rarely >20
+            // assets), not a full asset manager — outliers can use
+            // the existing /assets search page with filters.
+            const params = new URLSearchParams({
+              scope_type: 'offer',
+              scope_id: c.offer_id,
+              page: '1',
+              page_size: '100',
+            });
+            const r = await fetch(`/api/v1/assets?${params}`);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const body = await r.json();
+            const items = Array.isArray(body?.items) ? body.items : [];
+            // Only image / video — audio/document assets aren't
+            // composable into a video timeline.
+            const usable = items.filter(a => a.asset_type === 'image' || a.asset_type === 'video');
+            this.videoModal.brollPicker.assets = usable.map(a => this._assetToMatchShape(a));
+            this.videoModal.brollPicker.loaded = true;
+            return true;
+          } catch (e) {
+            this.videoModal.brollPicker.error = (t('vg_broll_picker_load_failed') || '') + ' ' + (e.message || '');
+            console.warn('broll picker fetch failed:', e);
+            return false;
+          } finally {
+            this.videoModal.brollPicker.loading = false;
+          }
+        },
+
+        async openBrollPicker(idx) {
+          // Toggle: clicking the same shot's entry button while the picker
+          // is already open closes it (predictable progressive disclosure).
+          if (this.videoModal.brollPicker.shotIdx === idx) {
+            this.videoModal.brollPicker.shotIdx = -1;
+            return;
+          }
+          this.videoModal.brollPicker.shotIdx = idx;
+          this.videoModal.brollPicker.blockReason = null;  // fresh open, clean slate
+          await this._fetchOfferAssets(false);
+        },
+
+        closeBrollPicker() {
+          this.videoModal.brollPicker.shotIdx = -1;
+          this.videoModal.brollPicker.blockReason = null;
+        },
+
+        // Best-effort recommendation for a model that DOES support
+        // first_frame (i2v). Used by the inline banner's quick-switch
+        // CTA. Prefers same-provider so the user's mental context
+        // (creds, label) doesn't shift unnecessarily; falls back to
+        // any available i2v model.
+        suggestedI2VModel() {
+          const opts = this.videoModal.brollModelOptions || [];
+          const currentPcid = this.videoModal.form.broll_provider_config_id;
+          const currentProvider = (opts.find(o => o.provider_config_id === currentPcid) || {}).provider;
+          if (currentProvider) {
+            const same = opts.find(o => o.available && o.supports_first_frame && o.provider === currentProvider);
+            if (same) return same;
+          }
+          return opts.find(o => o.available && o.supports_first_frame) || null;
+        },
+
+        applyI2VModelSwitch() {
+          const target = this.suggestedI2VModel();
+          if (!target) return;
+          this.videoModal.form.broll_provider_config_id = target.provider_config_id;
+          this.videoModal.form.broll_model_code = target.model_code;
+          this.onBrollModelChange();
+          // Capability changed → block reason no longer applies.
+          this.videoModal.brollPicker.blockReason = null;
+        },
+
+        async refreshBrollPicker() {
+          await this._fetchOfferAssets(true);
+        },
+
+        async pickAssetForShot(idx, asset) {
+          const isImage = asset.asset_type === 'image';
+          const caps = this.currentBrollCaps();
+          // Image assets cannot go through ``direct`` (compositor needs
+          // a video stream). They need at least one image-friendly
+          // AI channel from the active model:
+          //   * ``first_frame`` (i2v anchor) — preferred when both are
+          //     offered because i2v is deterministic ("starts from
+          //     this image") vs reference's softer "looks like".
+          //   * ``style_references`` — soft style hint. Today no
+          //     provider exposes this (chanjing/veo drop), but the
+          //     capability axis exists for forward-compat with
+          //     Volcano SD2 / Kling / Runway-style models. Without
+          //     this branch, an SD2-style model with first_frame=
+          //     false / style_ref=true would silently reject any
+          //     image pick even though the chip strip would correctly
+          //     show the "作参考" chip — a frontend self-inconsistency.
+          // Lock reasons cover both type-specific and parse-status
+          // gates. Match in the same priority order as ``assetLockReason``
+          // so the user sees the most actionable banner first.
+          const lockReason = this.assetLockReason(asset);
+          if (lockReason === 'parsing') {
+            this.videoModal.brollPicker.blockReason = { kind: 'asset_parsing' };
+            return;
+          }
+          if (lockReason === 'metadata_missing') {
+            this.videoModal.brollPicker.blockReason = { kind: 'image_metadata_missing' };
+            return;
+          }
+          if (isImage) {
+            // Two distinct lock reasons need different banners:
+            //   no_i2v: model can't accept images at all → suggest model swap
+            //   aspect: model OK but THIS image's aspect is outside the
+            //           accepted window (e.g. chanjing's [0.5, 2.0]) →
+            //           suggest a different image, NOT a model swap
+            if (lockReason === 'no_i2v') {
+              this.videoModal.brollPicker.blockReason = { kind: 'image_no_i2v' };
+              return;
+            }
+            if (lockReason === 'aspect') {
+              const ar = (asset.width / asset.height).toFixed(2);
+              this.videoModal.brollPicker.blockReason = {
+                kind: 'image_aspect',
+                actual: ar,
+                width: asset.width,
+                height: asset.height,
+                min: caps.first_frame_aspect_min,
+                max: caps.first_frame_aspect_max,
+              };
+              return;
+            }
+          }
+          // Aspect mismatch — confirm before applying for VIDEO assets in
+          // direct mode (the only path where mismatch causes visible
+          // pillarbox). Images skip this entirely (they always go to
+          // first_frame, which is aspect-agnostic).
+          const target = asset._aspect_target;
+          const mismatch = target && asset.aspect && asset.aspect !== target;
+          if (mismatch && !isImage) {
+            const ok = window.confirm(
+              (t('vg_broll_picker_aspect_mismatch_confirm') || '')
+                .replace('{actual}', asset.aspect)
+                .replace('{target}', target),
+            );
+            if (!ok) return;
+          }
+          const shot = (this.videoModal.form.broll_plan || [])[idx];
+          if (!shot) return;
+          // Strip the picker-only sentinel before binding so the saved
+          // payload matches auto-match shape exactly.
+          const clean = { ...asset };
+          delete clean._aspect_target;
+          shot.matched_asset = clean;
+          shot.asset_id = clean.id;
+          shot._asset_dismissed = false;
+          // Default mode (matrix is constrained — see chip strip):
+          //   - video asset → always direct (only legal mode for video;
+          //     first_frame is image-only at the provider API level —
+          //     chanjing's create_upload_url rejects mp4 with code=50000)
+          //   - image + first_frame supported → first_frame (preferred
+          //     when both modes are offered: i2v is deterministic)
+          //   - image + only style_references supported → reference
+          //     (forward-compat for SD2/Kling-style models)
+          //
+          // Aspect mismatch only matters for video+direct (visible
+          // pillarbox in compositor); the picker confirm dialog above
+          // already gave the user the choice. Image+first_frame and
+          // image+reference are aspect-agnostic (the model handles
+          // framing).
+          if (!isImage) {
+            shot.asset_mode = 'direct';
+          } else if (caps.first_frame) {
+            shot.asset_mode = 'first_frame';
+          } else {
+            shot.asset_mode = 'reference';
+          }
+          this.closeBrollPicker();
+        },
+
+        brollPickerUploadUrl() {
+          // Deep link to the offer's asset library tab so the user can
+          // upload directly. Uses the existing offer detail page; no
+          // new upload UI inside the modal.
+          const c = this.videoModal.creation;
+          if (!c || !c.offer_id) return '#';
+          return `/offer.html?id=${c.offer_id}`;
         },
 
         _extractNarration(creation) {
