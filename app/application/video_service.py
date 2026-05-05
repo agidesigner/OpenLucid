@@ -120,6 +120,142 @@ def _classify_broll_error(msg: str) -> str:
     return cause
 
 
+async def _extract_video_cover(local_mp4_path: str) -> str | None:
+    """Extract the first frame of a composited video as a cover thumbnail.
+
+    Runs ffmpeg on the local mp4 and writes a JPEG sibling next to it.
+    Why: chanjing returns the avatar's portrait as ``cover_url``, but
+    that image is just a static head-shot — it doesn't reflect what
+    the user actually sees at second 0 of the final video. When B-roll
+    inserts at ``insert_after_char=0`` (retention opener), the real
+    first frame is the B-roll cutaway, not the avatar. Generating our
+    own cover from the composited mp4 makes the Past Videos thumbnail
+    match what plays when the user clicks ▶.
+
+    Convention matches asset thumbnails: fit within 512×512 box,
+    JPEG ~85, never upscale. Returns the public ``/uploads/...`` URL
+    or ``None`` on any failure (caller falls back to chanjing's cover).
+    """
+    import os
+    out_path = local_mp4_path.rsplit(".", 1)[0] + "_cover.jpg"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-y",
+            "-i", local_mp4_path,
+            "-frames:v", "1",
+            # ``-ss 0`` would land before the first valid frame on some
+            # codecs; default (no -ss) takes the first decoded frame.
+            "-vf", "scale='min(iw,512)':'min(ih,512)':force_original_aspect_ratio=decrease",
+            "-q:v", "3",  # ~JPEG q85
+            out_path,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.communicate()
+        if proc.returncode != 0 or not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
+            return None
+        # Translate filesystem path → public URL. The composited dir
+        # is already mounted at /uploads/composited (see static mount
+        # in app.main); we just rebase the filename.
+        from app.config import settings
+        rel = os.path.relpath(out_path, str(settings.STORAGE_BASE_PATH))
+        return "/uploads/" + rel.replace(os.sep, "/")
+    except FileNotFoundError:
+        logger.warning("ffmpeg not found, skipping cover extraction for %s", local_mp4_path)
+        return None
+    except Exception as e:
+        logger.warning("Cover extraction failed for %s: %s", local_mp4_path, e)
+        return None
+
+
+def _aspect_label_to_ratio(aspect_ratio: str | None) -> float | None:
+    return {
+        "portrait": 9 / 16,
+        "9:16": 9 / 16,
+        "landscape": 16 / 9,
+        "16:9": 16 / 9,
+        "square": 1.0,
+        "1:1": 1.0,
+    }.get(aspect_ratio or "")
+
+
+def _derive_first_frame_reference_image(
+    file_bytes: bytes,
+    file_name: str,
+    source_width: int,
+    source_height: int,
+    target_aspect: str | None,
+    min_aspect: float | None,
+    max_aspect: float | None,
+) -> tuple[bytes, str, dict]:
+    """Create a provider-safe first-frame image without mutating the asset.
+
+    Long poster assets are valuable in the knowledge base as-is, but
+    Chanjing/Doubao reject first-frame images outside [0.5, 2.0]. For B-roll
+    submission only, crop a temporary top-center frame to the target video
+    aspect (9:16 / 16:9 / 1:1), clamped into the provider's accepted window.
+    """
+    import io
+    from pathlib import Path
+
+    from PIL import Image, ImageOps
+
+    src_ratio = source_width / source_height if source_height else 1.0
+    wanted = _aspect_label_to_ratio(target_aspect) or src_ratio
+    if min_aspect is not None:
+        wanted = max(wanted, float(min_aspect))
+    if max_aspect is not None:
+        wanted = min(wanted, float(max_aspect))
+
+    with Image.open(io.BytesIO(file_bytes)) as im:
+        im = ImageOps.exif_transpose(im)
+        width, height = im.size
+        current = width / height if height else wanted
+
+        if current < wanted:
+            crop_h = max(1, min(height, round(width / wanted)))
+            crop_w = width
+            left = 0
+            top = 0
+        elif current > wanted:
+            crop_w = max(1, min(width, round(height * wanted)))
+            crop_h = height
+            left = max(0, (width - crop_w) // 2)
+            top = 0
+        else:
+            crop_w, crop_h, left, top = width, height, 0, 0
+
+        cropped = im.crop((left, top, left + crop_w, top + crop_h))
+        if cropped.mode in ("RGBA", "LA", "P"):
+            bg = Image.new("RGB", cropped.size, (255, 255, 255))
+            if cropped.mode == "P":
+                cropped = cropped.convert("RGBA")
+            bg.paste(cropped, mask=cropped.split()[-1] if cropped.mode in ("RGBA", "LA") else None)
+            cropped = bg
+        elif cropped.mode != "RGB":
+            cropped = cropped.convert("RGB")
+
+        # Provider upload does not need original poster resolution. Cap
+        # temporary references to 1536px on the long edge to keep upload
+        # size predictable while preserving enough detail for i2v.
+        cropped.thumbnail((1536, 1536), Image.LANCZOS)
+        out = io.BytesIO()
+        cropped.save(out, "JPEG", quality=90, optimize=True)
+
+    stem = Path(file_name or "first_frame").stem or "first_frame"
+    derived_name = f"{stem}_broll_ref.jpg"
+    info = {
+        "source_width": source_width,
+        "source_height": source_height,
+        "source_aspect": round(src_ratio, 4),
+        "target_aspect": round(wanted, 4),
+        "crop_box": [left, top, left + crop_w, top + crop_h],
+        "derived_width": cropped.size[0],
+        "derived_height": cropped.size[1],
+    }
+    return out.getvalue(), derived_name, info
+
+
 def _to_response(job: VideoGenerationJob) -> VideoJobResponse:
     return VideoJobResponse(
         id=str(job.id),
@@ -560,6 +696,7 @@ async def create_video_job(
                     # prep failures must surface like submit failures.
                     first_frame_obj: FirstFrame | None = None
                     style_refs_list: list[StyleReference] = []
+                    first_frame_crop: dict | None = None
                     if asset_id_raw and asset_mode in ("first_frame", "reference"):
                         # Phase 1: resolve asset metadata. No
                         # ``expected_aspect`` here — first_frame /
@@ -670,21 +807,19 @@ async def create_video_job(
                                 # canonical aspect-ratio string.
                                 img_ar = w / h
                                 if img_ar < amin or img_ar > amax:
-                                    err_str = (
-                                        f"image aspect {img_ar:.2f} ({w}:{h}) outside "
-                                        f"{broll_provider_config.provider}/"
-                                        f"{broll_model_code} accepted range "
-                                        f"[{amin}, {amax}]"
-                                    )
-                                    logger.warning("B-roll #%d %s", idx, err_str)
-                                    broll_failures.append({
-                                        "idx": idx,
-                                        "prompt": prompt[:80],
-                                        "error": _classify_broll_error(
-                                            "BROLL_FIRST_FRAME_ASPECT_OUT_OF_RANGE: " + err_str,
-                                        ),
-                                    })
-                                    continue
+                                    # Do not mutate the user's knowledge-base
+                                    # asset. Generate a temporary provider-safe
+                                    # first-frame image below, using a top-center
+                                    # crop to the target video aspect. This keeps
+                                    # long posters reusable while avoiding the
+                                    # upstream [0.5, 2.0] rejection.
+                                    first_frame_crop = {
+                                        "source_width": w,
+                                        "source_height": h,
+                                        "source_aspect": round(img_ar, 4),
+                                        "min_aspect": amin,
+                                        "max_aspect": amax,
+                                    }
 
                         # Phase 3: upload to provider's temp file
                         # service. Network / quota / auth issues land
@@ -695,9 +830,32 @@ async def create_video_job(
                         # failure surfaced via the strict gate.
                         try:
                             file_bytes = await storage.get_file(asset_uri)
+                            upload_name = asset_meta.get("file_name") or "ref.png"
+                            if asset_mode == "first_frame" and first_frame_crop:
+                                file_bytes, upload_name, crop_info = _derive_first_frame_reference_image(
+                                    file_bytes=file_bytes,
+                                    file_name=upload_name,
+                                    source_width=int(asset_meta.get("width") or 0),
+                                    source_height=int(asset_meta.get("height") or 0),
+                                    target_aspect=ar,
+                                    min_aspect=first_frame_crop.get("min_aspect"),
+                                    max_aspect=first_frame_crop.get("max_aspect"),
+                                )
+                                first_frame_crop.update(crop_info)
+                                logger.info(
+                                    "B-roll #%d first_frame auto-cropped asset=%s "
+                                    "%sx%s → %sx%s crop=%s",
+                                    idx,
+                                    asset_id_raw,
+                                    first_frame_crop.get("source_width"),
+                                    first_frame_crop.get("source_height"),
+                                    first_frame_crop.get("derived_width"),
+                                    first_frame_crop.get("derived_height"),
+                                    first_frame_crop.get("crop_box"),
+                                )
                             ref_url = await broll_video_provider.upload_temp_file(
                                 file_bytes,
-                                asset_meta.get("file_name") or "ref.png",
+                                upload_name,
                             )
                             if asset_mode == "first_frame":
                                 first_frame_obj = FirstFrame(url=ref_url)
@@ -726,6 +884,8 @@ async def create_video_job(
                         style_references=style_refs_list or None,
                         first_frame=first_frame_obj,
                     )
+                    if first_frame_crop:
+                        submit_kwargs["_reference_crop"] = first_frame_crop
                     if broll_model_code:
                         submit_kwargs["model_code"] = broll_model_code
                     broll_specs.append((idx, entry, prompt, dur, submit_kwargs))
@@ -745,6 +905,7 @@ async def create_video_job(
                     idx: int, entry: dict, prompt: str, dur: int, submit_kwargs: dict
                 ) -> dict | None:
                     async with _sem:
+                        reference_crop = submit_kwargs.pop("_reference_crop", None)
                         try:
                             task_id = await broll_video_provider.submit_broll_clip(**submit_kwargs)
                         except Exception as e:
@@ -761,7 +922,7 @@ async def create_video_job(
                             idx, broll_provider_config.provider, entry.get("type"),
                             entry.get("insert_after_char"), task_id,
                         )
-                        return {
+                        task = {
                             "index": idx,
                             "task_id": task_id,
                             "type": entry.get("type", "illustrative"),
@@ -769,6 +930,9 @@ async def create_video_job(
                             "duration_seconds": dur,
                             "prompt": prompt,
                         }
+                        if reference_crop:
+                            task["reference_crop"] = reference_crop
+                        return task
 
                 results = await asyncio.gather(
                     *(_submit_one(*s) for s in broll_specs)
@@ -1142,6 +1306,14 @@ async def _maybe_sync_status(
                     logger.info("B-roll composite done: %s", video_url)
                     params["avatar_video_url"] = status.video_url
                     job.video_url = video_url
+                    # Override chanjing's avatar-portrait cover_url with
+                    # an actual frame from the composited mp4. This is
+                    # the only path where the cover meaningfully differs
+                    # — non-broll videos use chanjing's preview directly
+                    # since their first frame ≈ avatar shot anyway.
+                    real_cover_url = await _extract_video_cover(output_path)
+                    if real_cover_url:
+                        job.cover_url = real_cover_url
                 except Exception as e:
                     logger.exception("B-roll compositing failed: %s", e)
                     job.video_url = status.video_url  # fallback to avatar-only
@@ -1151,7 +1323,10 @@ async def _maybe_sync_status(
                 params["broll_composited"] = True
                 job.params = params
                 job.status = "completed"
-                if status.cover_url:
+                # If we wrote a real cover above, don't let chanjing's
+                # avatar-portrait clobber it. Only fall back when the
+                # extraction failed (real_cover_url None).
+                if status.cover_url and not job.cover_url:
                     job.cover_url = status.cover_url
                 if status.duration_seconds is not None:
                     job.duration_seconds = status.duration_seconds
@@ -1262,5 +1437,3 @@ def _to_response_with_creation(
         creation_title=creation.title,
         creation_content_type=creation.content_type,
     )
-
-

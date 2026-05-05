@@ -794,9 +794,12 @@
                       <span class="text-[11px] text-red-500 font-medium" x-text="t('unknown_error')"></span>
                     </div>
                   </template>
-                  <!-- Image -->
+                  <!-- Image: serve the 512×512-bounded thumbnail in
+                       the grid card (~200×280px display). The /thumbnail
+                       endpoint falls back to /file for legacy images
+                       without preview_uri so old assets don't break. -->
                   <template x-if="a.asset_type==='image' && a.parse_status==='done'">
-                    <img :src="'/api/v1/assets/'+a.id+'/file'" class="absolute inset-0 w-full h-full object-cover" alt="" loading="lazy">
+                    <img :src="'/api/v1/assets/'+a.id+'/thumbnail'" class="absolute inset-0 w-full h-full object-cover" alt="" loading="lazy">
                   </template>
                   <!-- Audio -->
                   <template x-if="a.asset_type==='audio'">
@@ -1303,7 +1306,7 @@
         <div class="px-6 pt-4 pb-2 flex items-center gap-3">
           <div class="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden shrink-0">
             <template x-if="editTagsAsset?.asset_type === 'image' || editTagsAsset?.preview_uri">
-              <img :src="'/api/v1/assets/' + editTagsAsset?.id + '/' + (editTagsAsset?.asset_type === 'image' ? 'file' : 'thumbnail')" class="w-full h-full object-cover" alt="">
+              <img :src="'/api/v1/assets/' + editTagsAsset?.id + '/thumbnail'" class="w-full h-full object-cover" alt="">
             </template>
           </div>
           <div class="min-w-0">

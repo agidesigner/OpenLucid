@@ -179,13 +179,28 @@ async def list_assets(
 
 @router.get("/{asset_id}/thumbnail")
 async def get_thumbnail(asset_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Serve the asset's stored thumbnail (preview_uri).
+
+    For images uploaded BEFORE thumbnail generation was added, the
+    field is null — fall back to the original file so old grids
+    don't render broken images. The frontend always points at
+    /thumbnail for image cards regardless of asset age; the
+    fallback keeps that uniform until a back-fill job populates
+    preview_uri for legacy assets.
+    """
     storage = get_storage()
     svc = AssetService(db, storage)
     asset = await svc.get(asset_id)
-    if not asset.preview_uri:
-        raise HTTPException(status_code=404, detail="Thumbnail not available")
-    path = storage.get_absolute_path(asset.preview_uri)
-    return FileResponse(path, media_type="image/jpeg")
+    if asset.preview_uri:
+        path = storage.get_absolute_path(asset.preview_uri)
+        return FileResponse(path, media_type="image/jpeg")
+    # Backfill fallback: image originals are visually equivalent to
+    # their thumbnail (just bigger). Videos without preview_uri have
+    # no still frame to serve, so 404 is correct there.
+    if asset.asset_type == "image" and asset.storage_uri:
+        path = storage.get_absolute_path(asset.storage_uri)
+        return FileResponse(path, media_type=asset.mime_type or "image/jpeg")
+    raise HTTPException(status_code=404, detail="Thumbnail not available")
 
 
 @router.get("/{asset_id}/file")

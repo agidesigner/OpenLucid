@@ -1062,7 +1062,7 @@
                                      preview_uri (which is the raw storage path
                                      from the backend, not a fetchable URL).
                                      Same pattern as offer.html:530/648. -->
-                                <img :src="'/api/v1/assets/' + shot.matched_asset.id + '/' + (shot.matched_asset.asset_type === 'image' ? 'file' : 'thumbnail')"
+                                <img :src="'/api/v1/assets/' + shot.matched_asset.id + '/thumbnail'"
                                      loading="lazy"
                                      class="w-full h-full object-cover"
                                      :alt="shot.matched_asset.file_name"
@@ -1480,34 +1480,20 @@
                               <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/>
                             </svg>
                             <div class="flex-1 min-w-0">
-                              <!-- Two banner variants share layout:
-                                     image_no_i2v — model can't take images at all
-                                     image_aspect — image's aspect outside model's range
-                                   The recovery CTA differs: the first
-                                   suggests switching MODEL; the second
-                                   suggests picking a different IMAGE
-                                   (model swap doesn't help — most i2v
-                                   models share the same aspect window). -->
+                              <!-- Locked-state banner. Aspect-mismatched
+                                   images are no longer locked: backend
+                                   auto-crops a temporary first-frame copy. -->
                               <p class="text-[12px] font-medium text-amber-900"
                                  x-text="(videoModal.brollPicker.blockReason?.kind === 'asset_parsing') ? t('vg_broll_picker_block_parsing_title')
                                        : (videoModal.brollPicker.blockReason?.kind === 'image_metadata_missing') ? t('vg_broll_picker_block_meta_missing_title')
-                                       : (videoModal.brollPicker.blockReason?.kind === 'image_aspect') ? t('vg_broll_picker_block_aspect_title')
-                                               .replace('{actual}', videoModal.brollPicker.blockReason.actual)
-                                               .replace('{w}', videoModal.brollPicker.blockReason.width)
-                                               .replace('{h}', videoModal.brollPicker.blockReason.height)
                                        : t('vg_broll_picker_block_i2v_title')"></p>
                               <p class="text-[11px] text-amber-800/90 mt-0.5 leading-relaxed"
                                  x-text="(videoModal.brollPicker.blockReason?.kind === 'asset_parsing') ? t('vg_broll_picker_block_parsing_body')
                                        : (videoModal.brollPicker.blockReason?.kind === 'image_metadata_missing') ? t('vg_broll_picker_block_meta_missing_body')
-                                       : (videoModal.brollPicker.blockReason?.kind === 'image_aspect') ? t('vg_broll_picker_block_aspect_body')
-                                               .replace('{min}', videoModal.brollPicker.blockReason.min)
-                                               .replace('{max}', videoModal.brollPicker.blockReason.max)
                                        : t('vg_broll_picker_block_i2v_body')"></p>
                               <div class="mt-2 flex items-center gap-3 flex-wrap">
                                 <!-- image_no_i2v: 1-click model swap when
-                                     a vision-capable model is configured.
-                                     image_aspect: no quick fix — user
-                                     needs to pick a different image. -->
+                                     a vision-capable model is configured. -->
                                 <template x-if="videoModal.brollPicker.blockReason?.kind === 'image_no_i2v' && suggestedI2VModel()">
                                   <button type="button"
                                           @click="applyI2VModelSwitch()"
@@ -1537,13 +1523,15 @@
                                       :title="assetLockReason(asset) === 'parsing' ? t('vg_broll_picker_card_parsing_hint')
                                               : assetLockReason(asset) === 'metadata_missing' ? t('vg_broll_picker_card_meta_missing_hint')
                                               : assetLockReason(asset) === 'no_i2v' ? t('vg_broll_picker_card_locked_hint')
-                                              : assetLockReason(asset) === 'aspect' ? t('vg_broll_picker_card_aspect_hint')
+                                              : imageNeedsAutoCrop(asset) ? t('vg_broll_picker_card_auto_crop_hint')
                                                 .replace('{actual}', (asset.width && asset.height) ? (asset.width/asset.height).toFixed(2) : '?')
                                                 .replace('{min}', currentBrollCaps().first_frame_aspect_min || '?')
                                                 .replace('{max}', currentBrollCaps().first_frame_aspect_max || '?')
                                               : null"
                                       :class="assetLockReason(asset)
                                                 ? 'border-gray-200 opacity-50 grayscale cursor-not-allowed hover:opacity-60'
+                                                : imageNeedsAutoCrop(asset)
+                                                  ? 'border-amber-300 ring-1 ring-amber-200/60 hover:ring-amber-300'
                                                 : (asset._aspect_target && asset.aspect && asset.aspect !== asset._aspect_target)
                                                   ? 'border-amber-300 ring-1 ring-amber-200/50 hover:ring-amber-300'
                                                   : 'border-gray-200 hover:border-accent/50 hover:ring-2 hover:ring-accent/20'"
@@ -1561,12 +1549,18 @@
                                       class="absolute top-1 left-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-900/75 backdrop-blur-sm text-white shadow-sm z-10"
                                       :title="assetLockReason(asset) === 'parsing' ? t('vg_broll_picker_card_parsing_hint')
                                               : assetLockReason(asset) === 'metadata_missing' ? t('vg_broll_picker_card_meta_missing_hint')
-                                              : assetLockReason(asset) === 'aspect' ? t('vg_broll_picker_card_aspect_hint_short')
                                               : t('vg_broll_picker_card_locked_hint')">
                                   <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 11c0-1.105.895-2 2-2s2 .895 2 2v2H8v-2zM5 13h14v6a2 2 0 01-2 2H7a2 2 0 01-2-2v-6z"/>
                                   </svg>
                                 </span>
+                                <span x-show="imageNeedsAutoCrop(asset)"
+                                      class="absolute top-1 left-1 inline-flex items-center px-1.5 py-0.5 rounded bg-amber-500/90 text-white text-[9px] font-semibold shadow-sm z-10"
+                                      :title="t('vg_broll_picker_card_auto_crop_hint')
+                                                .replace('{actual}', (asset.width && asset.height) ? (asset.width/asset.height).toFixed(2) : '?')
+                                                .replace('{min}', currentBrollCaps().first_frame_aspect_min || '?')
+                                                .replace('{max}', currentBrollCaps().first_frame_aspect_max || '?')"
+                                      x-text="t('vg_broll_picker_auto_crop_badge')"></span>
                                 <!-- Thumbnail. Endpoint per asset type:
                                        image → /file (the asset itself)
                                        video → /thumbnail (server-rendered
@@ -1587,7 +1581,7 @@
                                      loading="lazy" — large grids stay
                                      snappy on initial paint. -->
                                 <img x-show="asset.asset_type === 'image' || asset.preview_uri"
-                                     :src="'/api/v1/assets/' + asset.id + '/' + (asset.asset_type === 'image' ? 'file' : 'thumbnail')"
+                                     :src="'/api/v1/assets/' + asset.id + '/thumbnail'"
                                      :alt="asset.file_name"
                                      loading="lazy"
                                      class="absolute inset-0 w-full h-full object-cover">
@@ -3354,7 +3348,6 @@
         //   * 'parsing'          — parse pipeline still running (any type)
         //   * 'metadata_missing' — parsed but width/height missing (image, blocks aspect check)
         //   * 'no_i2v'           — image, current model can't take images at all
-        //   * 'aspect'           — image, aspect outside model's accepted window
         //   * null               — pickable
         // Pre-fix the picker only checked image-specific i2v / aspect
         // reasons, so an asset that was still being parsed could be
@@ -3378,19 +3371,19 @@
           if (caps.first_frame && (!asset.width || !asset.height)) {
             return 'metadata_missing';
           }
-          // Aspect check only when the model's i2v channel is the one
-          // we'd route through. style_ref is a soft hint with no
-          // documented aspect limits today.
-          if (caps.first_frame
-              && caps.first_frame_aspect_min
-              && caps.first_frame_aspect_max
-              && asset.width && asset.height) {
-            const ar = asset.width / asset.height;
-            if (ar < caps.first_frame_aspect_min || ar > caps.first_frame_aspect_max) {
-              return 'aspect';
-            }
-          }
           return null;
+        },
+
+        // True when the backend will make a temporary provider-safe
+        // first-frame crop before upload. The original library asset
+        // stays unchanged; this is just a lightweight UI hint.
+        imageNeedsAutoCrop(asset) {
+          if (!asset || asset.asset_type !== 'image') return false;
+          const caps = this.currentBrollCaps();
+          if (!caps.first_frame || !caps.first_frame_aspect_min || !caps.first_frame_aspect_max) return false;
+          if (!asset.width || !asset.height) return false;
+          const ar = asset.width / asset.height;
+          return ar < caps.first_frame_aspect_min || ar > caps.first_frame_aspect_max;
         },
 
         // Backward-compat alias kept for existing template bindings.
@@ -3724,23 +3717,8 @@
           if (isImage) {
             // Two distinct lock reasons need different banners:
             //   no_i2v: model can't accept images at all → suggest model swap
-            //   aspect: model OK but THIS image's aspect is outside the
-            //           accepted window (e.g. chanjing's [0.5, 2.0]) →
-            //           suggest a different image, NOT a model swap
             if (lockReason === 'no_i2v') {
               this.videoModal.brollPicker.blockReason = { kind: 'image_no_i2v' };
-              return;
-            }
-            if (lockReason === 'aspect') {
-              const ar = (asset.width / asset.height).toFixed(2);
-              this.videoModal.brollPicker.blockReason = {
-                kind: 'image_aspect',
-                actual: ar,
-                width: asset.width,
-                height: asset.height,
-                min: caps.first_frame_aspect_min,
-                max: caps.first_frame_aspect_max,
-              };
               return;
             }
           }
