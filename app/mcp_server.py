@@ -1340,15 +1340,33 @@ async def list_apps(language: str = "en") -> str:
     """Discover the AI apps available on this OpenLucid instance — script
     writer, content studio (social copy), topic/video idea studio, KB Q&A /
     RAG, etc. Each app bundles an LLM prompt pipeline that consumes brand
-    knowledge and produces marketing outputs. Returns: app_id, name,
-    description, category, task_type, required_entities, required_capabilities,
-    entry_modes, status. Then call get_app_config(app_id) to inspect its
-    parameters, and run_app(app_id, inputs) to execute it."""
+    knowledge and produces marketing outputs.
+
+    Only RUNNABLE apps (callable via ``run_app``) are listed. Apps used
+    purely as taxonomy / vocabulary providers — such as ``asset_tagging``
+    (a closed-vocabulary registry for content_form / campaign_type) —
+    are NOT returned here; query their config directly via
+    ``get_app_config(app_id)``.
+
+    Returns: app_id, name, description, category, task_type,
+    required_entities, required_capabilities, entry_modes, status.
+    Call ``get_app_config(app_id)`` to inspect parameters, and
+    ``run_app(app_id, inputs)`` to execute.
+    """
     from app.apps.registry import AppRegistry
 
+    # ``asset_tagging`` is a taxonomy provider, not a runnable workflow —
+    # ``run_app`` has no dispatch branch for it, so listing it here would
+    # mislead agents into trying ``run_app("asset_tagging", ...)`` and
+    # hitting a confusing error. Hide it; agents that need the
+    # content_form / campaign_type vocabulary go through
+    # ``get_app_config("asset_tagging")`` directly.
+    NON_RUNNABLE = {"asset_tagging"}
     apps = AppRegistry.list_apps()
     result = []
     for app in apps:
+        if app.app_id in NON_RUNNABLE:
+            continue
         a = app.localized(language[:2])
         result.append({
             "app_id": a.app_id,
@@ -1379,6 +1397,12 @@ async def get_app_config(app_id: str, language: str = "zh") -> str:
       - content_studio: returns the same enums as script_writer (shared Composer)
       - kb_qa:          returns enums.styles
       - topic_studio:   returns enums.{} (no fixed enums at this time)
+      - asset_tagging:  TAXONOMY ONLY — returns enums.content_forms /
+                        campaign_types (the closed-vocabulary registry the
+                        auto-tagger writes into). NOT runnable via
+                        ``run_app``; that's why ``list_apps`` hides it. Use
+                        this when an agent needs to filter assets by
+                        content_form / campaign_type via search_assets.
 
     Returns:
       {
@@ -2068,6 +2092,86 @@ async def update_creation_section(
 
 
 @mcp.tool()
+async def ask_kb(
+    offer_id: str,
+    question: str,
+    style_id: str = "professional",
+    language: str = "zh-CN",
+    config_id: str | None = None,
+) -> str:
+    """Ask a question grounded in an offer's knowledge base.
+
+    Thin wrapper around ``run_app(app_id="kb_qa", action="ask", ...)``
+    — same backend, identical response shape, just a more
+    discoverable entry point for agents that don't want to learn the
+    full ``run_app`` parameter surface. Use this for:
+      * "Does this product cover {scenario}?"
+      * "What's the brand's stance on {topic}?"
+      * "Pull the proof for the {selling_point} claim."
+
+    Args mirror run_app/kb_qa: ``offer_id`` is required;
+    ``style_id`` ∈ professional|friendly|expert (defaults to
+    professional); ``config_id`` overrides the per-scene LLM.
+
+    Returns: {answer, referenced_knowledge, has_relevant_knowledge}.
+    """
+    return await run_app(  # type: ignore[func-returns-value]
+        app_id="kb_qa",
+        action="ask",
+        offer_id=offer_id,
+        question=question,
+        style_id=style_id,
+        language=language,
+        config_id=config_id,
+    )
+
+
+@mcp.tool()
+async def generate_topics(
+    offer_id: str,
+    strategy_unit_id: str | None = None,
+    count: int = 5,
+    language: str = "zh-CN",
+    config_id: str | None = None,
+) -> str:
+    """Generate fresh topic plans for an offer.
+
+    Thin wrapper around ``run_app(app_id="topic_studio",
+    action="generate", ...)``. Returns a list of topic plans with
+    title / angle / hook / key_points the agent can feed into
+    ``run_app(script_writer, generate, topic_plan_id=...)``.
+
+    Args:
+      offer_id: required; topics are always offer-scoped.
+      strategy_unit_id: narrow generation to a specific
+        audience × scenario × goal × channel combo.
+      count: how many plans, ``1 ≤ count ≤ 20``. Out-of-range values
+        raise ``TOPIC_COUNT_OUT_OF_RANGE`` rather than silently
+        clamping — the underlying run_app used to swallow >20 down
+        to 5, which surprised callers asking for 30 and getting 5.
+      config_id: per-call LLM override.
+    """
+    from app.exceptions import AppError
+
+    if not isinstance(count, int) or count < 1 or count > 20:
+        raise AppError(
+            "TOPIC_COUNT_OUT_OF_RANGE",
+            f"count must be an integer between 1 and 20 (got {count!r}). "
+            "20 is the practical cap on a single LLM call's output quality.",
+            400,
+        )
+    return await run_app(  # type: ignore[func-returns-value]
+        app_id="topic_studio",
+        action="generate",
+        offer_id=offer_id,
+        strategy_unit_id=strategy_unit_id,
+        word_count=count,
+        language=language,
+        config_id=config_id,
+    )
+
+
+@mcp.tool()
 async def match_broll_assets(
     creation_id: str,
     aspect: str,
@@ -2251,6 +2355,9 @@ async def submit_video(
     subtitle_style: str = "classic",
     subtitle_color: str | None = None,
     subtitle_stroke: str | None = None,
+    broll_plan: list[dict] | None = None,
+    broll_provider_config_id: str | None = None,
+    broll_model_code: str | None = None,
 ) -> str:
     """Kick off a talking-avatar video for an existing creation. Returns the job
     id; poll with get_video. `aspect_ratio` ∈ portrait|landscape|square.
@@ -2285,9 +2392,73 @@ async def submit_video(
         minimal (light grey, thin). Only takes effect when caption=True.
       subtitle_color / subtitle_stroke: optional hex overrides ("#RRGGBB");
         leave None to inherit the style preset.
+
+    Fine-grained B-roll control (parity with WebUI):
+      broll_plan: override the LLM-planned shots. Each entry is
+        ``{type, prompt, insert_after_char, duration_seconds,
+            asset_id?, asset_mode?, asset_audio?}`` —
+        * ``type``: "retention" (slow-mo / cinematic opener) or
+          "illustrative" (regular cutaway).
+        * ``insert_after_char``: char position in the narration where
+          this shot should appear.
+        * ``asset_id`` + ``asset_mode``: bind a KB asset for direct
+          splice / first_frame / reference. Modes:
+            - "direct": video asset spliced verbatim into timeline
+              (aspect must match the output ratio).
+            - "first_frame": image asset becomes the i2v anchor; the
+              backend auto-crops out-of-range images (e.g. 0.5–2.0 for
+              chanjing). Image only — videos can't be first_frame.
+            - "reference": soft style hint; no provider supports today.
+        * Pass an empty list ``[]`` to skip B-roll entirely (equivalent
+          to ``broll=False``); omit to keep the LLM-planned default.
+        * Setting a non-empty ``broll_plan`` automatically flips
+          ``broll=True`` — you don't need to pass both. Conversely,
+          ``broll_plan=[]`` is treated as an explicit opt-out.
+      broll_provider_config_id + broll_model_code: pin the B-roll model
+        explicitly (otherwise the video_gen capability default is used).
+        Pair these together — passing only one is ignored. Discover via
+        list_media_providers + the ``video_gen`` capability options. Use
+        an i2v-capable model (Doubao-Seedance, Veo 3.1) when any shot
+        binds an image as ``first_frame``. Setting these without also
+        enabling B-roll (no ``broll=True`` and no non-empty
+        ``broll_plan``) raises ``BROLL_MODEL_WITHOUT_BROLL`` —
+        prevents silent ignores when callers forget the switch.
+
+    Known limitation — B-roll requires a creation with
+    ``structured_content``: the compositor uses sections + narration
+    char offsets from there to time the cutaways. Creations produced
+    by ``run_app(script_writer | content_studio, generate, ...)``
+    have it; a hand-written ``save_creation`` with only plain text
+    does NOT. If your creation lacks structured_content, B-roll is
+    silently skipped today. Workaround: route through
+    ``run_app(script_writer, generate, ...)`` so the LLM emits
+    structured sections, then submit_video against that creation_id.
     """
     from app.application.video_service import create_video_job
+    from app.exceptions import AppError
     from app.schemas.video import VideoGenerateRequest
+
+    # ── Normalize B-roll switch + plan combinations ──
+    # video_service only acts on broll_plan when ``data.broll`` is True
+    # (see video_service.py:378). Pre-fix an agent that supplied
+    # ``broll_plan=[...]`` but forgot to flip ``broll=True`` got a
+    # silent no-op — video generated without any of the planned
+    # cutaways. Fix by inferring intent at this entry point:
+    #   * non-empty broll_plan          → enable broll automatically
+    #   * empty list ``[]``             → explicit "skip broll" (broll=False)
+    #   * any broll model param without broll enabled → hard error
+    if isinstance(broll_plan, list) and len(broll_plan) > 0:
+        broll = True
+    elif isinstance(broll_plan, list) and len(broll_plan) == 0:
+        broll = False
+    if not broll and (broll_provider_config_id or broll_model_code):
+        raise AppError(
+            "BROLL_MODEL_WITHOUT_BROLL",
+            "broll_provider_config_id / broll_model_code were set but B-roll "
+            "isn't enabled. Either pass broll=True (and optionally broll_plan), "
+            "or omit the broll model fields.",
+            400,
+        )
 
     async with _session_factory() as session:
         data = VideoGenerateRequest(
@@ -2301,6 +2472,9 @@ async def submit_video(
             subtitle_color=subtitle_color,
             subtitle_stroke=subtitle_stroke,
             broll=broll,
+            broll_plan=broll_plan,
+            broll_provider_config_id=broll_provider_config_id,
+            broll_model_code=broll_model_code,
             name=name,
             provider_extras=provider_extras or {},
         )
@@ -2502,6 +2676,38 @@ async def get_asset(asset_id: str) -> str:
         svc = AssetService(session, LocalStorageAdapter())
         asset = await svc.get(uuid.UUID(asset_id))
         return _serialize(asset, AssetResponse)
+
+
+@mcp.tool()
+async def get_asset_processing_jobs(asset_id: str) -> str:
+    """Return the processing-job history for an asset (parse, thumbnail,
+    auto-tagging steps).
+
+    Use this when ``get_asset`` shows ``parse_status`` stuck on
+    ``processing`` / ``tagging`` and you need to know whether the
+    pipeline crashed mid-run, is still working, or finished without
+    writing tags. Each job carries ``status`` ∈
+    pending|running|done|failed and an ``error_msg`` field on
+    failure (matches the AssetProcessingJobResponse schema; do NOT
+    look for ``error`` — that name was used in an earlier draft of
+    this docstring and never matched the wire format).
+
+    Pairs with the ``parse_status`` field on ``get_asset``: ``done``
+    + empty ``tags_json`` means the AI tagging step ran but couldn't
+    produce tags (e.g. configured vision_llm model can't see images).
+    """
+    from app.adapters.storage import LocalStorageAdapter
+    from app.application.asset_service import AssetService
+    from app.schemas.asset import AssetProcessingJobResponse
+
+    async with _session_factory() as session:
+        svc = AssetService(session, LocalStorageAdapter())
+        jobs = await svc.get_processing_jobs(uuid.UUID(asset_id))
+        return json.dumps(
+            [AssetProcessingJobResponse.model_validate(j, from_attributes=True).model_dump(mode="json")
+             for j in jobs],
+            ensure_ascii=False, indent=2, default=str,
+        )
 
 
 @mcp.tool()

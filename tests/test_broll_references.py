@@ -713,3 +713,167 @@ def test_auto_tag_clears_stale_tags_before_running():
         "Stale-tag guard removed — re-tag failures will keep showing old data"
     )
     assert 'parse_status="tagging"' in src
+
+
+def test_mcp_submit_video_exposes_broll_fine_grained_params():
+    """MCP must expose the same B-roll precision the WebUI offers,
+    otherwise an agent using OpenLucid as a marketing brain can only
+    flip ``broll=True`` and gets the LLM-default plan with the
+    capability-default model — no way to bind specific KB assets,
+    pin a specific i2v model, or override the auto-generated shot
+    list. The schema (VideoGenerateRequest) already supports these
+    fields; this test pins that they're surfaced via MCP too."""
+    import inspect
+
+    from app.mcp_server import submit_video
+
+    params = inspect.signature(submit_video).parameters
+    for required in ("broll_plan", "broll_provider_config_id", "broll_model_code"):
+        assert required in params, (
+            f"MCP submit_video missing {required!r} — agents lose B-roll "
+            "precision the WebUI offers"
+        )
+
+
+def test_mcp_thin_wrappers_delegate_to_run_app():
+    """``ask_kb`` / ``generate_topics`` are intentionally pure aliases —
+    they MUST forward to ``run_app`` rather than call services
+    directly. This keeps the dispatch logic single-sourced and avoids
+    drift between two parallel code paths. Source-level guard."""
+    import inspect
+
+    from app.mcp_server import ask_kb, generate_topics
+
+    ask_src = inspect.getsource(ask_kb)
+    assert "run_app(" in ask_src and 'app_id="kb_qa"' in ask_src
+    assert 'action="ask"' in ask_src
+
+    topic_src = inspect.getsource(generate_topics)
+    assert "run_app(" in topic_src and 'app_id="topic_studio"' in topic_src
+    assert 'action="generate"' in topic_src
+
+
+def test_mcp_list_apps_hides_non_runnable_taxonomy_apps():
+    """``asset_tagging`` is a closed-vocabulary registry, not a
+    runnable workflow — ``run_app`` has no dispatch branch for it.
+    Listing it under list_apps misled agents into trying
+    ``run_app("asset_tagging", ...)``. The fix excludes such apps
+    from list_apps; they're still discoverable via get_app_config."""
+    import inspect
+
+    from app.mcp_server import list_apps
+
+    src = inspect.getsource(list_apps)
+    assert "NON_RUNNABLE" in src
+    assert '"asset_tagging"' in src
+
+
+def test_submit_video_broll_plan_normalizes_broll_switch():
+    """Behavioral test (mocks the service layer): an agent that passes
+    ``broll_plan=[...]`` but forgets ``broll=True`` must NOT silently
+    get a broll-less video. The MCP wrapper auto-flips ``broll=True``
+    for non-empty plans, treats ``[]`` as explicit opt-out, and hard-
+    rejects model-pin without enable.
+
+    Reviewer's request: replace source-string assertions with a real
+    behavioral check that intercepts the dispatched VideoGenerateRequest."""
+    import asyncio
+    import uuid as _uuid
+    from unittest.mock import patch
+
+    from app import mcp_server
+    from app.exceptions import AppError
+
+    captured: list = []
+
+    async def _fake_create_video_job(session, creation_id, data):
+        captured.append(data)
+        # Return a stub job-shaped object the existing _serialize can render.
+        class _Stub:
+            id = _uuid.uuid4()
+            status = "pending"
+            provider_task_id = None
+            provider = "chanjing"
+            video_url = None
+            cover_url = None
+            error_message = None
+            duration_seconds = None
+            progress = None
+            created_at = None
+            started_at = None
+            finished_at = None
+            params = {}
+            creation_id = _uuid.uuid4()
+        return _Stub()
+
+    with patch("app.application.video_service.create_video_job", _fake_create_video_job):
+        # Case 1: non-empty broll_plan → broll auto-enabled
+        captured.clear()
+        try:
+            asyncio.run(mcp_server.submit_video(
+                creation_id=str(_uuid.uuid4()),
+                provider_config_id=str(_uuid.uuid4()),
+                avatar_id="x", voice_id="y", script="hi",
+                broll_plan=[{"type": "illustrative", "prompt": "p", "insert_after_char": 0, "duration_seconds": 5}],
+            ))
+        except Exception:
+            # _serialize on the stub may fail; we only care that the
+            # service was called with the normalized data.
+            pass
+        assert len(captured) == 1, "create_video_job should have been called once"
+        assert captured[0].broll is True, (
+            "Non-empty broll_plan must auto-enable broll. Pre-fix the agent "
+            "could pass broll_plan=[...] and get a broll-less video."
+        )
+        assert captured[0].broll_plan and len(captured[0].broll_plan) == 1
+
+        # Case 2: empty broll_plan → broll explicitly disabled
+        captured.clear()
+        try:
+            asyncio.run(mcp_server.submit_video(
+                creation_id=str(_uuid.uuid4()),
+                provider_config_id=str(_uuid.uuid4()),
+                avatar_id="x", voice_id="y", script="hi",
+                broll=True,  # would normally enable, but plan=[] should override
+                broll_plan=[],
+            ))
+        except Exception:
+            pass
+        assert captured and captured[0].broll is False, (
+            "Explicit empty broll_plan must opt out, even if broll=True was passed"
+        )
+
+        # Case 3: model pin without broll → hard error (not silent ignore)
+        try:
+            asyncio.run(mcp_server.submit_video(
+                creation_id=str(_uuid.uuid4()),
+                provider_config_id=str(_uuid.uuid4()),
+                avatar_id="x", voice_id="y", script="hi",
+                broll_provider_config_id=str(_uuid.uuid4()),
+                broll_model_code="Doubao-Seedance-1.0-pro",
+            ))
+            raise AssertionError("expected BROLL_MODEL_WITHOUT_BROLL")
+        except AppError as e:
+            assert "BROLL_MODEL_WITHOUT_BROLL" in str(e)
+
+
+def test_generate_topics_count_out_of_range_raises():
+    """Reviewer caught: pre-fix the underlying run_app silently clamped
+    count > 20 to 5 (so an agent asking for 30 got 5 with no warning).
+    The wrapper now validates 1 ≤ count ≤ 20 and surfaces a clear error."""
+    import asyncio
+
+    from app import mcp_server
+    from app.exceptions import AppError
+
+    for bad in (0, -3, 21, 100):
+        try:
+            asyncio.run(mcp_server.generate_topics(
+                offer_id="11111111-1111-1111-1111-111111111111",
+                count=bad,
+            ))
+            raise AssertionError(f"count={bad} should have raised TOPIC_COUNT_OUT_OF_RANGE")
+        except AppError as e:
+            assert "TOPIC_COUNT_OUT_OF_RANGE" in str(e), (
+                f"count={bad} raised wrong error: {e}"
+            )
