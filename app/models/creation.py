@@ -29,6 +29,9 @@ class Creation(BaseModel):
     source_app: Mapped[str] = mapped_column(String(80), nullable=False, default="manual")
     source_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     structured_content: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Set by the article-cover image-gen flow (image_service.create_article_cover_job).
+    # NULL for video creations / posts that haven't generated a cover yet.
+    cover_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Stores the structured script output from Script Writer. Shape:
     # {
     #   "platform_id": "douyin", "structure_id": "hook_body_cta",

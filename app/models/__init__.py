@@ -20,6 +20,7 @@ from app.models.guest_access import GuestAccess
 from app.models.creation import Creation
 from app.models.media_provider_config import MediaProviderConfig
 from app.models.video_generation_job import VideoGenerationJob
+from app.models.image_generation_job import ImageGenerationJob
 from app.models.media_capability_default import MediaCapabilityDefault
 
 __all__ = [
@@ -48,5 +49,6 @@ __all__ = [
     "Creation",
     "MediaProviderConfig",
     "VideoGenerationJob",
+    "ImageGenerationJob",
     "MediaCapabilityDefault",
 ]

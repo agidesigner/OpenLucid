@@ -19,6 +19,11 @@ from app.api.videos import (
     creations_videos_router,
     videos_router,
 )
+from app.api.image_generation import (
+    creations_cover_router,
+    jobs_router as image_jobs_router,
+    templates_router as image_templates_router,
+)
 from app.api.coverage import router_su as coverage_su_router, router_offer as coverage_offer_router, router_batch as coverage_batch_router
 
 api_router = APIRouter()
@@ -42,3 +47,6 @@ api_router.include_router(feedback_router)
 api_router.include_router(media_providers_router)
 api_router.include_router(creations_videos_router)
 api_router.include_router(videos_router)
+api_router.include_router(image_templates_router)
+api_router.include_router(image_jobs_router)
+api_router.include_router(creations_cover_router)

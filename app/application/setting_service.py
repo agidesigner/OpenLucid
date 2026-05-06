@@ -42,22 +42,37 @@ def _to_response(config: LLMConfig) -> LLMConfigResponse:
     )
 
 
-# Marker label so we can recognize the auto-managed mirror row vs. a row a
-# user might have hand-created (we never create one by hand today, but the
-# label keeps intent obvious in the DB).
+# Marker label for the auto-managed mirror row (visible to the user in
+# the provider list so the "linked from Gemini" intent is obvious).
 _GOOGLE_MIRROR_LABEL = "Google (linked from LLM Gemini)"
+_OPENAI_IMAGE_MIRROR_LABEL = "OpenAI Image (linked from LLM OpenAI)"
+# Structural markers stored in defaults JSON. THIS is what we filter on
+# when deciding whether a row is auto-managed — labels can be edited by
+# users, defaults._managed_by is treated as opaque server state.
+_GEMINI_MIRROR_MANAGED_BY = "gemini_llm_mirror"
+_OPENAI_MIRROR_MANAGED_BY = "openai_llm_mirror"
+# Backwards-compat alias — older code paths import this name.
+_MIRROR_MANAGED_BY = _GEMINI_MIRROR_MANAGED_BY
+
+
+def _is_mirror_managed(row: MediaProviderConfig, marker: str = _GEMINI_MIRROR_MANAGED_BY) -> bool:
+    return bool((row.defaults or {}).get("_managed_by") == marker)
 
 
 async def _sync_google_media_mirror(db: AsyncSession) -> None:
     """Mirror the user's Gemini LLM credential into a hidden ``google``
     ``media_provider_configs`` row so Veo / Nano Banana show up as
-    image_gen / video_gen options without forcing the user to re-enter the
-    same key in two places. Idempotent — call it after any LLM CRUD that
-    touches a ``provider='gemini'`` row.
+    image_gen / video_gen options without forcing the user to re-enter
+    the same key in two places. Idempotent — call after any LLM CRUD
+    that touches a ``provider='gemini'`` row.
 
-    Picks the most recently updated gemini config when the user has more
-    than one (e.g. different model_name on the same key — they all share
-    the API key anyway). Caller is responsible for committing.
+    Safety contract: this function only reads/writes/deletes rows tagged
+    ``defaults._managed_by == "gemini_llm_mirror"``. A user-created
+    ``provider='google'`` row (e.g. someone configured their own Google
+    API key separately) is invisible to this function — it survives any
+    LLM-side change. Multiple mirror rows are also tolerated: the first
+    is updated, extras are dropped (the schema doesn't enforce
+    uniqueness, but a single mirror is the only meaningful state).
     """
     gemini_result = await db.execute(
         select(LLMConfig)
@@ -67,32 +82,108 @@ async def _sync_google_media_mirror(db: AsyncSession) -> None:
     )
     gemini = gemini_result.scalar_one_or_none()
 
-    mirror_result = await db.execute(
-        select(MediaProviderConfig).where(MediaProviderConfig.provider == "google")
-    )
-    mirror = mirror_result.scalar_one_or_none()
+    # Load ALL google rows, then filter to the auto-managed ones in
+    # Python — Postgres JSON path operators are easy to get wrong (the
+    # `->>` text cast vs `->` json operator catches people out) and
+    # this query runs at most a handful of times per LLM CRUD call.
+    candidates = (
+        await db.execute(
+            select(MediaProviderConfig).where(
+                MediaProviderConfig.provider == "google"
+            )
+        )
+    ).scalars().all()
+    mirrors = [r for r in candidates if _is_mirror_managed(r)]
 
     if gemini:
         creds = {"api_key": gemini.api_key}
-        if mirror is None:
+        defaults = {"aspect_ratio": "portrait", "_managed_by": _GEMINI_MIRROR_MANAGED_BY}
+        if not mirrors:
             db.add(MediaProviderConfig(
                 provider="google",
                 label=_GOOGLE_MIRROR_LABEL,
                 credentials=creds,
-                defaults={"aspect_ratio": "portrait"},
+                defaults=defaults,
                 is_active=True,
             ))
         else:
-            mirror.credentials = creds
-            mirror.is_active = True
-            # Refresh label only if it still matches the auto-managed marker —
-            # a human-edited label is left alone.
-            if mirror.label == _GOOGLE_MIRROR_LABEL:
-                mirror.label = _GOOGLE_MIRROR_LABEL
-    elif mirror is not None:
-        # No gemini LLM left — drop the mirror. FK cascade clears
-        # MediaCapabilityDefault rows that pointed at it.
-        await db.delete(mirror)
+            # Update the first managed row, drop any extras.
+            primary, *extras = mirrors
+            primary.credentials = creds
+            primary.defaults = defaults
+            primary.is_active = True
+            # Refresh label only when it still matches the marker — a
+            # human-edited label is left alone.
+            if primary.label == _GOOGLE_MIRROR_LABEL or not primary.label:
+                primary.label = _GOOGLE_MIRROR_LABEL
+            for extra in extras:
+                await db.delete(extra)
+    else:
+        # No gemini LLM left — drop ONLY the mirror-managed rows.
+        # User-created google rows are untouched.
+        for m in mirrors:
+            await db.delete(m)
+
+
+async def _sync_openai_image_mirror(db: AsyncSession) -> None:
+    """Mirror an active OpenAI LLMConfig into a hidden ``openai_image``
+    media_provider_configs row.
+
+    Why a real row (not a virtual one): ``media_capability_defaults``
+    has a FOREIGN KEY on ``provider_config_id`` referencing
+    ``media_provider_configs(id)``. If we'd handed the option-builder a
+    synthetic MPC carrying an LLMConfig id, the user could pick that
+    option and the save would silently fail FK validation — exactly the
+    "I picked OpenAI, refresh, it bounced back to Seedream" symptom.
+
+    Same safety contract as the Gemini mirror: only rows tagged
+    ``defaults._managed_by == "openai_llm_mirror"`` are touched. A user
+    who hand-created a ``provider='openai_image'`` row keeps it.
+    """
+    openai_llm = (
+        await db.execute(
+            select(LLMConfig)
+            .where(LLMConfig.provider == "openai", LLMConfig.is_active.is_(True))
+            .order_by(LLMConfig.updated_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    candidates = (
+        await db.execute(
+            select(MediaProviderConfig).where(
+                MediaProviderConfig.provider == "openai_image"
+            )
+        )
+    ).scalars().all()
+    mirrors = [r for r in candidates if _is_mirror_managed(r, _OPENAI_MIRROR_MANAGED_BY)]
+
+    if openai_llm and openai_llm.api_key:
+        creds = {
+            "api_key": openai_llm.api_key,
+            "base_url": (openai_llm.base_url or "").strip() or None,
+        }
+        defaults = {"_managed_by": _OPENAI_MIRROR_MANAGED_BY}
+        if not mirrors:
+            db.add(MediaProviderConfig(
+                provider="openai_image",
+                label=_OPENAI_IMAGE_MIRROR_LABEL,
+                credentials=creds,
+                defaults=defaults,
+                is_active=True,
+            ))
+        else:
+            primary, *extras = mirrors
+            primary.credentials = creds
+            primary.defaults = defaults
+            primary.is_active = True
+            if primary.label == _OPENAI_IMAGE_MIRROR_LABEL or not primary.label:
+                primary.label = _OPENAI_IMAGE_MIRROR_LABEL
+            for extra in extras:
+                await db.delete(extra)
+    else:
+        for m in mirrors:
+            await db.delete(m)
 
 
 async def list_llm_configs(db: AsyncSession) -> list[LLMConfigResponse]:
@@ -119,6 +210,8 @@ async def create_llm_config(db: AsyncSession, data: LLMConfigCreate) -> LLMConfi
     await db.flush()  # need config.id before sync
     if data.provider == "gemini":
         await _sync_google_media_mirror(db)
+    if data.provider == "openai":
+        await _sync_openai_image_mirror(db)
     await db.commit()
     await db.refresh(config)
     return _to_response(config)
@@ -132,9 +225,11 @@ async def update_llm_config(
     if not config:
         raise HTTPException(status_code=404, detail="LLM config not found")
 
-    # Capture the *old* provider before mutating — needed so we re-sync
-    # the google mirror when the user flips a row away from gemini.
+    # Capture the *old* providers before mutating — we need to re-sync
+    # both mirrors when the user flips a row's provider away from
+    # gemini / openai.
     was_gemini = config.provider == "gemini"
+    was_openai = config.provider == "openai"
 
     if data.label is not None:
         config.label = data.label
@@ -150,6 +245,9 @@ async def update_llm_config(
     if was_gemini or config.provider == "gemini":
         await db.flush()
         await _sync_google_media_mirror(db)
+    if was_openai or config.provider == "openai":
+        await db.flush()
+        await _sync_openai_image_mirror(db)
     await db.commit()
     await db.refresh(config)
     return _to_response(config)
@@ -169,10 +267,14 @@ async def delete_llm_config(db: AsyncSession, config_id: uuid.UUID) -> None:
             next_config.is_active = True
 
     was_gemini = config.provider == "gemini"
+    was_openai = config.provider == "openai"
     await db.delete(config)
     if was_gemini:
         await db.flush()
         await _sync_google_media_mirror(db)
+    if was_openai:
+        await db.flush()
+        await _sync_openai_image_mirror(db)
     await db.commit()
 
 
@@ -188,6 +290,11 @@ async def activate_llm_config(db: AsyncSession, config_id: uuid.UUID) -> LLMConf
         c.is_active = False
 
     config.is_active = True
+    # Re-sync mirrors — activation can flip which OpenAI/Gemini key the
+    # mirror should follow.
+    await db.flush()
+    await _sync_google_media_mirror(db)
+    await _sync_openai_image_mirror(db)
     await db.commit()
     await db.refresh(config)
     return _to_response(config)
@@ -367,7 +474,20 @@ _CAPABILITY_META = {
             "For cover images, product shots, and supporting visuals",
         ),
         # (provider → list of (model_code, (zh_label, en_label)))
+        # Order matters: the FIRST model under each provider is what
+        # the frontend's "first available" fallback picks when no
+        # MediaCapabilityDefault row is set yet — keep the
+        # currently-best model at the top of each provider's list.
         "models_by_provider": {
+            # Provider key is ``openai_image`` (not ``openai``) so the
+            # option-builder picks up the auto-managed
+            # media_provider_configs row created by
+            # ``_sync_openai_image_mirror`` from an active OpenAI LLM.
+            "openai_image": [
+                ("gpt-image-2",   ("GPT-image-2 · OpenAI (推荐)",   "GPT-image-2 · OpenAI (recommended)")),
+                ("gpt-image-1.5", ("GPT-image-1.5 · OpenAI (快)",   "GPT-image-1.5 · OpenAI (fast)")),
+                ("gpt-image-1",   ("GPT-image-1 · OpenAI (稳定)",   "GPT-image-1 · OpenAI (stable)")),
+            ],
             "chanjing": [
                 ("doubao-seedream-4.5", ("Seedream 4.5 · 字节",   "Seedream 4.5 · ByteDance")),
                 ("doubao-seedream-4.0", ("Seedream 4.0 · 字节",   "Seedream 4.0 · ByteDance")),
@@ -442,6 +562,15 @@ async def get_media_capability_configs(
 
     is_en = (language or "").lower().startswith("en")
     tts_suffix = " (TTS provider)" if is_en else "（TTS 供应商）"
+
+    # Self-heal mirrors before reading. Any LLMConfig that needs a
+    # corresponding ``openai_image`` / ``google`` MPC row gets it now,
+    # so the option-builder always sees real rows and the
+    # ``media_capability_defaults`` FK never fails on save.
+    # Idempotent — both syncs are no-ops when state is already correct.
+    await _sync_google_media_mirror(db)
+    await _sync_openai_image_mirror(db)
+    await db.flush()
 
     # Load active providers
     providers_result = await db.execute(

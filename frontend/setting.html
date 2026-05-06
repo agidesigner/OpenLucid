@@ -228,11 +228,17 @@
                 <select x-model="textLlmDefault"
                         @change="applyTextLlmDefaultInline()"
                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
-                  <option value="" x-text="t('default_model')"></option>
+                  <!-- Empty value = "no top-level override; scenes may
+                       have their own overrides, otherwise resolves to
+                       the active LLM's model_name". Backend treats
+                       null/empty as 'follow default'. -->
+                  <option value="" x-text="t('cap_follow_default')"></option>
                   <template x-for="cfg in llmConfigs" :key="cfg.id">
                     <optgroup :label="`${(PROVIDER_PRESETS[cfg.provider] && PROVIDER_PRESETS[cfg.provider].icon) || ''} ${cfg.label}`">
                       <template x-for="m in (endpointModels[cfg.id] || [cfg.model_name])" :key="m">
-                        <option :value="cfg.id + '::' + m" x-text="m"></option>
+                        <option :value="cfg.id + '::' + m"
+                                :selected="textLlmDefault === cfg.id + '::' + m"
+                                x-text="m"></option>
                       </template>
                     </optgroup>
                   </template>
@@ -253,7 +259,7 @@
                                 class="flex-1 max-w-[220px] border border-gray-200 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
                           <option value=""
                                   :selected="!sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')]"
-                                  x-text="t('use_default')"></option>
+                                  x-text="t('cap_follow_default')"></option>
                           <template x-for="cfg in llmConfigs" :key="cfg.id">
                             <optgroup :label="`${(PROVIDER_PRESETS[cfg.provider] && PROVIDER_PRESETS[cfg.provider].icon) || ''} ${cfg.label}`">
                               <template x-for="m in (endpointModels[cfg.id] || [cfg.model_name])" :key="m">
@@ -284,7 +290,7 @@
                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
                     <option value=""
                             :selected="!sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')]"
-                            x-text="t('default_model')"></option>
+                            x-text="t('cap_follow_default')"></option>
                     <template x-for="cfg in llmConfigs" :key="cfg.id">
                       <optgroup :label="`${(PROVIDER_PRESETS[cfg.provider] && PROVIDER_PRESETS[cfg.provider].icon) || ''} ${cfg.label}`">
                         <template x-for="m in (endpointModels[cfg.id] || [cfg.model_name])" :key="m">
@@ -351,7 +357,13 @@
                     <div>
                       <select @change="setMediaCapabilityInline(cap.capability, $event.target.value)"
                               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
-                        <option value="" x-text="t('default_model')"></option>
+                        <!-- Empty = no explicit default; the service
+                             auto-picks the first available option at
+                             generation time. Lets the user back out of
+                             a previously-saved default. -->
+                        <option value=""
+                                :selected="!cap.current_provider_config_id"
+                                x-text="t('cap_auto_select')"></option>
                         <template x-for="opt in cap.options" :key="(opt.provider_config_id || 'unset') + '::' + (opt.model_code || opt.voice_id || '') + '::' + opt.provider">
                           <option :value="opt.available === false ? '' : (opt.provider_config_id + '::' + (opt.model_code || opt.voice_id || ''))"
                                   :disabled="opt.available === false"
@@ -1730,11 +1742,13 @@
           <select x-model="textLlmDefault"
                   @change="applyTextLlmDefault()"
                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent mb-2">
-            <option value="" x-text="t('default_model')"></option>
+            <option value="" x-text="t('cap_follow_default')"></option>
             <template x-for="cfg in llmConfigs" :key="cfg.id">
               <optgroup :label="`${(PROVIDER_PRESETS[cfg.provider] && PROVIDER_PRESETS[cfg.provider].icon) || ''} ${cfg.label}`">
                 <template x-for="m in (endpointModels[cfg.id] || [cfg.model_name])" :key="m">
-                  <option :value="cfg.id + '::' + m" x-text="m"></option>
+                  <option :value="cfg.id + '::' + m"
+                          :selected="textLlmDefault === cfg.id + '::' + m"
+                          x-text="m"></option>
                 </template>
               </optgroup>
             </template>
@@ -1755,14 +1769,12 @@
                 <span class="text-xs text-gray-600 flex-1 min-w-0 truncate" x-text="section.label"></span>
                 <select @change="sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')] = $event.target.value"
                         class="flex-1 max-w-[200px] border border-gray-200 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
-                  <option value=""
-                          :selected="!sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')]"
-                          x-text="t('use_default')"></option>
                   <template x-for="cfg in llmConfigs" :key="cfg.id">
                     <optgroup :label="`${(PROVIDER_PRESETS[cfg.provider] && PROVIDER_PRESETS[cfg.provider].icon) || ''} ${cfg.label}`">
                       <template x-for="m in (endpointModels[cfg.id] || [cfg.model_name])" :key="m">
                         <option :value="cfg.id + '::' + m"
-                                :selected="sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')] === cfg.id + '::' + m"
+                                :selected="sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')] === cfg.id + '::' + m
+                                           || (!sceneConfigs[sceneConfigKey(section.scene_key, 'text_llm')] && cfg.is_active && m === cfg.model_name)"
                                 x-text="m"></option>
                       </template>
                     </optgroup>
@@ -1785,14 +1797,12 @@
             </div>
             <select @change="sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')] = $event.target.value"
                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
-              <option value=""
-                      :selected="!sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')]"
-                      x-text="t('default_model')"></option>
               <template x-for="cfg in llmConfigs" :key="cfg.id">
                 <optgroup :label="`${(PROVIDER_PRESETS[cfg.provider] && PROVIDER_PRESETS[cfg.provider].icon) || ''} ${cfg.label}`">
                   <template x-for="m in (endpointModels[cfg.id] || [cfg.model_name])" :key="m">
                     <option :value="cfg.id + '::' + m"
-                            :selected="sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')] === cfg.id + '::' + m"
+                            :selected="sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')] === cfg.id + '::' + m
+                                       || (!sceneConfigs[sceneConfigKey(section.scene_key, 'vision_llm')] && cfg.is_active && m === cfg.model_name)"
                             x-text="m"></option>
                   </template>
                 </optgroup>
@@ -1842,7 +1852,9 @@
             <select x-show="cap.options.some(o => o.available !== false)"
                     @change="setMediaCapability(cap.capability, $event.target.value)"
                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
-              <option value="" x-text="t('default_model')"></option>
+              <option value=""
+                      :selected="!cap.current_provider_config_id"
+                      x-text="t('cap_auto_select')"></option>
               <template x-for="opt in cap.options" :key="(opt.provider_config_id || 'unset') + '::' + (opt.model_code || opt.voice_id || '') + '::' + opt.provider">
                 <option :value="opt.available === false ? '' : (opt.provider_config_id + '::' + (opt.model_code || opt.voice_id || ''))"
                         :disabled="opt.available === false"
@@ -3065,6 +3077,15 @@
           return this.mediaCapabilitySelections[cap.capability] === key;
         },
 
+        firstAvailableMediaOption(cap) {
+          // Used when there's no MediaCapabilityDefault row yet — pre-select
+          // the first ``available`` option so the dropdown reads as the
+          // model that will actually be used, instead of an abstract "default"
+          // placeholder. Returning the option REFERENCE (not a key) so the
+          // template can === compare against the iteration variable.
+          return (cap.options || []).find(o => o.available !== false) || null;
+        },
+
         capProviderSummary(cap) {
           // Group options by provider to show "Chanjing(6) · Google Veo(4)" hint
           const counts = {};
@@ -3252,14 +3273,23 @@
           this.sceneSaving = true;
           this.sceneError = '';
           try {
+            // sceneConfigs values are now composite ``config_id::model_name``
+            // (since the per-scene model picker started letting users select
+            // any model under any config, not just each config's default).
+            // Splitting matches the inline _saveCapView path; without it
+            // the backend's uuid.UUID(upd.config_id) parses the composite
+            // string and 500s.
             const updates = [];
             for (const section of this.sceneSections) {
               for (const mc of section.model_configs) {
                 const key = this.sceneConfigKey(section.scene_key, mc.model_type);
+                const v = this.sceneConfigs[key] || '';
+                const [cfgId, modelName] = v ? v.split('::', 2) : ['', ''];
                 updates.push({
                   scene_key: section.scene_key,
                   model_type: mc.model_type,
-                  config_id: this.sceneConfigs[key] || null,
+                  config_id: cfgId || null,
+                  model_name: modelName || null,
                 });
               }
             }

@@ -1,7 +1,7 @@
 import uuid
 
 from sqlalchemy import ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import BaseModel
@@ -23,6 +23,10 @@ class BrandKit(BaseModel):
     # into a concatenated seed inside this column in migration b5q6r7s8t9u0.
     brand_voice: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    # Cache of vision-derived style summaries, keyed by selling-point text.
+    # Populated/read by app.application.style_extractor; invalidated by
+    # asset uploads / deletions on this offer's scope.
+    style_anchor_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
 class BrandKitColor(BaseModel):

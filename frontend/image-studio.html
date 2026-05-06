@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenLucid · Image Studio</title>
+  <script>
+    document.documentElement.style.display='none';
+    fetch('/api/v1/auth/me').then(r=>{
+      if(!r.ok) fetch('/api/v1/auth/setup-status').then(r=>r.json()).then(s=>{
+        location.href=s.needs_setup?'/install.html':'/signin.html';
+      });
+      else document.documentElement.style.display='';
+    });
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        sidebar: { DEFAULT: '#1C1C28', hover: '#2A2A3C' },
+        accent: { DEFAULT: '#155EEF', light: '#EFF4FF', hover: '#1849C6' },
+      }}}
+    }
+  </script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/pinned-apps.js"></script>
+  <script src="/js/avatar.js"></script>
+  <script src="/js/feedback.js"></script>
+  <script src="/js/header-selectors.js"></script>
+  <script src="/js/lang-picker.js"></script>
+  <script src="/js/shared.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif}
+    .sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;color:#A0A0B0;font-size:14px;cursor:pointer;transition:all .15s}
+    .sidebar-item:hover{background:#2A2A3C;color:#E0E0EE}
+    .sidebar-item.active{background:#2D2D40;color:#fff}
+    .chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;font-size:12.5px;border:1px solid #E5E7EB;background:#fff;color:#374151;cursor:pointer;transition:all .15s;white-space:nowrap}
+    .chip:hover{border-color:#94A3B8;background:#F8FAFC}
+    .chip.selected{background:#155EEF;color:#fff;border-color:#155EEF}
+    .chip.selected:hover{background:#1849C6;border-color:#1849C6}
+    .ref-card{position:relative;aspect-ratio:9/16;border-radius:8px;overflow:hidden;cursor:pointer;border:1.5px solid transparent;transition:all .15s;background:#F1F5F9}
+    .ref-card:hover{border-color:#CBD5E1}
+    .ref-card.locked{cursor:default}
+    .ref-card .remove-btn{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;opacity:0;transition:opacity .15s}
+    .ref-card:hover .remove-btn{opacity:1}
+    .ref-card .meta{position:absolute;bottom:0;left:0;right:0;padding:6px 8px;background:linear-gradient(to top,rgba(0,0,0,.65),transparent);color:#fff;font-size:10.5px}
+    .add-card{display:flex;align-items:center;justify-content:center;border:1.5px dashed #CBD5E1;color:#94A3B8;background:#F8FAFC;cursor:pointer;transition:all .15s}
+    .add-card:hover{border-color:#155EEF;color:#155EEF;background:#EFF4FF}
+    .scrollbar-thin::-webkit-scrollbar{width:6px;height:6px}
+    .scrollbar-thin::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:3px}
+    .modal-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:50;display:flex;align-items:center;justify-content:center;padding:20px}
+    .modal-card{background:#fff;border-radius:14px;max-width:900px;width:100%;max-height:85vh;display:flex;flex-direction:column;overflow:hidden}
+    @keyframes pulse-soft{0%,100%{opacity:1}50%{opacity:.5}}
+    .pulsing{animation:pulse-soft 1.5s ease-in-out infinite}
+    textarea.brief-input{resize:none;line-height:1.6}
+    .step-num{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#155EEF;color:#fff;font-size:11px;font-weight:600;margin-right:6px}
+  </style>
+</head>
+<body class="bg-gray-50 h-screen flex overflow-hidden" x-data="imageStudioPage()" x-init="init()">
+
+  <!-- Sidebar -->
+  <aside class="w-56 bg-sidebar flex flex-col shrink-0">
+    <div class="px-4 py-5 flex items-center gap-2.5">
+      <img src="/images/logo.png" alt="OpenLucid" class="w-8 h-8 rounded-lg">
+      <span class="text-white font-semibold text-base">OpenLucid</span>
+    </div>
+    <nav class="flex-1 px-3 space-y-1 mt-2">
+      <a href="/" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        <span x-text="t('sidebar_offers')"></span>
+      </a>
+      <a href="/brandkit-list.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        <span x-text="t('sidebar_brandkit')"></span>
+      </a>
+      <a href="/creations.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
+        <span x-text="t('sidebar_creations')"></span>
+      </a>
+      <a href="/video-studio.html" class="sidebar-item">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        <span x-text="t('sidebar_videos')"></span>
+      </a>
+    </nav>
+    <div class="px-3 pb-3 mt-auto">
+      <div class="text-[10px] text-white/25 text-center">Powered by <a href="https://openlucid.ai/?ref=app" target="_blank" class="hover:text-white/40 transition-colors">OpenLucid</a></div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <header class="bg-white border-b px-6 shrink-0">
+      <div class="h-14 flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+          <a href="/" class="text-sm text-gray-400 hover:text-accent" x-text="t('image_breadcrumb_home')"></a>
+          <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          <h1 class="text-base font-semibold text-gray-800" x-text="t('image_studio_title')"></h1>
+          <select :aria-label="t('image_select_offer')"
+                  class="ml-4 text-sm border border-gray-200 rounded-md px-3 py-1.5 bg-white focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30"
+                  x-model="offerId" @change="onOfferChange()">
+            <option value="" x-text="t('image_select_offer')"></option>
+            <template x-for="o in offers" :key="o.id">
+              <option :value="o.id" x-text="o.name"></option>
+            </template>
+          </select>
+        </div>
+        <div id="avatar-mount"></div>
+      </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-6 scrollbar-thin">
+
+      <!-- Empty state — only when the workspace truly has no offers -->
+      <div x-show="offers.length === 0" class="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+        <div class="w-16 h-16 bg-accent/10 rounded-2xl flex items-center justify-center mb-5">
+          <svg class="w-8 h-8 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        </div>
+        <h2 class="text-lg font-semibold text-gray-700 mb-1" x-text="t('image_empty_title')"></h2>
+        <p class="text-sm text-gray-500 max-w-md" x-text="t('image_empty_desc')"></p>
+      </div>
+
+      <!-- Body -->
+      <div x-show="offerId" class="grid grid-cols-12 gap-6">
+
+        <!-- Left: Context Pack (brief + KB-derived inspirations + style refs + extras + advanced) -->
+        <div class="col-span-12 lg:col-span-4 space-y-4">
+
+          <!-- Brief box -->
+          <section class="bg-white border border-gray-200 rounded-xl p-5">
+            <h3 class="text-sm font-semibold text-gray-700 mb-2" x-text="t('image_brief_label')"></h3>
+            <textarea x-ref="briefTa"
+                      class="brief-input w-full text-[14px] text-gray-800 border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 placeholder-gray-400"
+                      :rows="briefRows"
+                      maxlength="500"
+                      :placeholder="t('image_brief_placeholder')"
+                      x-model="brief"
+                      @input="onBriefInput()"></textarea>
+            <div class="mt-2 flex items-center justify-end">
+              <span class="text-[11px] text-gray-400 shrink-0" x-text="t('image_chars_count').replace('{n}', (brief||'').length)"></span>
+            </div>
+
+            <!-- Dynamic inspirations from offer KB -->
+            <div class="mt-3" x-show="inspirations.length > 0 || inspirationsEmpty">
+              <div class="text-[11px] text-gray-500 mb-2" x-text="inspirationHeader"></div>
+              <div class="flex flex-wrap gap-2" x-show="inspirations.length">
+                <template x-for="ins in inspirations" :key="ins.key">
+                  <button type="button" class="chip" @click="useInspiration(ins)" :title="ins.text">
+                    <span x-text="ins.icon"></span>
+                    <span x-text="ins.label"></span>
+                  </button>
+                </template>
+              </div>
+              <div x-show="inspirationsEmpty" class="text-[11.5px] text-gray-400">
+                <span x-text="t('image_insp_empty_kb')"></span>
+                <a :href="offerId ? `/offer.html?id=${offerId}` : '/'" class="text-accent hover:underline ml-1" x-text="t('image_insp_empty_kb_link')"></a>
+              </div>
+            </div>
+          </section>
+
+          <!-- Reference gallery -->
+          <section class="bg-white border border-gray-200 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="text-sm font-semibold text-gray-700">
+                <span x-text="t('image_refs_label')"></span>
+                <span class="text-[11px] text-gray-400 font-normal ml-1" x-show="references.length" x-text="t('image_refs_count').replace('{n}', references.length)"></span>
+              </h3>
+              <span class="text-[11px] text-gray-400 pulsing" x-show="suggestingRefs" x-text="t('image_refs_suggesting')"></span>
+            </div>
+
+            <div x-show="!suggestingRefs && references.length === 0" class="text-[12px] text-gray-400 py-3 text-center" x-text="t('image_refs_empty')"></div>
+
+            <div class="grid grid-cols-4 gap-2" x-show="references.length > 0 || !suggestingRefs">
+              <template x-for="(ref, idx) in references" :key="ref.asset_id">
+                <div class="ref-card group">
+                  <img :src="ref.thumb_url" :alt="ref.label || t('image_refs_unnamed')" class="w-full h-full object-cover">
+                  <button type="button" class="remove-btn" @click="removeReference(idx)" :aria-label="t('image_act_delete')">✕</button>
+                  <div class="meta">
+                    <div class="font-medium truncate" x-text="ref.label || t('image_refs_unnamed')"></div>
+                    <div class="text-[9.5px] opacity-80 truncate" x-text="ref.reason || ''"></div>
+                  </div>
+                </div>
+              </template>
+              <div class="ref-card add-card" @click="openPicker()" x-show="references.length < 5">
+                <div class="text-center text-2xl leading-none">＋</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Size only (model picker now lives in 高级 below) -->
+          <section class="bg-white border border-gray-200 rounded-xl p-5">
+            <h3 class="text-sm font-semibold text-gray-700 mb-3" x-text="t('image_aspect_label')"></h3>
+            <div class="flex flex-wrap gap-2">
+              <template x-for="opt in aspectOptions" :key="opt.value">
+                <button type="button" class="chip" :class="{ selected: aspectRatio === opt.value }" @click="aspectRatio = opt.value">
+                  <span x-text="opt.icon"></span>
+                  <span x-text="t(opt.labelKey)"></span>
+                  <span class="text-[10px] opacity-70" x-text="opt.value"></span>
+                </button>
+              </template>
+            </div>
+          </section>
+
+          <!-- Supplemental references -->
+          <section class="bg-white border border-gray-200 rounded-xl p-5">
+            <div>
+              <button type="button" class="w-full flex items-center justify-between py-1" @click="extrasExpanded = !extrasExpanded">
+                <span class="text-[13px] text-gray-700 flex items-center gap-2">
+                  <span>📎</span>
+                  <span x-text="t('image_extras_label')"></span>
+                  <span class="text-[11px] text-gray-400" x-show="extrasTotalCount" x-text="t('image_refs_count').replace('{n}', extrasTotalCount)"></span>
+                </span>
+                <svg class="w-4 h-4 text-gray-400 transition-transform" :class="{ 'rotate-180': extrasExpanded }" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div x-show="extrasExpanded" x-transition.duration.150ms class="mt-3 space-y-3">
+                <div class="flex flex-wrap items-center gap-2">
+                  <label class="text-[12px] text-gray-600">
+                    <select x-model="extraUploadRole" class="border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:border-accent">
+                      <option value="supplemental" x-text="t('image_extra_role_supp')"></option>
+                      <option value="qr" x-text="t('image_extra_role_qr')"></option>
+                    </select>
+                  </label>
+                  <label class="inline-flex items-center gap-1.5 text-[12px] text-gray-500">
+                    <input type="checkbox" x-model="saveExtraToLibrary" class="rounded border-gray-300 text-accent focus:ring-accent">
+                    <span x-text="t('image_extra_save_library')"></span>
+                  </label>
+                  <input type="file" accept="image/*" class="text-[12px] text-gray-600" @change="onExtraUpload($event)" :disabled="extraUploading">
+                  <span class="text-[11px] text-gray-400" x-show="extraUploading" x-text="t('image_extra_uploading')"></span>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <template x-for="(ex, i) in extras" :key="ex.asset_id">
+                    <div class="ref-card group" style="width:64px;height:114px">
+                      <img :src="ex.thumb_url" class="w-full h-full object-cover">
+                      <button type="button" class="remove-btn" @click="extras.splice(i,1)" :aria-label="t('image_act_delete')">✕</button>
+                    </div>
+                  </template>
+                  <button type="button" class="ref-card add-card" style="width:64px;height:114px" @click="openExtrasPicker()">
+                    <span class="text-xl">＋</span>
+                  </button>
+                  <template x-for="(up, i) in extraUploads" :key="up.upload_id">
+                    <div class="ref-card group" style="width:64px;height:114px">
+                      <img :src="up.url" class="w-full h-full object-cover">
+                      <button type="button" class="remove-btn" @click="extraUploads.splice(i,1)" :aria-label="t('image_act_delete')">✕</button>
+                      <div class="meta">
+                        <div class="font-medium truncate" x-text="up.label || t('image_extra_oneoff')"></div>
+                        <div class="text-[9.5px] opacity-80 truncate" x-text="up.role === 'qr' ? t('image_extra_role_qr') : t('image_extra_role_supp')"></div>
+                      </div>
+                    </div>
+                  </template>
+                  <div class="ref-card group" style="width:64px;height:114px" x-show="qrPreview">
+                    <img :src="qrPreview?.thumb_url" class="w-full h-full object-cover">
+                    <button type="button" class="remove-btn" @click="qrAssetId = ''; qrPreview = null" :aria-label="t('image_act_delete')">✕</button>
+                    <div class="meta">
+                      <div class="font-medium truncate" x-text="qrPreview?.label || t('image_extra_role_qr')"></div>
+                      <div class="text-[9.5px] opacity-80 truncate" x-text="t('image_extra_saved')"></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="text-[10.5px] text-gray-400" x-text="saveExtraToLibrary ? t('image_extra_saved_hint') : t('image_extra_oneoff_hint')"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Advanced (collapsed) — model picker lives here so 80% of users
+               who run on the system default never see picker noise. The
+               link to settings stays prominent for the rare "I want a
+               persistent default change" case. -->
+          <section class="bg-white border border-gray-200 rounded-xl p-3" x-show="imageModelOptions.length > 0">
+            <button type="button" @click="advancedExpanded = !advancedExpanded"
+                    class="w-full flex items-center justify-between py-1 text-[13px] text-gray-700">
+              <span class="flex items-center gap-2">
+                <span>⚙️</span>
+                <span x-text="t('image_advanced_label')"></span>
+                <span class="text-[11px] text-gray-400" x-text="imageModelCode ? '· ' + imageModelCode : ''"></span>
+              </span>
+              <svg class="w-4 h-4 text-gray-400 transition-transform" :class="{ 'rotate-180': advancedExpanded }" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </button>
+            <div x-show="advancedExpanded" x-transition.duration.150ms class="mt-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] text-gray-500" x-text="t('image_model_label')"></span>
+                <a href="/setting.html?section=media" class="text-[11px] text-gray-400 hover:text-accent" x-text="t('image_model_settings_link')"></a>
+              </div>
+              <select class="w-full text-[12.5px] border border-gray-200 rounded-md px-3 py-2 bg-white focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 disabled:bg-gray-50"
+                      :value="imageModelComposite"
+                      @change="onImageModelChange($event.target.value)">
+                <template x-for="opt in imageModelOptions" :key="(opt.provider_config_id || 'unset') + '::' + opt.model_code + '::' + opt.provider">
+                  <option :value="(opt.provider_config_id || '') + '::' + (opt.model_code || '')"
+                          :disabled="!opt.available"
+                          x-text="opt.display_label"></option>
+                </template>
+              </select>
+              <p class="text-[10px] text-gray-400" x-text="t('image_model_helper')"></p>
+            </div>
+          </section>
+
+          <!-- Generate button -->
+          <section class="flex items-center justify-end gap-3">
+            <span class="text-[11px] text-gray-400" x-show="!generating && brief.trim().length > 0" x-text="t('image_eta')"></span>
+            <button @click="generate()"
+                    :disabled="!canGenerate() || generating"
+                    class="bg-accent text-white px-6 py-2.5 rounded-lg text-[14px] font-medium hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2">
+              <svg x-show="!generating" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              <svg x-show="generating" class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              <span x-text="generating ? t('image_btn_generating') : t('image_btn_generate')"></span>
+            </button>
+          </section>
+
+          <!-- Inline error -->
+          <div x-show="error" class="bg-red-50 border border-red-200 text-red-700 text-[12px] px-3 py-2 rounded">
+            <span x-text="error"></span>
+          </div>
+        </div>
+
+        <!-- Right: canvas-first result + refine command bar + lineage + history -->
+        <div class="col-span-12 lg:col-span-8 space-y-5">
+
+          <!-- Result panel.
+               State branches use <template x-if> instead of x-show so
+               the inactive branch is REMOVED from the DOM. This avoids
+               the "empty state + generating state visible at the same
+               time" overlap that x-show on sibling divs occasionally
+               exhibited (Alpine reactivity edge case where one branch's
+               display:none didn't apply on state flip). -->
+          <section class="bg-white border border-gray-200 rounded-xl p-5" x-cloak>
+            <h3 class="text-sm font-semibold text-gray-700 mb-3" x-text="t('image_result_title')"></h3>
+
+            <!-- Empty state: compact card, NOT a 9:16 vacant rectangle. -->
+            <template x-if="!currentJob && !generating">
+              <div class="bg-gray-50 border-2 border-dashed border-gray-200 rounded-lg flex flex-col items-center justify-center text-center px-4 py-10 gap-2">
+                <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center text-gray-300">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                </div>
+                <div class="text-[12px] text-gray-400" x-text="t('image_result_empty')"></div>
+              </div>
+            </template>
+
+            <!-- Generating state: reserves a placeholder matching the
+                 user's chosen aspect ratio, capped at 72vh just like
+                 the completed image, so layout doesn't jump when the
+                 result lands. -->
+            <template x-if="generating">
+              <div class="bg-gray-50 rounded-lg flex flex-col items-center justify-center gap-3 mx-auto"
+                   :style="`aspect-ratio:${(aspectRatio || '9:16').replace(':','/')}; max-height:72vh`">
+                <svg class="w-8 h-8 animate-spin text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                <span class="text-[11px] text-gray-500" x-text="genStatusLine"></span>
+                <span class="text-[10.5px] text-gray-400" x-text="t('image_result_eta_hint')"></span>
+              </div>
+            </template>
+
+            <div x-show="currentJob && currentJob?.status === 'completed' && currentJob?.image_url" class="space-y-4">
+              <!-- Canvas: capped height, centered, click to open full size -->
+              <a :href="currentJob?.image_url" target="_blank" class="block">
+                <img :src="currentJob?.image_url"
+                     class="max-h-[72vh] max-w-full w-auto h-auto object-contain mx-auto rounded-lg shadow-sm border border-gray-100"
+                     alt="generated">
+              </a>
+
+              <!-- Refine command bar — primary post-generation action.
+                   Sits IMMEDIATELY below the canvas because that's where
+                   the user looks next. -->
+              <div class="bg-slate-50/60 border border-gray-200 rounded-lg p-3">
+                <div class="flex items-start gap-2">
+                  <span class="text-[12px] text-gray-500 mt-1.5 shrink-0" x-text="t('image_refine_label')"></span>
+                  <textarea x-ref="refineTa"
+                            rows="2"
+                            maxlength="200"
+                            class="flex-1 text-[13px] border border-gray-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 placeholder-gray-400 resize-none bg-white"
+                            :placeholder="refinePlaceholder"
+                            x-model="refineText"
+                            @keydown.meta.enter="refineCurrent()"
+                            @keydown.ctrl.enter="refineCurrent()"></textarea>
+                  <button @click="refineCurrent()"
+                          :disabled="!refineText.trim() || refining || generating"
+                          class="bg-accent text-white text-[12.5px] px-3.5 py-2 rounded hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 shrink-0 self-start">
+                    <svg x-show="!refining" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    <svg x-show="refining" class="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    <span x-text="refining ? t('image_refine_running') : t('image_refine_btn').replace('{n}', lineage.length + 1)"></span>
+                  </button>
+                </div>
+                <div class="mt-2 flex flex-wrap gap-1.5">
+                  <template x-for="key in refineSuggestionKeys" :key="key">
+                    <button type="button"
+                            class="text-[11px] px-2 py-0.5 rounded-full border border-gray-200 text-gray-500 hover:border-accent hover:text-accent transition-colors bg-white"
+                            @click="refineText = t(key)"
+                            x-text="t(key)"></button>
+                  </template>
+                </div>
+                <div x-show="refineError" class="mt-2 bg-red-50 border border-red-200 text-red-700 text-[11.5px] px-3 py-2 rounded">
+                  <span x-text="refineError"></span>
+                </div>
+              </div>
+
+              <!-- Compact action bar -->
+              <div class="flex flex-wrap items-center gap-3 text-[12px]">
+                <a :href="currentJob?.image_url" download class="text-accent hover:underline" x-text="t('image_act_download')"></a>
+                <span class="text-gray-200">·</span>
+                <button type="button" @click="generate()" class="text-accent hover:underline" x-text="t('image_act_resame')"></button>
+                <span class="text-gray-200">·</span>
+                <button type="button" @click="editBriefAgain()" class="text-accent hover:underline" x-text="t('image_act_edit_brief')"></button>
+                <span class="text-gray-200">·</span>
+                <button type="button" @click="deleteJob(currentJob?.id)" class="text-red-500 hover:underline" x-text="t('image_act_delete')"></button>
+                <span class="text-gray-200 ml-auto">·</span>
+                <button type="button" @click="detailsExpanded = !detailsExpanded" class="text-gray-500 hover:text-gray-700 flex items-center gap-1">
+                  <span x-text="t('image_details_label')"></span>
+                  <svg class="w-3 h-3 transition-transform" :class="{ 'rotate-180': detailsExpanded }" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+              </div>
+
+              <!-- Details disclosure: brief recap + materials + render path. -->
+              <div x-show="detailsExpanded" x-transition.duration.150ms class="space-y-3 border-t border-gray-100 pt-3">
+                <!-- Brief recap -->
+                <div class="bg-slate-50 rounded-lg px-3 py-2.5 text-[12px] text-gray-700 leading-relaxed">
+                  <div class="text-[10.5px] text-gray-400 mb-1" x-text="t('image_result_brief_label')"></div>
+                  <span x-text="currentJob?.params?.brief || ''"></span>
+                </div>
+                <!-- Used materials transparency -->
+                <div x-show="currentJobMaterials.length">
+                  <div class="text-[11.5px] text-gray-500 mb-2" x-text="t('image_used_materials')"></div>
+                  <div class="space-y-1.5">
+                    <template x-for="m in currentJobMaterials" :key="m.id">
+                      <div class="flex items-center gap-3 text-[12px]">
+                        <div class="w-10 h-10 rounded bg-gray-100 overflow-hidden shrink-0">
+                          <img :src="m.thumb_url" class="w-full h-full object-cover" alt="">
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <div class="text-gray-700 truncate" x-text="m.label"></div>
+                          <div class="text-[10.5px] text-gray-400" x-text="m.role"></div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+                <!-- Render path tag -->
+                <div class="text-[10.5px] text-gray-400">
+                  <span x-show="currentJob?.params?.render_path === 'ai_composed'" x-text="t('image_path_ai')"></span>
+                  <span x-show="currentJob?.params?.render_path === 'ai_plate_with_logo'" x-text="t('image_path_plate')"></span>
+                  <span x-show="currentJob?.params?.render_path === 'pil_composed'" x-text="t('image_path_pil')"></span>
+                </div>
+              </div>
+
+              <!-- Lineage / version history -->
+              <div x-show="lineage.length > 1" class="border-t border-gray-100 pt-3 mt-1">
+                <div class="text-[11.5px] text-gray-500 mb-2" x-text="t('image_lineage_count').replace('{n}', lineage.length)"></div>
+                <div class="flex flex-wrap gap-2">
+                  <template x-for="(v, idx) in lineage" :key="v.id">
+                    <button type="button"
+                            class="flex items-center gap-2 text-left px-2 py-1.5 rounded border transition-colors"
+                            :class="v.id === currentJob?.id ? 'bg-accent/5 border-accent/30' : 'border-gray-200 hover:bg-slate-50'"
+                            @click="selectVersion(v)">
+                      <div class="w-8 h-8 rounded bg-gray-100 overflow-hidden shrink-0">
+                        <img x-show="v.image_url" :src="v.image_url" class="w-full h-full object-cover" alt="">
+                      </div>
+                      <div class="min-w-0 max-w-[140px]">
+                        <div class="text-[10.5px] font-medium text-gray-500" x-text="`v${idx + 1}` + (v.id === currentJob?.id ? ' · ' + t('image_lineage_current') : '')"></div>
+                        <div class="text-[10.5px] text-gray-700 truncate" x-text="lineageLabel(v, idx)"></div>
+                      </div>
+                    </button>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <div x-show="currentJob && currentJob?.status === 'failed'" class="bg-red-50 border border-red-200 text-red-700 text-[12px] px-3 py-2.5 rounded">
+              <div class="font-medium mb-1" x-text="t('image_act_failed')"></div>
+              <span x-text="currentJob?.error_message || t('image_act_unknown_err')"></span>
+            </div>
+          </section>
+
+          <!-- History strip — only successful generations.
+               Failed jobs are noise: a tile that says "failed" doesn't
+               help the user pick something to reuse, and the rendering
+               logic earlier surfaced them with a red placeholder.
+               In-progress jobs stay (they may still complete). -->
+          <section class="bg-white border border-gray-200 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="text-sm font-semibold text-gray-700" x-text="t('image_hist_title')"></h3>
+              <button class="text-[11px] text-gray-400 hover:text-accent" @click="loadRecentJobs()" x-text="t('image_hist_refresh')"></button>
+            </div>
+            <div x-show="visibleRecentJobs.length === 0" class="text-[12px] text-gray-400 text-center py-6" x-text="t('image_hist_empty')"></div>
+            <div class="grid grid-cols-3 gap-2">
+              <template x-for="job in visibleRecentJobs" :key="job.id">
+                <div class="cursor-pointer group" @click="selectHistory(job)">
+                  <div class="rounded overflow-hidden border border-gray-100 group-hover:border-accent" style="aspect-ratio:9/16">
+                    <img x-show="job.image_url" :src="job.image_url" class="w-full h-full object-cover" alt="">
+                    <div x-show="!job.image_url && job.status === 'processing'"
+                         class="w-full h-full flex items-center justify-center text-[10px] text-yellow-600 bg-yellow-50"
+                         x-text="job.status"></div>
+                  </div>
+                  <div class="text-[10px] text-gray-500 mt-1 line-clamp-2" x-text="(job.params?.brief || job.params?.selling_point || job.template_id || job.mode)"></div>
+                </div>
+              </template>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Asset picker modal -->
+  <div x-show="picker.open" x-cloak class="modal-backdrop" @click.self="closePicker()">
+    <div class="modal-card">
+      <div class="px-5 py-4 border-b flex items-center justify-between">
+        <div>
+          <h3 class="text-base font-semibold text-gray-800" x-text="picker.target === 'extras' ? t('image_picker_extras_title') : t('image_picker_refs_title')"></h3>
+          <p class="text-[11.5px] text-gray-500 mt-0.5" x-text="picker.target === 'extras' ? t('image_picker_extras_desc') : t('image_picker_refs_desc')"></p>
+        </div>
+        <button @click="closePicker()" class="text-gray-400 hover:text-gray-700 text-xl">×</button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-5 scrollbar-thin">
+        <div x-show="picker.loading" class="text-center text-[12px] text-gray-400 py-6" x-text="t('image_picker_loading')"></div>
+        <div x-show="!picker.loading && picker.items.length === 0" class="text-center text-[12px] text-gray-400 py-6" x-text="t('image_picker_empty')"></div>
+        <div class="grid grid-cols-4 gap-3">
+          <template x-for="it in picker.items" :key="it.id">
+            <div class="cursor-pointer rounded-lg border-2 transition-colors overflow-hidden"
+                 :class="picker.selected.includes(it.id) ? 'border-accent' : 'border-transparent hover:border-gray-300'"
+                 @click="togglePickerItem(it.id)">
+              <div style="aspect-ratio:9/16" class="bg-gray-100">
+                <img :src="it.thumb_url" class="w-full h-full object-cover" alt="">
+              </div>
+              <div class="px-2 py-1.5">
+                <div class="text-[11px] text-gray-700 truncate" x-text="it.label || t('image_picker_unnamed')"></div>
+                <div class="text-[9.5px] text-gray-400 truncate" x-text="it.tag_summary"></div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+      <div class="px-5 py-3 border-t bg-gray-50 flex items-center justify-between">
+        <span class="text-[11.5px] text-gray-500" x-text="t('image_picker_selected').replace('{n}', picker.selected.length)"></span>
+        <div class="flex items-center gap-2">
+          <button @click="closePicker()" class="text-[12.5px] text-gray-600 px-3 py-1.5 rounded hover:bg-gray-100" x-text="t('image_picker_cancel')"></button>
+          <button @click="confirmPicker()" class="bg-accent text-white text-[12.5px] px-4 py-1.5 rounded hover:bg-accent-hover" x-text="t('image_picker_confirm')"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function imageStudioPage() {
+      return {
+        // ── State ──
+        offers: [],
+        offerId: '',
+        offerData: null,
+        brief: '',
+        aspectRatio: '9:16',
+        imageModelOptions: [],     // from /settings/media-capabilities → image_gen
+        imageProviderConfigId: '', // empty = use system default
+        imageModelCode: '',
+        references: [],   // [{asset_id, thumb_url, label, reason}]
+        extras: [],
+        extraUploads: [],
+        extraUploadRole: 'supplemental',
+        saveExtraToLibrary: false,
+        extraUploading: false,
+        qrAssetId: '',
+        qrAssetUri: '',  // legacy fallback for any path that still reads it
+        advancedExpanded: false,
+        detailsExpanded: false,
+        qrPreview: null,
+        extrasExpanded: false,
+        suggestingRefs: false,
+        currentJob: null,
+        currentJobMaterials: [],
+        recentJobs: [],
+        lineage: [],
+        refineText: '',
+        refining: false,
+        refineError: '',
+        refineSuggestionKeys: [
+          'image_refine_sug_logo',
+          'image_refine_sug_title',
+          'image_refine_sug_cool',
+          'image_refine_sug_female',
+          'image_refine_sug_no_subtitle',
+        ],
+        generating: false,
+        genStatusLine: '',
+        error: '',
+        _suggestTimer: null,
+        _briefDirty: false,
+
+        picker: {
+          open: false,
+          target: 'references',  // 'references' | 'extras'
+          loading: false,
+          items: [],
+          selected: [],
+        },
+
+        // Inspirations are computed from the active offer's KB on each
+        // onOfferChange — no hardcoded mad-libs. Each entry: {key,icon,label,text}.
+        inspirations: [],
+
+        aspectOptions: [
+          { value: '9:16', labelKey: 'image_aspect_douyin',  icon: '📱' },
+          { value: '1:1',  labelKey: 'image_aspect_xhs',     icon: '⬜' },
+          { value: '16:9', labelKey: 'image_aspect_video',   icon: '🖥️' },
+          { value: '4:3',  labelKey: 'image_aspect_article', icon: '📰' },
+        ],
+
+        get briefRows() {
+          const lines = (this.brief || '').split('\n').length;
+          return Math.max(3, Math.min(8, lines + 1));
+        },
+        get refinePlaceholder() {
+          return this.lineage.length <= 1 ? t('image_refine_ph_first') : t('image_refine_ph_continue');
+        },
+        get inspirationHeader() {
+          const name = this.offerData?.name || '';
+          return t('image_insp_header').replace('{offer}', name);
+        },
+        get visibleRecentJobs() {
+          // Hide failed jobs from the history strip — a "failed" tile is
+          // noise (no thumbnail, no useful brief to reuse). They stay in
+          // the DB for audit + still surface inline at the moment they
+          // fail (via currentJob.error_message), just not in the gallery.
+          return (this.recentJobs || []).filter(j => j.status !== 'failed');
+        },
+        get inspirationsEmpty() {
+          // True when the offer is loaded but its KB has no usable signals.
+          // Distinguish from "still loading" so we don't flash the empty hint.
+          return !!this.offerData && this.inspirations.length === 0;
+        },
+        get extrasTotalCount() {
+          return this.extras.length + this.extraUploads.length + (this.qrPreview ? 1 : 0);
+        },
+
+        // ── Init ──
+        async init() {
+          window.odLangPicker?.init?.(this);
+          await Promise.all([this.loadOffers(), this.loadImageModels()]);
+          // Auto-select offer using the same rule as script-writer /
+          // content-studio: URL param wins, then last-used (cached in
+          // localStorage under appId='img'), then offers[0] (newest by
+          // API ordering). pickInitialOffer returns '' when offers is
+          // empty so the empty-state screen still renders correctly.
+          const params = new URLSearchParams(location.search);
+          const urlOfferId = params.get('offer_id') || '';
+          const target = window.odHeaderSelectors?.pickInitialOffer?.(
+            this.offers, 'img', urlOfferId
+          ) || '';
+          if (target) {
+            this.offerId = target;
+            await this.onOfferChange();
+          }
+        },
+
+        async loadOffers() {
+          try {
+            const r = await fetch('/api/v1/offers?page=1&page_size=100');
+            if (r.ok) {
+              const d = await r.json();
+              this.offers = d.items || [];
+            }
+          } catch (e) { console.error(e); }
+        },
+
+        async loadImageModels() {
+          // Mirrors how creations.html populates videoModal.brollModelOptions —
+          // single fetch, filter to the image_gen capability, default to
+          // current_* (the system default the user picked at /setting.html?section=media).
+          // First-available is the fallback when no system default is set yet.
+          try {
+            const lang = (window.odLang?.current?.() || 'zh-CN');
+            const r = await fetch(`/api/v1/settings/media-capabilities?lang=${encodeURIComponent(lang)}`);
+            if (!r.ok) return;
+            const d = await r.json();
+            const cap = (d.capabilities || []).find(c => c.capability === 'image_gen');
+            if (!cap) return;
+            this.imageModelOptions = (cap.options || []).filter(o => o.model_code);
+            // Default selection: system default → first available → first option.
+            if (cap.current_provider_config_id && cap.current_model_code) {
+              this.imageProviderConfigId = cap.current_provider_config_id;
+              this.imageModelCode = cap.current_model_code;
+            } else {
+              const firstReal = this.imageModelOptions.find(o => o.available);
+              if (firstReal) {
+                this.imageProviderConfigId = firstReal.provider_config_id || '';
+                this.imageModelCode = firstReal.model_code || '';
+              }
+            }
+          } catch (e) { console.error(e); }
+        },
+
+        get imageModelComposite() {
+          return (this.imageProviderConfigId || '') + '::' + (this.imageModelCode || '');
+        },
+
+        onImageModelChange(value) {
+          const [pcid, code] = (value || '').split('::');
+          const opt = this.imageModelOptions.find(
+            o => (o.provider_config_id || '') === (pcid || '') && (o.model_code || '') === (code || '')
+          );
+          if (!opt || !opt.available) return;
+          this.imageProviderConfigId = opt.provider_config_id || '';
+          this.imageModelCode = opt.model_code || '';
+        },
+
+        async onOfferChange() {
+          this.currentJob = null;
+          this.currentJobMaterials = [];
+          this.error = '';
+          this.offerData = null;
+          this.inspirations = [];
+          this.references = [];
+          this.extras = [];
+          this.extraUploads = [];
+          this.qrAssetId = '';
+          this.qrAssetUri = '';
+          this.qrPreview = null;
+          if (!this.offerId) return;
+          window.odHeaderSelectors?.rememberOffer?.('img', this.offerId);
+          try {
+            const r = await fetch(`/api/v1/offers/${this.offerId}`);
+            if (r.ok) this.offerData = await r.json();
+          } catch (e) { console.error(e); }
+          this._computeInspirations();
+          await this.loadRecentJobs();
+          await this.suggestReferences();
+        },
+
+        _computeInspirations() {
+          const o = this.offerData;
+          if (!o) { this.inspirations = []; return; }
+          const out = [];
+          const trunc = (s, n) => {
+            const str = String(s || '').trim();
+            return str.length > n ? str.slice(0, n) + '…' : str;
+          };
+
+          // Selling points → up to 3 chips
+          const points = (o.core_selling_points_json?.points) || [];
+          for (let i = 0; i < Math.min(3, points.length); i++) {
+            const p = String(points[i] || '').trim();
+            if (!p) continue;
+            out.push({
+              key: `sp-${i}`,
+              icon: '💡',
+              label: trunc(p, 14),
+              text: t('image_insp_sp_template').replace('{point}', p),
+            });
+          }
+
+          // Audiences → up to 2 chips
+          const audiences = (o.target_audience_json?.items) || [];
+          for (let i = 0; i < Math.min(2, audiences.length); i++) {
+            const a = String(audiences[i] || '').trim();
+            if (!a) continue;
+            out.push({
+              key: `aud-${i}`,
+              icon: '👥',
+              label: t('image_insp_audience_prefix') + trunc(a, 10),
+              text: t('image_insp_audience_template').replace('{audience}', a),
+            });
+          }
+
+          // Scenarios → 1 chip
+          const scenarios = (o.target_scenarios_json?.items) || [];
+          if (scenarios.length > 0) {
+            const s = String(scenarios[0] || '').trim();
+            if (s) {
+              out.push({
+                key: 'sc-0',
+                icon: '🎬',
+                label: trunc(s, 12),
+                text: t('image_insp_scenario_template').replace('{scenario}', s),
+              });
+            }
+          }
+
+          this.inspirations = out;
+        },
+
+        useInspiration(ins) {
+          this.brief = ins.text;
+          this._briefDirty = true;
+          this.$nextTick(() => this.$refs.briefTa?.focus());
+          this.scheduleSuggest();
+        },
+
+        onBriefInput() {
+          this._briefDirty = true;
+          this.scheduleSuggest();
+        },
+        scheduleSuggest() {
+          if (this._suggestTimer) clearTimeout(this._suggestTimer);
+          this._suggestTimer = setTimeout(() => this.suggestReferences(), 700);
+        },
+
+        async suggestReferences() {
+          if (!this.offerId) return;
+          this.suggestingRefs = true;
+          try {
+            const r = await fetch('/api/v1/image-jobs/suggest-references', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ offer_id: this.offerId, brief: this.brief, limit: 3 }),
+            });
+            if (r.ok) {
+              const d = await r.json();
+              const next = [];
+              for (const s of (d.suggestions || [])) {
+                const asset = await this._fetchAssetSummary(s.asset_id);
+                if (!asset) continue;
+                next.push({
+                  asset_id: s.asset_id,
+                  thumb_url: asset.thumb_url,
+                  label: asset.label,
+                  reason: s.reason,
+                });
+              }
+              if (!this.references.length || !this._briefDirty || this.references.length === 0) {
+                this.references = next;
+              } else {
+                // Brief changed materially — refresh suggestions only when
+                // user hasn't explicitly curated.
+                if (!this._userPickedRefs) this.references = next;
+              }
+            }
+          } catch (e) { console.error(e); }
+          finally { this.suggestingRefs = false; }
+        },
+
+        async _fetchAssetSummary(assetId) {
+          try {
+            const r = await fetch(`/api/v1/assets/${assetId}`);
+            if (!r.ok) return null;
+            const a = await r.json();
+            return {
+              thumb_url: `/api/v1/assets/${assetId}/thumbnail`,
+              label: a.title || a.file_name || t('image_picker_unnamed'),
+              tag_summary: this._summarizeTags(a.tags_json),
+            };
+          } catch { return null; }
+        },
+
+        _summarizeTags(tj) {
+          if (!tj) return '';
+          const sp = (tj.selling_point || [])[0];
+          const usage = (tj.usage || [])[0];
+          return [usage, sp].filter(Boolean).slice(0, 2).join(' · ');
+        },
+
+        removeReference(idx) {
+          this.references.splice(idx, 1);
+          this._userPickedRefs = true;
+        },
+
+        async openPicker() {
+          this.picker.target = 'references';
+          this.picker.selected = this.references.map(r => r.asset_id);
+          await this._openPickerCommon();
+        },
+        async openExtrasPicker() {
+          this.picker.target = 'extras';
+          this.picker.selected = this.extras.map(r => r.asset_id);
+          await this._openPickerCommon();
+        },
+        async _openPickerCommon() {
+          this.picker.open = true;
+          this.picker.loading = true;
+          this.picker.items = [];
+          try {
+            const r = await fetch(`/api/v1/assets?scope_type=offer&scope_id=${this.offerId}&page=1&page_size=50`);
+            if (r.ok) {
+              const d = await r.json();
+              this.picker.items = (d.items || [])
+                .filter(a => a.asset_type === 'image' && (
+                  (a.metadata_json?.width || 0) >= 600
+                  || (a.metadata_json?.height || 0) >= 600
+                ))
+                .map(a => ({
+                  id: a.id,
+                  thumb_url: `/api/v1/assets/${a.id}/thumbnail`,
+                  label: a.title || a.file_name || t('image_picker_unnamed'),
+                  tag_summary: this._summarizeTags(a.tags_json),
+                }));
+            }
+          } catch (e) { console.error(e); }
+          finally { this.picker.loading = false; }
+        },
+        togglePickerItem(id) {
+          const i = this.picker.selected.indexOf(id);
+          if (i >= 0) this.picker.selected.splice(i, 1);
+          else {
+            const cap = this.picker.target === 'extras' ? 4 : 5;
+            if (this.picker.selected.length >= cap) return;
+            this.picker.selected.push(id);
+          }
+        },
+        closePicker() { this.picker.open = false; },
+        async confirmPicker() {
+          const next = [];
+          for (const id of this.picker.selected) {
+            const it = this.picker.items.find(i => i.id === id);
+            if (it) next.push({ asset_id: id, thumb_url: it.thumb_url, label: it.label, reason: t('image_refs_default_reason') });
+          }
+          if (this.picker.target === 'extras') this.extras = next;
+          else { this.references = next; this._userPickedRefs = true; }
+          this.closePicker();
+        },
+
+        async onExtraUpload(ev) {
+          const file = ev.target.files?.[0];
+          if (!file) return;
+          if (!this.offerId) {
+            this.error = t('image_select_offer_first');
+            ev.target.value = '';
+            return;
+          }
+          this.error = '';
+          this.extraUploading = true;
+          const role = this.extraUploadRole === 'qr' ? 'qr' : 'supplemental';
+          const fd = new FormData();
+          fd.append('file', file);
+          try {
+            if (this.saveExtraToLibrary) {
+              fd.append('scope_type', 'offer');
+              fd.append('scope_id', this.offerId);
+              fd.append('asset_type', 'image');
+              const r = await fetch('/api/v1/assets/upload', { method: 'POST', body: fd });
+              if (!r.ok) { this.error = t('image_extra_upload_failed'); return; }
+              const d = await r.json();
+              if (role === 'qr') {
+                this.qrAssetId = d.id || '';
+                this.qrAssetUri = d.storage_uri || d.storage_path || '';
+                this.qrPreview = {
+                  asset_id: d.id,
+                  thumb_url: `/api/v1/assets/${d.id}/thumbnail`,
+                  label: d.title || d.file_name || file.name,
+                };
+              } else {
+                this.extras.push({
+                  asset_id: d.id,
+                  thumb_url: `/api/v1/assets/${d.id}/thumbnail`,
+                  label: d.title || d.file_name || file.name,
+                  reason: t('image_refs_default_reason'),
+                });
+              }
+            } else {
+              fd.append('offer_id', this.offerId);
+              fd.append('role', role);
+              const r = await fetch('/api/v1/image-jobs/reference-upload', { method: 'POST', body: fd });
+              if (!r.ok) { this.error = t('image_extra_upload_failed'); return; }
+              const d = await r.json();
+              this.extraUploads.push({
+                upload_id: d.upload_id,
+                url: d.url,
+                role: d.role || role,
+                label: d.label || file.name,
+              });
+            }
+          } catch (e) { this.error = String(e); }
+          finally {
+            this.extraUploading = false;
+            ev.target.value = '';
+          }
+        },
+
+        canGenerate() {
+          return !!this.offerId && !!this.brief && this.brief.trim().length > 0;
+        },
+
+        async generate() {
+          if (!this.canGenerate() || this.generating) return;
+          this.error = '';
+          this.generating = true;
+          this.currentJob = null;
+          this.currentJobMaterials = [];
+          this.genStatusLine = t('image_status_assemble');
+          const stages = [
+            { at: 1500, msgKey: 'image_status_calling' },
+            { at: 30000, msgKey: 'image_status_long' },
+          ];
+          stages.forEach(s => setTimeout(() => { if (this.generating) this.genStatusLine = t(s.msgKey); }, s.at));
+          try {
+            const r = await fetch('/api/v1/image-jobs/brief', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                offer_id: this.offerId,
+                brief: this.brief,
+                aspect_ratio: this.aspectRatio,
+                reference_asset_ids: this.references.map(r => r.asset_id),
+                extra_asset_ids: this.extras.map(e => e.asset_id),
+                extra_uploads: this.extraUploads.map(u => ({
+                  upload_id: u.upload_id,
+                  role: u.role,
+                  label: u.label || null,
+                  url: u.url || null,
+                })),
+                qr_asset_id: this.qrAssetId || null,
+                image_provider_config_id: this.imageProviderConfigId || null,
+                image_model_code: this.imageModelCode || null,
+              }),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) {
+              this.error = (d.error?.message || d.detail || t('image_generation_failed')).toString();
+            } else {
+              this.currentJob = d;
+              await this._buildMaterialsList(d);
+              await this.loadLineage(d.id);
+              await this.loadRecentJobs();
+            }
+          } catch (e) {
+            this.error = String(e);
+          } finally {
+            this.generating = false;
+          }
+        },
+
+        async refineCurrent() {
+          if (!this.currentJob || !this.refineText.trim() || this.refining) return;
+          if (this.currentJob?.status !== 'completed') return;
+          this.refineError = '';
+          this.refining = true;
+          try {
+            const r = await fetch(`/api/v1/image-jobs/${this.currentJob?.id}/refine`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ refinement: this.refineText.trim() }),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) {
+              this.refineError = (d.error?.message || d.detail || t('image_refine_failed')).toString();
+            } else {
+              this.refineText = '';
+              this.currentJob = d;
+              await this._buildMaterialsList(d);
+              await this.loadLineage(d.id);
+              await this.loadRecentJobs();
+            }
+          } catch (e) {
+            this.refineError = String(e);
+          } finally {
+            this.refining = false;
+          }
+        },
+
+        async loadLineage(jobId) {
+          if (!jobId) { this.lineage = []; return; }
+          try {
+            const r = await fetch(`/api/v1/image-jobs/${jobId}/lineage`);
+            if (r.ok) {
+              this.lineage = await r.json();
+            } else {
+              this.lineage = this.currentJob ? [this.currentJob] : [];
+            }
+          } catch {
+            this.lineage = this.currentJob ? [this.currentJob] : [];
+          }
+        },
+
+        lineageLabel(job, idx) {
+          if (idx === 0) {
+            return (job.params?.brief || t('image_lineage_orig')).slice(0, 32);
+          }
+          const r = job.params?.refinement;
+          return r ? `${t('image_lineage_change_prefix')}${r.slice(0, 32)}` : t('image_lineage_resame');
+        },
+
+        formatTime(iso) {
+          if (!iso) return '';
+          try {
+            const d = new Date(iso);
+            const hh = String(d.getHours()).padStart(2, '0');
+            const mm = String(d.getMinutes()).padStart(2, '0');
+            return `${hh}:${mm}`;
+          } catch { return ''; }
+        },
+
+        async selectVersion(job) {
+          if (!job || job.id === this.currentJob?.id) return;
+          this.currentJob = job;
+          await this._buildMaterialsList(job);
+          // Lineage list itself doesn't change — it's the chain, not a single job's history.
+        },
+
+        async _buildMaterialsList(job) {
+          const list = [];
+          const refIds = job?.params?.reference_asset_ids_resolved
+            || job?.params?.reference_asset_ids
+            || [];
+          for (const id of refIds) {
+            const a = await this._fetchAssetSummary(id);
+            if (a) list.push({ id, thumb_url: a.thumb_url, label: a.label, role: t('image_role_style') });
+          }
+          for (const id of (job?.params?.extra_asset_ids || [])) {
+            const a = await this._fetchAssetSummary(id);
+            if (a) list.push({ id, thumb_url: a.thumb_url, label: a.label, role: t('image_role_extra') });
+          }
+          for (const up of (job?.params?.extra_uploads_resolved || job?.params?.extra_uploads || [])) {
+            if (!up?.url) continue;
+            list.push({
+              id: up.upload_id || up.url,
+              thumb_url: up.url,
+              label: up.label || t('image_extra_oneoff'),
+              role: up.role === 'qr' ? t('image_role_qr') : t('image_role_extra'),
+            });
+          }
+          if (job?.params?.qr_asset_id) {
+            const a = await this._fetchAssetSummary(job.params.qr_asset_id);
+            if (a) list.push({ id: job.params.qr_asset_id, thumb_url: a.thumb_url, label: a.label, role: t('image_role_qr') });
+          }
+          // Logo + brand
+          if (this.offerData) {
+            try {
+              const r = await fetch(`/api/v1/offers/logos?offer_id=${this.offerId}`);
+              if (r.ok) {
+                const d = await r.json();
+                const logo = d?.[this.offerId];
+                if (logo?.url) {
+                  list.push({ id: 'logo', thumb_url: logo.url, label: `${this.offerData.name} logo`, role: t('image_role_logo') });
+                }
+              }
+            } catch {}
+          }
+          this.currentJobMaterials = list;
+        },
+
+        editBriefAgain() {
+          // Pre-fill brief from current job, focus textarea
+          if (this.currentJob?.params?.brief) {
+            this.brief = this.currentJob?.params.brief;
+          }
+          this.$nextTick(() => this.$refs.briefTa?.focus());
+        },
+
+        async loadRecentJobs() {
+          if (!this.offerId) { this.recentJobs = []; return; }
+          // Pull a wider page so the post-filter (failed jobs hidden)
+          // list doesn't shrink to 2-3 cards on a noisy day.
+          try {
+            const r = await fetch(`/api/v1/image-jobs?offer_id=${this.offerId}&page=1&page_size=24`);
+            if (r.ok) {
+              const d = await r.json();
+              this.recentJobs = d.items || [];
+            }
+          } catch {}
+        },
+
+        async selectHistory(job) {
+          this.currentJob = job;
+          await this._buildMaterialsList(job);
+          await this.loadLineage(job.id);
+        },
+
+        async deleteJob(jobId) {
+          if (!confirm(t('image_delete_confirm'))) return;
+          try {
+            await fetch(`/api/v1/image-jobs/${jobId}`, { method: 'DELETE' });
+            if (this.currentJob?.id === jobId) {
+              this.currentJob = null;
+              this.currentJobMaterials = [];
+            }
+            await this.loadRecentJobs();
+          } catch (e) { console.error(e); }
+        },
+      };
+    }
+  </script>
+</body>
+</html>

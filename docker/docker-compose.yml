@@ -41,6 +41,7 @@ services:
       FEEDBACK_TO_EMAIL: ${FEEDBACK_TO_EMAIL:-}
       FEEDBACK_FALLBACK_URL: ${FEEDBACK_FALLBACK_URL:-https://github.com/agidesigner/OpenLucid/issues/new}
       APP_URL: ${APP_URL:-http://localhost}
+      IMAGE_MODEL: ${IMAGE_MODEL:-gpt-image-1}
       # Outbound HTTP proxy passthrough — httpx (used by URL extraction
       # and most LLM SDKs) reads these env vars automatically. Empty
       # default means "no proxy"; populate in .env when the deployment

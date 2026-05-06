@@ -2,7 +2,7 @@ import secrets
 
 from pydantic_settings import BaseSettings
 
-VERSION = "1.4.7"
+VERSION = "1.5.0"
 
 # Browser cache-bust token. VERSION alone isn't enough — we don't bump it
 # for every frontend tweak, but we still need users to see the change on
@@ -55,6 +55,12 @@ class Settings(BaseSettings):
 
     # Set true to skip auth (e.g. in tests)
     DISABLE_AUTH: bool = False
+
+    # OpenAI Images API model name. Defaults to "gpt-image-1" (the
+    # canonical name on api.openai.com). Override when an OpenAI-
+    # compatible proxy maps the endpoint to a different identifier
+    # (e.g. some proxies advertise "gpt-image-1.5" or "gpt-image-2").
+    IMAGE_MODEL: str = "gpt-image-1"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

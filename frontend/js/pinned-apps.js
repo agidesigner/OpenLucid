@@ -26,6 +26,7 @@ const CREATE_TOOLS = [
   { labelKey: 'app_script_writer',   emoji: '🎬', href: '/script-writer.html' },
   { labelKey: 'app_content_studio',  emoji: '📝', href: '/content-studio.html' },
   { labelKey: 'app_topic_studio',    emoji: '💡', href: '/topic-studio.html' },
+  { labelKey: 'app_image_studio',    emoji: '🎨', href: '/image-studio.html' },
 ];
 
 function _makeSectionHeader(labelKey) {
