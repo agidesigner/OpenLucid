@@ -20,7 +20,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-ImageAspect = Literal["1:1", "9:16", "3:4", "4:5", "16:9", "4:3", "3:2"]
+ImageAspect = Literal[
+    "1:1", "9:16", "3:4", "4:5",
+    "16:9", "4:3", "3:2",
+    # Wide landscape ratios used by article-cover platforms:
+    # 1.91:1 — LinkedIn / Substack OG cards (1200×627)
+    # 2.35:1 — 公众号 long horizontal title image
+    # Providers don't natively render these; they route to the
+    # closest supported landscape size (3:2 / 16:9) and the service
+    # layer crops to the exact target before saving.
+    "1.91:1", "2.35:1",
+]
 
 
 class UnsupportedReferenceMode(Exception):

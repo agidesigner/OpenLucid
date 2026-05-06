@@ -23,6 +23,7 @@ from app.application.image_service import (
     create_poster_job,
     create_refine_job,
     delete_image_job,
+    derive_article_cover_suggestion,
     get_image_job,
     list_image_jobs,
     list_lineage,
@@ -34,6 +35,7 @@ from app.schemas.common import PaginatedResponse
 from app.schemas.image_generation import (
     ArticleCoverJobCreate,
     BriefJobCreate,
+    CoverSuggestionResponse,
     ImageJobResponse,
     PosterJobCreate,
     ReferenceUploadResponse,
@@ -280,9 +282,29 @@ async def generate_article_cover(
     data: ArticleCoverJobCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate a 16:9 cover image for an article-style creation.
+    """Generate a cover image for an article-style creation.
 
     Writes the resulting URL back to ``creations.cover_image_url`` on
     success — content-studio reads that field directly.
     """
     return await create_article_cover_job(db, creation_id, data)
+
+
+@creations_cover_router.get("/suggest", response_model=CoverSuggestionResponse)
+async def suggest_article_cover(
+    creation_id: uuid.UUID,
+    platform_id: str | None = Query(None, max_length=80),
+    db: AsyncSession = Depends(get_db),
+):
+    """LLM-derived cover hints for the cover panel.
+
+    Single round-trip returns brief + visual tags + tag-overlap asset
+    suggestions + platform-derived aspect. The panel pre-fills the form
+    with these so users can hit "generate" without typing.
+
+    Brief and tags follow the article's language (so tag overlap against
+    the user's asset-library tags actually matches). Aspect is decided
+    by ``platform_id`` — the caller is the only side that knows which
+    platform the article was authored for.
+    """
+    return await derive_article_cover_suggestion(db, creation_id, platform_id)

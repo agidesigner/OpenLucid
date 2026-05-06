@@ -38,6 +38,13 @@ _ASPECT_MAP: dict[str, str] = {
     "4:5": "3:4",   # closest portrait
     "16:9": "16:9",
     "3:2": "16:9",  # closest landscape
+    # Wide landscape covers (LinkedIn 1.91:1, 公众号 2.35:1).
+    # Gemini's widest accepted ratio is 16:9; the service layer
+    # crops the result to the exact target before saving so users
+    # don't silently get a "16:9-ish" image when they asked for a
+    # cinema-wide 公众号 header.
+    "1.91:1": "16:9",
+    "2.35:1": "16:9",
 }
 
 

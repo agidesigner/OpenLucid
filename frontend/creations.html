@@ -183,6 +183,25 @@
                   <p x-show="c.source_note" class="text-[11px] text-gray-400 mt-1.5 italic" x-text="c.source_note"></p>
                 </div>
 
+                <!-- Article-cover thumbnail. Surfaced when the article-
+                     cover flow has produced an image for this creation
+                     (set by image_service.create_article_cover_job /
+                     refine). Click → open the creation, content-studio
+                     loads it and the cover panel can iterate. Sized to
+                     match the video badge so two creations side-by-
+                     side stay visually aligned. -->
+                <template x-if="c.cover_image_url">
+                  <button @click.stop="openCoverLightbox(c.cover_image_url)"
+                          :title="t('creations_cover_tooltip')"
+                          class="shrink-0 w-20 h-12 rounded-lg overflow-hidden bg-gray-100 border border-gray-200 hover:border-purple-400 transition-colors group relative">
+                    <img :src="c.cover_image_url"
+                         class="absolute inset-0 w-full h-full object-cover"
+                         loading="lazy"
+                         @error="$event.target.style.display='none'">
+                    <span class="absolute bottom-0.5 right-0.5 text-[9px] font-semibold px-1 py-0.5 rounded bg-purple-600/80 text-white backdrop-blur-sm">🎨</span>
+                  </button>
+                </template>
+
                 <!-- Video badge: latest cover thumbnail + count, click → open modal with history pre-expanded -->
                 <template x-if="c.video_count > 0">
                   <button @click.stop="openVideoModal(c, { openHistory: true })"
@@ -260,6 +279,40 @@
                 class="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50">→</button>
       </div>
     </main>
+  </div>
+
+  <!-- Cover-image lightbox — opened from the card's cover thumbnail.
+       Click the thumb shows the full image (no editing here — that's
+       the detail modal's job); the floating action bar gives a clear
+       "open in tab / download" affordance instead of forcing the user
+       to right-click the image. -->
+  <div x-show="lightbox.open" x-cloak
+       class="fixed inset-0 z-[60] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4"
+       @click.self="lightbox.open = false"
+       @keydown.escape.window="lightbox.open && (lightbox.open = false)">
+    <button @click="lightbox.open = false"
+            class="absolute top-4 right-4 text-white/70 hover:text-white transition-colors"
+            :title="t('btn_cancel')">
+      <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+    </button>
+    <div class="relative max-w-[92vw] max-h-[92vh] flex flex-col items-center gap-3">
+      <img :src="lightbox.url"
+           class="max-w-full max-h-[82vh] object-contain rounded-lg shadow-2xl"
+           @click.stop>
+      <div class="flex items-center gap-2 bg-white/95 backdrop-blur px-4 py-2 rounded-full shadow-lg">
+        <a :href="lightbox.url" target="_blank" rel="noopener"
+           class="inline-flex items-center gap-1.5 text-sm text-gray-700 hover:text-purple-700 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+          <span x-text="t('lightbox_open_tab')"></span>
+        </a>
+        <span class="w-px h-4 bg-gray-200"></span>
+        <a :href="lightbox.url" download
+           class="inline-flex items-center gap-1.5 bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium px-3 py-1.5 rounded-full transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          <span x-text="t('lightbox_download')"></span>
+        </a>
+      </div>
+    </div>
   </div>
 
   <!-- Detail / Edit Modal -->
@@ -2005,6 +2058,15 @@
         // Drives the offer dropdown + offer-name chips on each card.
         offerCounts: [],
         flashCreationId: '',  // transient highlight when arriving from ?highlight=<id>
+        // Cover-image lightbox — opens when the user clicks the cover
+        // thumbnail on a card. Just shows the image at full size with
+        // a download affordance; editing happens via openDetail().
+        lightbox: { open: false, url: '' },
+        openCoverLightbox(url) {
+          if (!url) return;
+          this.lightbox.url = url;
+          this.lightbox.open = true;
+        },
         modal: {
           open: false,
           mode: 'new',  // 'new' | 'edit'

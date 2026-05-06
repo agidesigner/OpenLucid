@@ -7,7 +7,12 @@ from pydantic import BaseModel, Field
 JobStatus = Literal["pending", "processing", "completed", "failed"]
 ImageMode = Literal["poster", "article_cover"]
 PosterAspect = Literal["9:16", "1:1", "3:4", "4:5"]
-ArticleAspect = Literal["16:9", "4:3", "1:1"]
+# Article cover aspect — wider than poster because covers serve every
+# platform we publish to (公众号 long horizontal, 小红书 vertical,
+# LinkedIn / Substack OG cards 1.91:1, X / blog 16:9, IG portrait 4:5).
+ArticleAspect = Literal[
+    "9:16", "1:1", "16:9", "4:3", "3:4", "4:5", "1.91:1", "2.35:1"
+]
 
 
 class TemplateSlotInput(BaseModel):
@@ -147,10 +152,62 @@ class RefineJobCreate(BaseModel):
 
 
 class ArticleCoverJobCreate(BaseModel):
-    """POST /api/v1/creations/{cid}/cover body."""
+    """POST /api/v1/creations/{cid}/cover body.
+
+    Two paths share this schema:
+      - Light path (legacy): only ``aspect_ratio`` + optional
+        ``extra_prompt``. The server auto-builds a prompt from article
+        title + body + offer hints and calls the model with NO reference
+        images. Cheap, lower fidelity. Existing clients keep working.
+      - Brief-first path (new): caller passes ``brief`` plus a curated
+        reference set (``reference_asset_ids`` / ``extra_asset_ids`` /
+        ``extra_uploads``). The server feeds reference images to the
+        model so the cover stays visually consistent with the offer's
+        brand kit and the article's tone. Used by the content-studio
+        cover panel.
+
+    Refining an existing cover (v1 → v2) goes through the regular
+    ``POST /api/v1/image-jobs/{job_id}/refine`` endpoint — that path
+    already inherits ``mode`` + ``creation_id`` from the parent job, so
+    we don't duplicate the lineage logic here.
+    """
 
     aspect_ratio: ArticleAspect = "16:9"
+    # Free-form image brief. When set, the brief-first path runs
+    # (with reference images fed to the model). When None / empty, the
+    # legacy auto-prompt path is preserved for backward compat.
+    brief: str | None = Field(None, max_length=500)
     extra_prompt: str | None = Field(None, max_length=512)
+    # Style references picked by the user (or auto-suggested by
+    # /cover-suggest). Caps mirror BriefJobCreate so the multipart
+    # upload to the image provider stays bounded.
+    reference_asset_ids: list[str] = Field(default_factory=list, max_length=5)
+    extra_asset_ids: list[str] = Field(default_factory=list, max_length=4)
+    extra_uploads: list[ReferenceUploadInput] = Field(default_factory=list, max_length=4)
+    # Per-job model override (mirrors BriefJobCreate). When unset, the
+    # service uses the MediaCapabilityDefault('image_gen') row and
+    # falls back to the OpenAI LLMConfig.
+    image_provider_config_id: str | None = None
+    image_model_code: str | None = None
+
+
+class CoverSuggestionResponse(BaseModel):
+    """GET /api/v1/creations/{cid}/cover-suggest result.
+
+    A single LLM call derives both the brief and the visual tags. We
+    return both even though tags only feed asset lookup — the panel
+    shows them as informational chips so the user can sanity-check the
+    model's read of the article before generating.
+
+    Asset suggestions are computed server-side via tag overlap against
+    the offer's asset library. Aspect is derived from the platform id
+    the panel passes in (defaults to 16:9 when platform unknown).
+    """
+
+    brief: str
+    tags: list[str]
+    suggested_asset_ids: list[str]
+    aspect_ratio: ArticleAspect
 
 
 class ImageJobResponse(BaseModel):

@@ -44,6 +44,11 @@ _ASPECT_MAP: dict[str, str] = {
     "16:9": "16:9",
     "4:3": "4:3",
     "3:2": "16:9",  # nearest landscape
+    # Wide landscape covers — Doubao/Seedream's widest is 16:9; the
+    # service layer crops to the exact target afterward so 公众号
+    # 2.35:1 covers don't silently come back as 16:9.
+    "1.91:1": "16:9",
+    "2.35:1": "16:9",
 }
 
 # Per-model default clarity (longest side in pixels). Seedream 4.5 is the

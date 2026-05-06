@@ -57,6 +57,7 @@ from app.models.offer import Offer
 from app.schemas.image_generation import (
     ArticleCoverJobCreate,
     BriefJobCreate,
+    CoverSuggestionResponse,
     ImageJobResponse,
     PosterJobCreate,
     ReferenceUploadResponse,
@@ -1557,6 +1558,17 @@ async def create_refine_job(
                 502,
             ) from e
 
+        # Refines of article covers inherit the parent's aspect; if
+        # that aspect was wide (2.35:1 / 1.91:1) the provider returned
+        # a closest-landscape render, same as the original cover job.
+        # Apply the same crop so v2 stays at the user's target ratio
+        # and the ``creation.cover_image_url`` write below points to a
+        # correctly-sized image.
+        if parent.mode == "article_cover":
+            final_image_bytes = _crop_image_to_aspect(
+                final_image_bytes, aspect
+            )
+
         sub_path = (
             f"generated_images/{parent.offer_id}"
             if parent.offer_id
@@ -1578,6 +1590,14 @@ async def create_refine_job(
             "prompt": prompt,
             "render_path": "ai_composed" if ai_composed_path_used else "ai_plate_with_logo",
         }
+        # When the lineage is anchored to an article (mode='article_cover'),
+        # the latest version is what content-studio shows as the cover —
+        # carry the refine result forward so the article thumb tracks the
+        # current end of the chain instead of staying stuck on v1.
+        if parent.mode == "article_cover" and parent.creation_id:
+            target = await db.get(Creation, parent.creation_id)
+            if target is not None:
+                target.cover_image_url = public_url
         await db.commit()
     except AppError as e:
         job.status = "failed"
@@ -1668,52 +1688,361 @@ async def list_lineage(
 # ── Article-cover flow ──────────────────────────────────────────────
 
 
+# ── Article cover: aspect-by-platform + LLM-derived suggestion ──────
+
+
+# Cover-image aspect ratios per publishing platform.
+#
+# These are CHOSEN for cover thumbnails specifically — distinct from the
+# script-platform ``aspect_ratio`` field (portrait/landscape/square) which
+# describes video-content shape. Article platforms (linkedin / blog /
+# wechat_gzh) have no native cover-aspect metadata, so we encode the
+# practical defaults publishers use here.
+#
+# Sources:
+#   - 公众号 (wechat_gzh): 2.35:1 long horizontal title image, the de-facto
+#     标头图 standard.
+#   - 小红书 (xiaohongshu): 3:4 vertical card matches the feed's portrait
+#     thumbnail; 4:5 also acceptable but 3:4 packs better with text overlay.
+#   - LinkedIn / Substack: 1.91:1 OG cards (1200×627) — what their
+#     aggregators / embeds pick up.
+#   - X (twitter) / blog / Discord: 16:9 broad-default.
+#   - Instagram carousel: 4:5 portrait (highest engagement; 1:1 also
+#     works but loses real estate vs 4:5).
+#   - Reddit: 4:3 thumbnail.
+#   - Video platforms (douyin / tiktok / wechat_video / youtube_shorts):
+#     content-studio's platform list filters these out, but we keep the
+#     mapping so direct API calls still get a sensible answer.
+_COVER_ASPECT_BY_PLATFORM: dict[str, str] = {
+    # zh
+    "wechat_gzh":         "2.35:1",
+    "xiaohongshu":        "3:4",
+    "wechat_video":       "9:16",
+    "douyin":             "9:16",
+    # en
+    "linkedin":           "1.91:1",
+    "substack":           "1.91:1",
+    "blog":               "16:9",
+    "x_twitter":          "16:9",
+    "instagram_carousel": "4:5",
+    "reddit":             "4:3",
+    "discord":            "16:9",
+    "tiktok":             "9:16",
+    "youtube_shorts":     "9:16",
+}
+_DEFAULT_COVER_ASPECT = "16:9"
+
+
+def _aspect_for_platform(platform_id: str | None) -> str:
+    if not platform_id:
+        return _DEFAULT_COVER_ASPECT
+    return _COVER_ASPECT_BY_PLATFORM.get(platform_id, _DEFAULT_COVER_ASPECT)
+
+
+def _aspect_string_to_ratio(aspect: str) -> float | None:
+    """Parse an aspect string like ``2.35:1`` → 2.35. Returns None if
+    the string isn't of the ``W:H`` form so callers can no-op rather
+    than crash."""
+    try:
+        w_str, h_str = aspect.split(":")
+        w, h = float(w_str), float(h_str)
+        if h <= 0:
+            return None
+        return w / h
+    except (ValueError, AttributeError):
+        return None
+
+
+def _crop_image_to_aspect(image_bytes: bytes, target_aspect: str) -> bytes:
+    """Center-crop image bytes to a target aspect ratio.
+
+    Why this exists: the image providers (OpenAI gpt-image, Gemini,
+    Chanjing) only render a small fixed set of aspects (1:1, 16:9,
+    3:2, etc.). Article-cover platforms ask for ratios providers
+    don't natively support — most importantly 2.35:1 (公众号 long
+    horizontal title image) and 1.91:1 (LinkedIn / Substack OG card).
+    Adapter layer routes those to the closest landscape (16:9 / 3:2);
+    this helper crops the result to the exact ratio before save so
+    users get what they asked for.
+
+    Idempotent: when source already matches target within 1%, returns
+    bytes unchanged. Handles both too-wide (crop sides) and too-tall
+    (crop top+bottom) sources via center crop. Falls through with the
+    original bytes on any PIL error so a crop bug never blocks an
+    otherwise-completed render.
+    """
+    target = _aspect_string_to_ratio(target_aspect)
+    if target is None or target <= 0:
+        return image_bytes
+
+    try:
+        from PIL import Image
+    except Exception:
+        return image_bytes
+
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        img.load()
+    except Exception:
+        return image_bytes
+
+    src_w, src_h = img.size
+    if src_w <= 0 or src_h <= 0:
+        return image_bytes
+    src_ratio = src_w / src_h
+    if abs(src_ratio - target) / target < 0.01:
+        return image_bytes
+
+    if src_ratio > target:
+        new_w = max(1, int(round(src_h * target)))
+        left = (src_w - new_w) // 2
+        cropped = img.crop((left, 0, left + new_w, src_h))
+    else:
+        new_h = max(1, int(round(src_w / target)))
+        top = (src_h - new_h) // 2
+        cropped = img.crop((0, top, src_w, top + new_h))
+
+    out = io.BytesIO()
+    fmt = (img.format or "PNG").upper()
+    save_format = "PNG" if fmt not in {"PNG", "JPEG", "WEBP"} else fmt
+    if save_format == "JPEG" and cropped.mode in ("RGBA", "P"):
+        cropped = cropped.convert("RGB")
+    try:
+        cropped.save(out, format=save_format)
+    except Exception:
+        return image_bytes
+    return out.getvalue()
+
+
+async def _suggest_assets_by_tags(
+    db: AsyncSession,
+    *,
+    offer_id: uuid.UUID,
+    tags: list[str],
+    limit: int = 2,
+) -> list[uuid.UUID]:
+    """Pick offer-scoped assets whose tag set overlaps the given tags.
+
+    Stricter than ``suggest_brief_references``: no hook_score fallback —
+    if no asset's tags overlap, return [] rather than serving an
+    arbitrary "top by hook_score" result. The cover panel surfaces
+    these as auto-selected; we'd rather select nothing than mislead.
+    """
+    if not tags:
+        return []
+    base_q = (
+        select(Asset)
+        .where(
+            Asset.scope_type == "offer",
+            Asset.scope_id == offer_id,
+            Asset.asset_type == "image",
+            Asset.parse_status == "done",
+        )
+        .order_by(
+            Asset.hook_score.desc().nullslast(),
+            Asset.reuse_score.desc().nullslast(),
+        )
+        .limit(30)
+    )
+    candidates = (await db.execute(base_q)).scalars().all()
+    scored: list[tuple[float, uuid.UUID]] = []
+    for asset in candidates:
+        meta = asset.metadata_json or {}
+        if (meta.get("width") or 0) < 600 and (meta.get("height") or 0) < 600:
+            continue
+        score, _ = _score_brief_match(tags, asset.tags_json or {}, asset.hook_score)
+        if score > 0:
+            scored.append((score, asset.id))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [aid for _, aid in scored[:limit]]
+
+
+_COVER_DERIVE_PROMPT = (
+    "You are an image-design assistant. Given the article below, produce a "
+    "one-shot visual brief for a single cover image.\n\n"
+    "CRITICAL: Output the `brief` and `tags` in the SAME LANGUAGE as the "
+    "article content. If the article is Chinese, write Chinese. If "
+    "English, write English. Do not translate or mix languages.\n\n"
+    "- brief: ONE sentence describing subject, action, and mood. "
+    "30-60 Chinese chars or 12-25 English words. No brand names, no "
+    "product names, no text to be rendered in the image.\n"
+    "- tags: 3-5 short visual keywords for asset-library retrieval "
+    "(same language as the article).\n\n"
+    "Article title: {title}\n"
+    "Platform: {platform}\n"
+    "Body excerpt: {body}\n\n"
+    "Return ONLY a JSON object: "
+    "{{\"brief\": \"...\", \"tags\": [\"...\", \"...\"]}}"
+)
+
+
+async def derive_article_cover_suggestion(
+    db: AsyncSession,
+    creation_id: uuid.UUID,
+    platform_id: str | None,
+) -> CoverSuggestionResponse:
+    """LLM-derive a one-shot cover brief + visual tags from the article.
+
+    Single LLM call returns brief + tags — both in the article's
+    language so tag overlap against the user's asset-library tags
+    actually works (the user labelled their assets in their own
+    language). UI chrome stays in the UI locale; brief / tags / any
+    text the model renders later follow the source.
+
+    Degrades gracefully: if no LLM is configured or the call fails,
+    returns an empty CoverSuggestionResponse with the platform-derived
+    aspect — the panel can still show a usable empty form.
+    """
+    creation = await db.get(Creation, creation_id)
+    if not creation:
+        raise NotFoundError("Creation", str(creation_id))
+
+    aspect = _aspect_for_platform(platform_id)
+    fallback = CoverSuggestionResponse(
+        brief="",
+        tags=[],
+        suggested_asset_ids=[],
+        aspect_ratio=aspect,  # type: ignore[arg-type]
+    )
+
+    llm = await style_extractor._get_active_openai_llm(db)
+    if not llm or not llm.api_key:
+        return fallback
+
+    try:
+        from openai import AsyncOpenAI
+    except Exception as e:
+        logger.warning("openai SDK not available for cover-suggest: %s", e)
+        return fallback
+
+    title = (creation.title or "").strip()
+    body_excerpt = (creation.content or "").strip()[:800]
+    prompt = _COVER_DERIVE_PROMPT.format(
+        title=title or "(untitled)",
+        platform=platform_id or "unspecified",
+        body=body_excerpt or "(empty)",
+    )
+
+    client = AsyncOpenAI(
+        api_key=llm.api_key,
+        base_url=(llm.base_url or "").strip() or None,
+        timeout=30.0,
+    )
+    try:
+        resp = await client.chat.completions.create(
+            model=llm.model_name or "gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            temperature=0.5,
+        )
+        raw = (resp.choices[0].message.content or "{}").strip()
+    except Exception as e:
+        logger.warning(
+            "Cover-suggest LLM call failed for creation %s: %s", creation_id, e
+        )
+        return fallback
+
+    import json
+    try:
+        data = json.loads(raw)
+    except Exception:
+        logger.warning(
+            "Cover-suggest LLM returned non-JSON for creation %s: %r",
+            creation_id,
+            raw[:200],
+        )
+        return fallback
+
+    brief = str(data.get("brief") or "").strip()[:500]
+    tags = [
+        str(t).strip()
+        for t in (data.get("tags") or [])
+        if isinstance(t, (str, int)) and str(t).strip()
+    ][:5]
+
+    suggested_ids: list[str] = []
+    if creation.offer_id and tags:
+        ids = await _suggest_assets_by_tags(
+            db, offer_id=creation.offer_id, tags=tags, limit=2
+        )
+        suggested_ids = [str(i) for i in ids]
+
+    return CoverSuggestionResponse(
+        brief=brief,
+        tags=tags,
+        suggested_asset_ids=suggested_ids,
+        aspect_ratio=aspect,  # type: ignore[arg-type]
+    )
+
+
 async def create_article_cover_job(
     db: AsyncSession,
     creation_id: uuid.UUID,
     data: ArticleCoverJobCreate,
 ) -> ImageJobResponse:
+    """Generate a cover image for an article-style Creation.
+
+    Two modes share this entry, picked by whether ``data.brief`` is set:
+
+      - **Brief-first** (preferred, used by the content-studio cover
+        panel): caller provides ``brief`` + a curated reference set
+        (``reference_asset_ids`` / ``extra_asset_ids`` / ``extra_uploads``).
+        We feed reference images to the model so the cover stays
+        visually consistent with the brand kit and the article tone.
+
+      - **Light path** (legacy callers): no brief, no references.
+        The server auto-builds a prompt from article title + body +
+        offer hints. This stays for backward compatibility with
+        clients that haven't adopted the new schema fields.
+
+    Refines (v1 → v2) go through ``POST /image-jobs/{id}/refine`` —
+    that endpoint inherits ``mode`` + ``creation_id`` from the parent
+    so the v2 stays linked to the article without duplicate logic here.
+    """
     creation = await db.get(Creation, creation_id)
     if not creation:
         raise NotFoundError("Creation", str(creation_id))
 
-    provider, provider_cfg_id, source_label, resolved_model_code = await _resolve_image_provider(db)
+    offer = (
+        await db.get(Offer, creation.offer_id) if creation.offer_id else None
+    )
+    brandkit = (
+        await _get_offer_brandkit(db, creation.offer_id)
+        if creation.offer_id
+        else None
+    )
 
-    # Compose a simple, no-template prompt from the article + offer KB.
-    title = (creation.title or "").strip()
-    body = (creation.content or "").strip()
-    body_excerpt = body[:280]
-    offer_hints: list[str] = []
-    if creation.offer_id:
-        offer = await db.get(Offer, creation.offer_id)
-        if offer and offer.core_selling_points_json:
-            points = (offer.core_selling_points_json or {}).get("points") or []
-            offer_hints.extend([str(p) for p in points[:3]])
+    provider, provider_cfg_id, source_label, resolved_model_code = (
+        await _resolve_image_provider(
+            db,
+            provider_config_id=data.image_provider_config_id,
+            model_code=data.image_model_code,
+        )
+    )
 
-    extra = (data.extra_prompt or "").strip()
-    prompt_parts = [
-        f"Editorial article cover image, {data.aspect_ratio} aspect ratio.",
-        f"Article title: {title}." if title else "",
-        f"Article excerpt: {body_excerpt}" if body_excerpt else "",
-        f"Brand context: {' | '.join(offer_hints)}" if offer_hints else "",
-        f"Style note: {extra}" if extra else "",
-        "Photographic editorial mood, clean composition, minimal text-friendly negative space.",
-        "DO NOT include any text, letters, or watermarks in the image.",
-    ]
-    prompt = " ".join(p for p in prompt_parts if p)
+    brief_text = (data.brief or "").strip()
+    extra_text = (data.extra_prompt or "").strip()
+    use_brief_path = bool(brief_text)
 
     job = ImageGenerationJob(
         mode="article_cover",
         creation_id=creation_id,
         offer_id=creation.offer_id,
+        brandkit_id=brandkit.id if brandkit else None,
         provider=provider.provider_name,
         provider_config_id=provider_cfg_id,
         status="pending",
         params={
             "aspect_ratio": data.aspect_ratio,
-            "extra_prompt": extra,
-            "prompt": prompt,
+            "brief": brief_text,
+            "extra_prompt": extra_text,
+            "reference_asset_ids": data.reference_asset_ids,
+            "extra_asset_ids": data.extra_asset_ids,
+            "extra_uploads": [u.model_dump() for u in data.extra_uploads],
+            "image_provider_config_id": data.image_provider_config_id,
+            "image_model_code": resolved_model_code,
             "provider_source": source_label,
+            "flow": "article_cover_brief" if use_brief_path else "article_cover_light",
         },
     )
     db.add(job)
@@ -1728,17 +2057,135 @@ async def create_article_cover_job(
     storage = LocalStorageAdapter()
 
     try:
-        result = await provider.generate_image(
-            GenerateImageRequest(
-                prompt=prompt,
-                aspect_ratio=data.aspect_ratio,  # type: ignore[arg-type]
-                quality="standard",
+        if use_brief_path and creation.offer_id and offer is not None:
+            # Brief-first path — same composition contract as
+            # create_brief_job, minus QR (covers don't carry QR codes).
+            ref_assets = await _resolve_reference_assets(
+                db,
+                offer_id=creation.offer_id,
+                brief=brief_text,
+                user_picked_ids=data.reference_asset_ids,
+                limit=3,
             )
+            ref_bytes = await _load_reference_poster_bytes(storage, ref_assets)
+
+            extra_assets = await _load_assets_by_ids(
+                db, data.extra_asset_ids, offer_id=creation.offer_id
+            )
+            extra_bytes = await _load_reference_poster_bytes(storage, extra_assets)
+            extra_upload_bytes, _qr_unused, extra_uploads_used = (
+                await _load_reference_upload_bytes(
+                    storage,
+                    data.extra_uploads,
+                    offer_id=creation.offer_id,
+                )
+            )
+
+            logo_bytes = await _load_logo_bytes(db, brandkit, storage)
+
+            prompt = _build_brief_prompt(
+                brief=brief_text,
+                offer=offer,
+                brandkit=brandkit,
+                aspect=data.aspect_ratio,
+                has_qr=False,
+                extra_count=len(extra_bytes) + len(extra_upload_bytes),
+            )
+            if extra_text:
+                prompt += f"\nStyle note: {extra_text}"
+
+            references = list(ref_bytes) + list(extra_bytes) + list(extra_upload_bytes)
+            if logo_bytes:
+                references.append(logo_bytes)
+
+            ai_composed_path_used = False
+            final_image_bytes: bytes | None = None
+
+            if references:
+                try:
+                    edits_result = await provider.generate_with_references(
+                        GenerateWithReferencesRequest(
+                            prompt=prompt,
+                            references=references,
+                            aspect_ratio=data.aspect_ratio,  # type: ignore[arg-type]
+                            quality="standard",
+                        )
+                    )
+                    final_image_bytes = edits_result.image_bytes
+                    ai_composed_path_used = True
+                except UnsupportedReferenceMode as e:
+                    logger.info(
+                        "Edits path unsupported for cover job %s, falling back: %s",
+                        job.id,
+                        e,
+                    )
+
+            if final_image_bytes is None:
+                gen_result = await provider.generate_image(
+                    GenerateImageRequest(
+                        prompt=prompt,
+                        aspect_ratio=data.aspect_ratio,  # type: ignore[arg-type]
+                        quality="standard",
+                    )
+                )
+                final_image_bytes = gen_result.image_bytes
+
+            job.params = {
+                **(job.params or {}),
+                "prompt": prompt,
+                "render_path": "ai_composed" if ai_composed_path_used else "ai_plate",
+                "reference_asset_ids_resolved": [str(a.id) for a in ref_assets],
+                "extra_uploads_resolved": extra_uploads_used,
+            }
+        else:
+            # Light path — title + body + offer hints, no reference
+            # images. Preserved for legacy API consumers.
+            title = (creation.title or "").strip()
+            body = (creation.content or "").strip()
+            body_excerpt = body[:280]
+            offer_hints: list[str] = []
+            if offer and offer.core_selling_points_json:
+                points = (offer.core_selling_points_json or {}).get("points") or []
+                offer_hints.extend([str(p) for p in points[:3]])
+
+            prompt_parts = [
+                f"Editorial article cover image, {data.aspect_ratio} aspect ratio.",
+                f"Article title: {title}." if title else "",
+                f"Article excerpt: {body_excerpt}" if body_excerpt else "",
+                f"Brand context: {' | '.join(offer_hints)}" if offer_hints else "",
+                f"Style note: {extra_text}" if extra_text else "",
+                "Photographic editorial mood, clean composition, minimal text-friendly negative space.",
+                "DO NOT include any text, letters, or watermarks in the image.",
+            ]
+            prompt = " ".join(p for p in prompt_parts if p)
+
+            result = await provider.generate_image(
+                GenerateImageRequest(
+                    prompt=prompt,
+                    aspect_ratio=data.aspect_ratio,  # type: ignore[arg-type]
+                    quality="standard",
+                )
+            )
+            final_image_bytes = result.image_bytes
+            job.params = {
+                **(job.params or {}),
+                "prompt": prompt,
+                "render_path": "light",
+            }
+
+        # Enforce target aspect — providers only render ~7 aspects, so
+        # wide article-cover ratios (2.35:1 公众号, 1.91:1 LinkedIn)
+        # come back at the closest landscape (16:9 / 3:2). Crop them
+        # to the exact target so the cover slots into the platform's
+        # actual rendering area instead of being a near-but-wrong
+        # ratio. No-op when source already matches.
+        final_image_bytes = _crop_image_to_aspect(
+            final_image_bytes, data.aspect_ratio
         )
 
         sub_path = f"generated_images/article_cover/{creation_id}"
         storage_uri = await storage.save_file(
-            result.image_bytes,
+            final_image_bytes,
             file_name=f"{job.id}.png",
             sub_path=sub_path,
         )

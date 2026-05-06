@@ -70,5 +70,10 @@ class CreationResponse(CreationBase):
     latest_video: CreationVideoSummary | None = None
     # Structured script from Script Writer (null for plain/manual creations)
     structured_content: dict[str, Any] | None = None
+    # Article cover image URL. Set by the cover-gen flow (image_service
+    # .create_article_cover_job and refine when mode='article_cover').
+    # Surfaced in creations.html cards as a hero thumbnail and in
+    # content-studio's inline cover slot.
+    cover_image_url: str | None = None
 
     model_config = {"from_attributes": True}

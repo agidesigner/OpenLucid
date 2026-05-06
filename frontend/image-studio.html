@@ -616,7 +616,14 @@
           // noise (no thumbnail, no useful brief to reuse). They stay in
           // the DB for audit + still surface inline at the moment they
           // fail (via currentJob.error_message), just not in the gallery.
-          return (this.recentJobs || []).filter(j => j.status !== 'failed');
+          //
+          // Also hide ``mode='article_cover'`` — those belong to the
+          // content-studio cover panel and are surfaced there inline.
+          // Mixing them into image-studio's main history would clutter
+          // the studio with thumbnails users never opened in this app.
+          return (this.recentJobs || []).filter(
+            j => j.status !== 'failed' && j.mode !== 'article_cover'
+          );
         },
         get inspirationsEmpty() {
           // True when the offer is loaded but its KB has no usable signals.
