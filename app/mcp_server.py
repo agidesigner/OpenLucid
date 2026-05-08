@@ -2747,6 +2747,150 @@ async def delete_asset(asset_id: str) -> str:
         return json.dumps({"deleted": True, "asset_id": asset_id}, ensure_ascii=False)
 
 
+# ── Memory tools ───────────────────────────────────────────────
+#
+# Persistent user preferences that flow into every prompt assembler
+# automatically. The agent doesn't need to call list_memories before
+# generating — image / script services already do that. These tools
+# exist so the agent can SAVE / LIST / REMOVE preferences during
+# natural conversation ("remember that for this offer we always..."),
+# and so the agent can audit what's already on file.
+
+
+@mcp.tool()
+async def add_memory(
+    scope_type: str,
+    scope_id: str,
+    content: str,
+    surface: str = "all",
+) -> str:
+    """Save a persistent user preference for this offer or merchant.
+
+    These rules are appended to supported future generation prompts
+    on the matching scope/surface. Use when the user says something like
+    "remember to always X" or "for this product never Y".
+
+    Args:
+      scope_type: 'merchant' (cross-offer brand rule) or 'offer' (product-specific).
+      scope_id: UUID of the merchant or offer.
+      content: The rule, ≤500 chars. Free text in the user's language.
+        Examples: "标题不超过 8 字"; "Avoid red backgrounds"; "Logo bottom-right".
+      surface: 'all' (default; cross-cutting generation/brand preference)
+        | 'image' | 'script'. Use the narrowest surface that covers the
+        rule's intent — surface='all' should be reserved for true
+        cross-cutting preferences.
+
+    Returns the saved entry as JSON. Errors with MEMORY_CAP_REACHED
+    if the scope already has 50 active entries (curate first)."""
+    from app.application.memory_service import add_memory as _add
+
+    async with _session_factory() as session:
+        entry = await _add(
+            session,
+            scope_type=scope_type,
+            scope_id=uuid.UUID(scope_id),
+            content=content,
+            surface=surface,
+            source="mcp",
+        )
+        return json.dumps(
+            {
+                "id": str(entry.id),
+                "scope_type": entry.scope_type,
+                "scope_id": str(entry.scope_id),
+                "content": entry.content,
+                "surface": entry.surface,
+                "is_active": entry.is_active,
+                "created_at": entry.created_at.isoformat(),
+            },
+            ensure_ascii=False, indent=2,
+        )
+
+
+@mcp.tool()
+async def list_memories(
+    scope_type: str | None = None,
+    scope_id: str | None = None,
+    surface: str | None = None,
+    active_only: bool = True,
+) -> str:
+    """List saved preferences on a scope. Use when auditing what's
+    already on file, or when the user asks "what did we agree on for X".
+
+    Args mirror the MemoryEntry fields. Pass scope_type='offer' +
+    scope_id=<uuid> for product prefs; scope_type='merchant' +
+    scope_id=<uuid> for brand-wide prefs. Pass surface to narrow to
+    the generators that consume the rule.
+
+    Returns {items: [...]}. Empty list when nothing matches — that's
+    expected for new offers and is not an error."""
+    from app.application.memory_service import (
+        list_memories_by_scope,
+        list_memories_for_offer,
+    )
+
+    async with _session_factory() as session:
+        # When scope is given, return the exact-scope list. When only
+        # an offer is given (via scope_type='offer'), return the
+        # MERGED list (offer + its merchant) so the agent sees what
+        # the prompt assemblers will actually inject.
+        if scope_type == "offer" and scope_id is not None:
+            items = await list_memories_for_offer(
+                session,
+                offer_id=uuid.UUID(scope_id),
+                surface=surface,
+                active_only=active_only,
+            )
+        else:
+            from app.api.memory import _resolve_merchant_id_for_query
+            merchant_id = await _resolve_merchant_id_for_query(
+                session,
+                scope_type,
+                uuid.UUID(scope_id) if scope_id else None,
+            )
+            items = await list_memories_by_scope(
+                session,
+                merchant_id=merchant_id,
+                scope_type=scope_type,
+                scope_id=uuid.UUID(scope_id) if scope_id else None,
+                surface=surface,
+                active_only=active_only,
+            )
+        return json.dumps(
+            {
+                "items": [
+                    {
+                        "id": str(m.id),
+                        "scope_type": m.scope_type,
+                        "scope_id": str(m.scope_id),
+                        "content": m.content,
+                        "surface": m.surface,
+                        "source": m.source,
+                        "is_active": m.is_active,
+                        "created_at": m.created_at.isoformat(),
+                    }
+                    for m in items
+                ]
+            },
+            ensure_ascii=False, indent=2,
+        )
+
+
+@mcp.tool()
+async def delete_memory(memory_id: str) -> str:
+    """Permanently delete a memory entry. Use this for typos / wrong-
+    scope mistakes. To change wording via MCP, delete the old entry
+    and add the corrected rule."""
+    from app.application.memory_service import delete_memory as _delete
+
+    async with _session_factory() as session:
+        await _delete(session, uuid.UUID(memory_id))
+        return json.dumps(
+            {"deleted": True, "memory_id": memory_id},
+            ensure_ascii=False,
+        )
+
+
 # ── Resources ─────────────────────────────────────────────────
 
 
@@ -2871,4 +3015,3 @@ async def knowledge_gap_report(merchant_id: str) -> str:
         "of the highest-ROI entry to add next.\n"
         "5. Rank offers by lowest score to prioritize where to pour writing effort."
     )
-

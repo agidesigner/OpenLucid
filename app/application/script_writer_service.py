@@ -696,6 +696,23 @@ class ScriptWriterService:
                 language=request.language,
                 brand_tone=brand_voice,
             )
+            # Append the user's persisted preferences for script-surface
+            # generations on this offer. Goes AFTER the composer's BRAND
+            # layer (which is itself derived from brandkit.brand_voice)
+            # so the more specific learned constraints — e.g. "标题不
+            # 超过 8 字" — override the looser brand-tone description.
+            if request.offer_id:
+                from app.application.memory_service import (
+                    list_memories_for_offer,
+                    render_memories_block,
+                )
+                memories = await list_memories_for_offer(
+                    self.db, offer_id=request.offer_id, surface="script"
+                )
+                # render_memories_block returns "" when empty so suffixing
+                # is unconditional and the layer separator stays clean.
+                lang_short = "en" if (request.language or "").startswith("en") else "zh"
+                system_prompt += render_memories_block(memories, lang=lang_short)
         else:
             # Legacy path: use system_prompt from request (or built-in default)
             system_prompt = request.system_prompt or (

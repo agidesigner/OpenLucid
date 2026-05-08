@@ -25,6 +25,7 @@
   <script src="/js/i18n.js"></script>
   <script src="/js/pinned-apps.js"></script>
   <script src="/js/shared.js"></script>
+  <script src="/js/memory-save.js"></script>
   <script src="/js/avatar.js"></script>
   <script src="/js/feedback.js"></script>
   <script src="/js/topic-picker.js"></script>
@@ -217,6 +218,7 @@
         <button @click="tab='assets'; fetchAssets()" :class="tab==='assets' && 'active'" class="tab-btn" x-text="t('tab_assets')"></button>
         <button @click="tab='strategy'; fetchStrategyUnits()" :class="tab==='strategy' && 'active'" class="tab-btn" x-text="t('tab_strategy')"></button>
         <button @click="tab='brandkit'; fetchBrandKit()" :class="tab==='brandkit' && 'active'" class="tab-btn owner-only" x-text="t('tab_brandkit')"></button>
+        <button @click="tab='memory'; fetchMemories()" :class="tab==='memory' && 'active'" class="tab-btn owner-only" x-text="t('tab_memory')"></button>
       </div>
 
       <div class="p-6">
@@ -1011,6 +1013,114 @@
           </div>
         </div>
 
+        <!-- ====== MEMORY / PREFERENCES TAB ======
+             Lists everything injected into prompts when generating
+             for this offer + its merchant. Two grouped sections:
+             offer-scoped (more specific) and merchant-scoped (brand-
+             wide). Empty state explains the capture flow so users
+             aren't confused about why the list is empty for new
+             offers — the typical entry path is the refine chip, not
+             this tab. The tab exists for management (edit, deactivate,
+             delete) and ad-hoc additions. -->
+        <div x-show="tab==='memory'" x-cloak>
+          <div class="bg-white rounded-xl border p-5">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h2 class="text-base font-semibold text-gray-800" x-text="t('memory_tab_title')"></h2>
+                <p class="text-[12px] text-gray-500 mt-0.5" x-text="t('memory_tab_subtitle')"></p>
+              </div>
+              <button @click="openMemoryEditor(null)"
+                      class="bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
+                + <span x-text="t('memory_add_btn')"></span>
+              </button>
+            </div>
+
+            <!-- Empty state — explains the refine-chip capture path
+                 since that's where most rules will come from. -->
+            <div x-show="!memoryLoading && memoryItems.length === 0"
+                 class="text-center py-10 border border-dashed border-gray-200 rounded-lg">
+              <p class="text-sm text-gray-500" x-text="t('memory_empty_title')"></p>
+              <p class="text-[12px] text-gray-400 mt-1.5 max-w-md mx-auto" x-text="t('memory_empty_hint')"></p>
+            </div>
+
+            <div x-show="memoryLoading" class="text-center py-6 text-sm text-gray-400" x-text="t('loading')"></div>
+
+            <!-- Offer-scoped section -->
+            <template x-if="!memoryLoading && memoryItems.some(m => m.scope_type === 'offer')">
+              <div class="mb-5">
+                <h3 class="text-[12px] font-medium text-gray-500 uppercase tracking-wider mb-2" x-text="t('memory_section_offer')"></h3>
+                <div class="space-y-2">
+                  <template x-for="m in memoryItems.filter(x => x.scope_type === 'offer')" :key="m.id">
+                    <div class="flex items-start gap-3 p-3 rounded-lg border border-gray-100 hover:border-purple-200 transition-colors"
+                         :class="m.is_active ? 'bg-white' : 'bg-gray-50/50 opacity-60'">
+                      <div class="flex-1 min-w-0">
+                        <p class="text-sm text-gray-800 leading-relaxed" x-text="m.content"></p>
+                        <div class="mt-1.5 flex items-center gap-2 flex-wrap text-[10.5px] text-gray-400">
+                          <span class="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700"
+                                x-text="t('memory_surface_' + m.surface)"></span>
+                          <span x-text="t('memory_source_' + m.source)"></span>
+                          <span>·</span>
+                          <span x-text="new Date(m.created_at).toLocaleDateString()"></span>
+                          <span x-show="!m.is_active" class="text-amber-600 font-medium" x-text="t('memory_paused')"></span>
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-1 shrink-0">
+                        <button @click="toggleMemoryActive(m)"
+                                class="text-[11px] text-gray-400 hover:text-purple-600 px-1.5 py-0.5"
+                                :title="m.is_active ? t('memory_pause') : t('memory_resume')"
+                                x-text="m.is_active ? '⏸' : '▶'"></button>
+                        <button @click="openMemoryEditor(m)"
+                                class="text-[11px] text-gray-400 hover:text-purple-600 px-1.5 py-0.5"
+                                :title="t('memory_edit')">✏️</button>
+                        <button @click="deleteMemoryEntry(m)"
+                                class="text-[11px] text-gray-400 hover:text-red-500 px-1.5 py-0.5"
+                                :title="t('memory_delete')">🗑️</button>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+
+            <!-- Merchant-scoped section -->
+            <template x-if="!memoryLoading && memoryItems.some(m => m.scope_type === 'merchant')">
+              <div>
+                <h3 class="text-[12px] font-medium text-gray-500 uppercase tracking-wider mb-2" x-text="t('memory_section_merchant')"></h3>
+                <div class="space-y-2">
+                  <template x-for="m in memoryItems.filter(x => x.scope_type === 'merchant')" :key="m.id">
+                    <div class="flex items-start gap-3 p-3 rounded-lg border border-gray-100 hover:border-purple-200 transition-colors"
+                         :class="m.is_active ? 'bg-white' : 'bg-gray-50/50 opacity-60'">
+                      <div class="flex-1 min-w-0">
+                        <p class="text-sm text-gray-800 leading-relaxed" x-text="m.content"></p>
+                        <div class="mt-1.5 flex items-center gap-2 flex-wrap text-[10.5px] text-gray-400">
+                          <span class="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700"
+                                x-text="t('memory_surface_' + m.surface)"></span>
+                          <span x-text="t('memory_source_' + m.source)"></span>
+                          <span>·</span>
+                          <span x-text="new Date(m.created_at).toLocaleDateString()"></span>
+                          <span x-show="!m.is_active" class="text-amber-600 font-medium" x-text="t('memory_paused')"></span>
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-1 shrink-0">
+                        <button @click="toggleMemoryActive(m)"
+                                class="text-[11px] text-gray-400 hover:text-purple-600 px-1.5 py-0.5"
+                                :title="m.is_active ? t('memory_pause') : t('memory_resume')"
+                                x-text="m.is_active ? '⏸' : '▶'"></button>
+                        <button @click="openMemoryEditor(m)"
+                                class="text-[11px] text-gray-400 hover:text-purple-600 px-1.5 py-0.5"
+                                :title="t('memory_edit')">✏️</button>
+                        <button @click="deleteMemoryEntry(m)"
+                                class="text-[11px] text-gray-400 hover:text-red-500 px-1.5 py-0.5"
+                                :title="t('memory_delete')">🗑️</button>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
       </div>
     </main>
   </div>
@@ -1469,6 +1579,11 @@
       return {
         offerId: new URLSearchParams(location.search).get('id'),
         offer: null, tab: 'overview', descExpanded: false, showNoLLMDialog: false,
+        // Memory / preferences tab — populated lazily via fetchMemories
+        // when the user first clicks the tab. Items hold both offer-
+        // and merchant-scoped entries; the template separates them
+        // visually into two sections.
+        memoryItems: [], memoryLoading: false,
         overview: null, loadingOverview: false,
         consumption: null,
         deleteConfirm: false, deleting: false,
@@ -1868,6 +1983,76 @@
           } catch { toast.error(t('delete_failed')); }
           this.deleting = false;
           this.deleteConfirm = false;
+        },
+
+        // ── Memory / Preferences ──
+        // Lists offer-scoped + merchant-scoped entries together; the
+        // template splits them into two sections. The list endpoint
+        // already merges by merchant_id, so a single fetch covers
+        // both — no double round-trip.
+        async fetchMemories() {
+          if (!this.offerId) return;
+          this.memoryLoading = true;
+          try {
+            const res = await fetch(`${API}/memories/for-offer/${this.offerId}?active_only=false`);
+            if (res.ok) {
+              const data = await res.json();
+              this.memoryItems = data.items || [];
+            }
+          } catch (e) { console.error(e); }
+          finally { this.memoryLoading = false; }
+        },
+
+        // Open the shared save-memory modal in either create or edit
+        // mode. Edits PATCH the existing row so scope / source /
+        // provenance stay stable.
+        openMemoryEditor(existing) {
+          const offer = this.offer;
+          window.odMemorySave?.open({
+            offerId: this.offerId,
+            merchantId: offer?.merchant_id || null,
+            offerName: offer?.name || '',
+            merchantName: '',
+            memoryId: existing?.id || null,
+            scopeType: existing?.scope_type || null,
+            surface: existing?.surface || 'all',
+            content: existing?.content || '',
+            source: existing ? existing.source : 'manual',
+            sourceRef: null,
+            onSaved: async () => {
+              await this.fetchMemories();
+            },
+          });
+        },
+
+        async toggleMemoryActive(m) {
+          try {
+            const res = await fetch(`${API}/memories/${m.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ is_active: !m.is_active }),
+            });
+            if (res.ok) {
+              const updated = await res.json();
+              const i = this.memoryItems.findIndex(x => x.id === m.id);
+              if (i >= 0) this.memoryItems[i] = updated;
+            } else {
+              const err = await res.json().catch(() => ({}));
+              if (window.toast?.error) {
+                window.toast.error((err.error?.message || err.detail || t('memory_update_failed')).toString());
+              }
+            }
+          } catch (e) { console.error(e); }
+        },
+
+        async deleteMemoryEntry(m) {
+          if (!confirm(t('memory_delete_confirm'))) return;
+          try {
+            const res = await fetch(`${API}/memories/${m.id}`, { method: 'DELETE' });
+            if (res.ok || res.status === 204) {
+              this.memoryItems = this.memoryItems.filter(x => x.id !== m.id);
+            }
+          } catch (e) { console.error(e); }
         },
 
         // ── BrandKit ──

@@ -31,6 +31,7 @@
   <script src="/js/trend-panel.js"></script>
   <script src="/js/lang-picker.js"></script>
   <script src="/js/shared.js"></script>
+  <script src="/js/memory-save.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
     [x-cloak]{display:none!important}
@@ -756,6 +757,25 @@
               <span x-text="cover.refineRunning ? t('cover_refine_running') : t('cover_refine_btn')"></span>
             </button>
           </div>
+
+          <!-- Memory-capture chip after a successful refine. Mirrors
+               image-studio's pattern; click → save modal. Auto-clears
+               after 30s if ignored. -->
+          <div x-show="cover.memoryChipText" x-cloak
+               class="mt-2 inline-flex items-center gap-1.5 bg-purple-50 border border-purple-200 rounded-full pl-2.5 pr-1 py-0.5">
+            <span class="text-[11px] text-purple-700" x-text="t('memory_chip_prefix')"></span>
+            <span class="text-[11px] text-purple-900 font-medium max-w-[160px] truncate"
+                  :title="cover.memoryChipText"
+                  x-text="'「' + cover.memoryChipText + '」'"></span>
+            <button type="button"
+                    class="text-[11px] text-white bg-purple-600 hover:bg-purple-500 rounded-full px-2 py-0.5 ml-1"
+                    @click="openMemorySaveFromCover()"
+                    x-text="t('memory_chip_save')"></button>
+            <button type="button"
+                    class="text-purple-400 hover:text-purple-700 px-1"
+                    @click="cover.memoryChipText = ''"
+                    :title="t('memory_chip_dismiss')">×</button>
+          </div>
         </div>
       </div>
     </aside>
@@ -863,6 +883,12 @@
           pickerOpen: false,
           pickerAssets: [],
           derivedFor: null,
+          // Memory-capture chip after a successful refine; auto-clears
+          // after 30s. memoryChipSourceRef is the parent job id so
+          // captured rules can be traced back to the generation that
+          // taught us.
+          memoryChipText: '',
+          memoryChipSourceRef: null,
         },
         // Per-section refinement state — shared across edit + AI rewrite
         editingSectionId: null,
@@ -1374,6 +1400,8 @@
           this.cover.loading = false;
           this.cover.generating = false;
           this.cover.refineRunning = false;
+          this.cover.memoryChipText = '';
+          this.cover.memoryChipSourceRef = null;
         },
 
         async openCoverPanel() {
@@ -1509,11 +1537,14 @@
         async refineCover() {
           if (!this.cover.jobId || !this.cover.refineText.trim() || this.cover.refineRunning) return;
           this.cover.refineRunning = true;
+          // Snapshot before clear — used to prefill the memory chip
+          // when refine succeeds.
+          const instruction = this.cover.refineText.trim();
           try {
             const r = await fetch(`/api/v1/image-jobs/${this.cover.jobId}/refine`, {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({ refinement: this.cover.refineText.trim() }),
+              body: JSON.stringify({ refinement: instruction }),
             });
             if (!r.ok) {
               const err = await r.json().catch(() => ({}));
@@ -1524,6 +1555,12 @@
             this.cover.jobId = job.id;
             this.cover.imageUrl = job.image_url || null;
             this.cover.refineText = '';
+            this.cover.memoryChipText = instruction;
+            this.cover.memoryChipSourceRef = job.id || null;
+            clearTimeout(this._coverMemoryTimer);
+            this._coverMemoryTimer = setTimeout(() => {
+              this.cover.memoryChipText = '';
+            }, 30000);
             await this.loadCoverLineage();
           } catch(e) {
             console.error(e);
@@ -1531,6 +1568,24 @@
           } finally {
             this.cover.refineRunning = false;
           }
+        },
+
+        openMemorySaveFromCover() {
+          if (!this.cover.memoryChipText) return;
+          const offer = this.offers?.find(o => o.id === this.offerId);
+          window.odMemorySave?.open({
+            offerId: this.offerId,
+            merchantId: offer?.merchant_id || null,
+            offerName: offer?.name || '',
+            merchantName: offer?.merchant_name || '',
+            surface: 'image',
+            content: this.cover.memoryChipText,
+            source: 'refine_capture',
+            sourceRef: this.cover.memoryChipSourceRef,
+            onSaved: () => {
+              this.cover.memoryChipText = '';
+            },
+          });
         },
 
         async loadCoverLineage() {

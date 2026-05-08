@@ -11,6 +11,7 @@ from app.models.asset import Asset
 from app.models.brandkit import BrandKit
 from app.models.creation import Creation
 from app.models.knowledge_item import KnowledgeItem
+from app.models.memory_entry import MemoryEntry
 from app.models.offer import Offer
 from app.models.topic_plan import TopicPlan
 from app.schemas.offer import OfferCreate, OfferUpdate
@@ -53,7 +54,7 @@ class OfferService:
     async def delete(self, offer_id: uuid.UUID) -> None:
         """Hard-delete an offer and all its dependent rows.
 
-        `knowledge_items`, `brandkits`, and `assets` use a polymorphic
+        `knowledge_items`, `brandkits`, `assets`, and `memory_entries` use a polymorphic
         (scope_type, scope_id) pointer rather than a real FK, so SQL-level
         cascades don't fire. `topic_plans` and `creations` have an `offer_id`
         column but no cascade was declared. Before v0.9.9.4 this left 284+
@@ -82,6 +83,10 @@ class OfferService:
         await session.execute(sql_delete(Asset).where(
             Asset.scope_type == "offer",
             Asset.scope_id == offer_id,
+        ))
+        await session.execute(sql_delete(MemoryEntry).where(
+            MemoryEntry.scope_type == "offer",
+            MemoryEntry.scope_id == offer_id,
         ))
         # strategy_units has a real FK to offers.id and cascades via SQL
 

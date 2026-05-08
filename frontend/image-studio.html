@@ -29,6 +29,7 @@
   <script src="/js/header-selectors.js"></script>
   <script src="/js/lang-picker.js"></script>
   <script src="/js/shared.js"></script>
+  <script src="/js/memory-save.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
     [x-cloak]{display:none!important}
@@ -389,6 +390,27 @@
                 <div x-show="refineError" class="mt-2 bg-red-50 border border-red-200 text-red-700 text-[11.5px] px-3 py-2 rounded">
                   <span x-text="refineError"></span>
                 </div>
+                <!-- Memory-capture chip: appears for ~30s after a
+                     successful refine, prefilled with the instruction
+                     the user just typed. One click → save modal where
+                     they confirm scope/surface and persist. Auto-
+                     dismisses if ignored. -->
+                <div x-show="memoryChip.text" x-cloak
+                     class="mt-2 inline-flex items-center gap-1.5 bg-purple-50 border border-purple-200 rounded-full pl-2.5 pr-1 py-0.5">
+                  <span class="text-[11px] text-purple-700"
+                        x-text="t('memory_chip_prefix')"></span>
+                  <span class="text-[11px] text-purple-900 font-medium max-w-[160px] truncate"
+                        :title="memoryChip.text"
+                        x-text="'「' + memoryChip.text + '」'"></span>
+                  <button type="button"
+                          class="text-[11px] text-white bg-purple-600 hover:bg-purple-500 rounded-full px-2 py-0.5 ml-1"
+                          @click="openMemorySaveFromRefine()"
+                          x-text="t('memory_chip_save')"></button>
+                  <button type="button"
+                          class="text-purple-400 hover:text-purple-700 px-1"
+                          @click="memoryChip.text = ''"
+                          :title="t('memory_chip_dismiss')">×</button>
+                </div>
               </div>
 
               <!-- Compact action bar -->
@@ -564,6 +586,10 @@
         currentJob: null,
         currentJobMaterials: [],
         recentJobs: [],
+        // Memory-capture chip state — populated after a successful
+        // refine, cleared when the user dismisses, saves, or 30s
+        // elapse. Survives lineage navigation but dies on offer change.
+        memoryChip: { text: '', sourceRef: null },
         lineage: [],
         refineText: '',
         refining: false,
@@ -1024,11 +1050,14 @@
           if (this.currentJob?.status !== 'completed') return;
           this.refineError = '';
           this.refining = true;
+          // Snapshot the instruction BEFORE clearing — the memory
+          // chip uses it to prefill the save modal.
+          const instruction = this.refineText.trim();
           try {
             const r = await fetch(`/api/v1/image-jobs/${this.currentJob?.id}/refine`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ refinement: this.refineText.trim() }),
+              body: JSON.stringify({ refinement: instruction }),
             });
             const d = await r.json().catch(() => ({}));
             if (!r.ok) {
@@ -1039,12 +1068,48 @@
               await this._buildMaterialsList(d);
               await this.loadLineage(d.id);
               await this.loadRecentJobs();
+              // Surface the memory-capture chip. parent_job_id traces
+              // which generation taught us this rule.
+              this.memoryChip = {
+                text: instruction,
+                sourceRef: d.id || null,
+              };
+              // Auto-dismiss after 30s — long enough for the user
+              // to glance + click, short enough not to leak across
+              // unrelated future refines.
+              clearTimeout(this._memoryChipTimer);
+              this._memoryChipTimer = setTimeout(() => {
+                this.memoryChip.text = '';
+              }, 30000);
             }
           } catch (e) {
             this.refineError = String(e);
           } finally {
             this.refining = false;
           }
+        },
+
+        openMemorySaveFromRefine() {
+          if (!this.memoryChip.text) return;
+          const offer = this.offers?.find(o => o.id === this.offerId);
+          const merchantId = offer?.merchant_id || this.offerData?.merchant_id || null;
+          if (!this.offerId && !merchantId) {
+            // Should be unreachable — image-studio always has an offer.
+            return;
+          }
+          window.odMemorySave?.open({
+            offerId: this.offerId,
+            merchantId,
+            offerName: offer?.name || this.offerData?.name || '',
+            merchantName: offer?.merchant_name || '',
+            surface: 'image',
+            content: this.memoryChip.text,
+            source: 'refine_capture',
+            sourceRef: this.memoryChip.sourceRef,
+            onSaved: () => {
+              this.memoryChip.text = '';
+            },
+          });
         },
 
         async loadLineage(jobId) {

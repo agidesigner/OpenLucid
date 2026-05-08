@@ -855,6 +855,19 @@ async def create_brief_job(
             has_qr=bool(qr_bytes or qr_upload_bytes),
             extra_count=len(extra_bytes) + len(extra_upload_bytes),
         )
+        # Append the user's persisted preferences for this offer's
+        # image surface. The block is empty when there are no entries
+        # — see render_memories_block. Suffix position is intentional:
+        # the model treats the last instruction as the strictest, and
+        # the header explicitly says "this section wins on conflict".
+        from app.application.memory_service import (
+            list_memories_for_offer,
+            render_memories_block,
+        )
+        memories = await list_memories_for_offer(
+            db, offer_id=offer_uuid, surface="image"
+        )
+        prompt += render_memories_block(memories)
 
         # Build the references list — order matters for the model:
         # style references first, brand assets next, optional content last.
@@ -1521,6 +1534,21 @@ async def create_refine_job(
             offer=offer,
             aspect=aspect,
         )
+        # Refines also fold in offer memories. Critical: without this,
+        # users who saved "不要红色" via the cover panel and then
+        # refined the image would still be able to introduce red at
+        # refine time — the parent prompt didn't carry the constraint
+        # and the refine prompt is built fresh. Surface='image' for
+        # both poster (parent.mode='poster') and article-cover refines.
+        if parent.offer_id:
+            from app.application.memory_service import (
+                list_memories_for_offer,
+                render_memories_block,
+            )
+            memories = await list_memories_for_offer(
+                db, offer_id=parent.offer_id, surface="image"
+            )
+            prompt += render_memories_block(memories)
 
         # Order: parent image FIRST (primary edit target). Logo last as
         # supporting brand reference — model will keep it consistent.
@@ -2093,6 +2121,18 @@ async def create_article_cover_job(
             )
             if extra_text:
                 prompt += f"\nStyle note: {extra_text}"
+            # Article-cover memories live on surface='image' (the
+            # generator class), not 'content' — the latter is for
+            # script/post text rules. Same retrieval contract as
+            # create_brief_job above.
+            from app.application.memory_service import (
+                list_memories_for_offer,
+                render_memories_block,
+            )
+            memories = await list_memories_for_offer(
+                db, offer_id=creation.offer_id, surface="image"
+            )
+            prompt += render_memories_block(memories)
 
             references = list(ref_bytes) + list(extra_bytes) + list(extra_upload_bytes)
             if logo_bytes:

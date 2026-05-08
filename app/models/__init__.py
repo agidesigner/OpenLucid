@@ -22,6 +22,7 @@ from app.models.media_provider_config import MediaProviderConfig
 from app.models.video_generation_job import VideoGenerationJob
 from app.models.image_generation_job import ImageGenerationJob
 from app.models.media_capability_default import MediaCapabilityDefault
+from app.models.memory_entry import MemoryEntry
 
 __all__ = [
     "Base",
@@ -51,4 +52,5 @@ __all__ = [
     "VideoGenerationJob",
     "ImageGenerationJob",
     "MediaCapabilityDefault",
+    "MemoryEntry",
 ]

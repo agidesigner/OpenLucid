@@ -25,6 +25,7 @@ from app.api.image_generation import (
     templates_router as image_templates_router,
 )
 from app.api.coverage import router_su as coverage_su_router, router_offer as coverage_offer_router, router_batch as coverage_batch_router
+from app.api.memory import router as memory_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -50,3 +51,4 @@ api_router.include_router(videos_router)
 api_router.include_router(image_templates_router)
 api_router.include_router(image_jobs_router)
 api_router.include_router(creations_cover_router)
+api_router.include_router(memory_router)

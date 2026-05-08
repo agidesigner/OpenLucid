@@ -124,6 +124,14 @@
           </span>
         </div>
         <div class="flex-1"></div>
+        <label class="inline-flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none hover:text-gray-700 transition-colors">
+          <input type="checkbox" x-model="showFailed"
+                 class="rounded border-gray-300 text-accent focus:ring-accent/30 cursor-pointer" />
+          <span x-text="t('vs_show_failed')"></span>
+          <span x-show="failedHiddenCount > 0"
+                class="text-gray-400 tabular-nums"
+                x-text="`(${failedHiddenCount})`"></span>
+        </label>
         <button @click="reload()" class="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 hover:border-gray-300 px-2.5 py-1.5 rounded-lg transition-colors">
           <svg class="w-3.5 h-3.5" :class="loading && 'animate-spin'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
           <span x-text="t('vs_refresh')"></span>
@@ -132,7 +140,7 @@
 
       <!-- Loading / Empty -->
       <div x-show="loading && items.length === 0" class="text-center py-16 text-gray-400 text-sm" x-text="t('loading')"></div>
-      <div x-show="!loading && items.length === 0" class="bg-white rounded-xl border border-dashed border-gray-200 py-16 text-center">
+      <div x-show="!loading && visibleItems.length === 0" class="bg-white rounded-xl border border-dashed border-gray-200 py-16 text-center">
         <div class="text-5xl mb-3">🎬</div>
         <p class="text-sm text-gray-500 mb-1" x-text="t('vs_empty_title')"></p>
         <p class="text-xs text-gray-400 mb-4" x-text="t('vs_empty_hint')"></p>
@@ -142,8 +150,8 @@
       </div>
 
       <!-- Grid -->
-      <div x-show="!loading && items.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <template x-for="job in items" :key="job.id">
+      <div x-show="!loading && visibleItems.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <template x-for="job in visibleItems" :key="job.id">
           <div class="bg-white rounded-xl border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
             <!-- Video / cover area -->
             <div class="aspect-video bg-gray-100 relative cursor-pointer group/thumb"
@@ -264,6 +272,20 @@
         filterStatus: '',
         filterProvider: '',
         filterOfferId: '',
+        // Hide failed videos by default — they're noise (no thumb, no
+        // useful artifact). User can opt in via the toolbar toggle.
+        // When the user explicitly drills into the "failed" stats card
+        // (filterStatus === 'failed'), the toggle is bypassed: they
+        // asked for failed, they should see them.
+        showFailed: false,
+        get visibleItems() {
+          if (this.filterStatus === 'failed' || this.showFailed) return this.items;
+          return (this.items || []).filter(j => j.status !== 'failed');
+        },
+        get failedHiddenCount() {
+          if (this.filterStatus === 'failed' || this.showFailed) return 0;
+          return (this.items || []).filter(j => j.status === 'failed').length;
+        },
         offers: [],
         // Counts per status — fetched separately for the stat cards
         counts: { all: 0, pending: 0, processing: 0, completed: 0, failed: 0 },
