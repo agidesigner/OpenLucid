@@ -32,6 +32,8 @@ class TestGuestWriteAllowlist:
             ("POST", "/api/v1/apps/"),
             ("POST", "/api/v1/creations"),
             ("POST", "/api/v1/videos"),
+            ("POST", "/api/v1/image-jobs"),
+            ("POST", "/api/v1/memories"),
             ("PATCH", "/api/v1/topic-plans/"),
             ("POST", "/api/v1/feedback"),
             ("POST", "/api/v1/auth/signout"),
@@ -53,6 +55,16 @@ class TestGuestWriteAllowlist:
     def test_creation_save_allowed(self):
         assert self._allowed("POST", "/api/v1/creations") is True
         assert self._allowed("POST", "/api/v1/creations/abc-123/videos") is True
+
+    def test_image_job_writes_allowed(self):
+        assert self._allowed("POST", "/api/v1/image-jobs/brief") is True
+        assert self._allowed("POST", "/api/v1/image-jobs/reference-upload") is True
+        assert self._allowed("POST", "/api/v1/image-jobs/suggest-references") is True
+
+    def test_memory_create_allowed_but_management_blocked(self):
+        assert self._allowed("POST", "/api/v1/memories") is True
+        assert self._allowed("PATCH", "/api/v1/memories/abc") is False
+        assert self._allowed("DELETE", "/api/v1/memories/abc") is False
 
     def test_topic_plan_rating_allowed(self):
         assert self._allowed("PATCH", "/api/v1/topic-plans/abc-123/rating") is True
