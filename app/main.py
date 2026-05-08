@@ -323,6 +323,20 @@ GUEST_WRITE_ALLOWLIST: tuple[tuple[str, str], ...] = (
     ("POST", "/api/v1/apps/"),
     ("POST", "/api/v1/creations"),
     ("POST", "/api/v1/videos"),
+    # Image-studio + content-studio cover panel are content-creation
+    # surfaces, same category as /apps/ and /videos. Brief / refine /
+    # reference-upload / suggest-references all live under image-jobs;
+    # cover lives under /creations/{id}/cover (already prefix-matched
+    # by /api/v1/creations above). Without these guests see the UI but
+    # the first POST 403s with no obvious reason.
+    ("POST", "/api/v1/image-jobs"),
+    # Memory: guests can capture new preferences via the "💾 记住"
+    # chip after a refine (POST is content-creation-shaped). PATCH /
+    # DELETE intentionally NOT allowed — those would let a shared-
+    # link visitor mutate or wipe the owner's preference layer.
+    # Reads happen via GET (always allowed) so the management tab
+    # still renders correctly in read-only mode.
+    ("POST", "/api/v1/memories"),
     ("PATCH", "/api/v1/topic-plans/"),
     ("POST", "/api/v1/feedback"),
     ("POST", "/api/v1/auth/signout"),

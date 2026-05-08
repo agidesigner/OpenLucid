@@ -954,7 +954,16 @@
               fd.append('scope_id', this.offerId);
               fd.append('asset_type', 'image');
               const r = await fetch('/api/v1/assets/upload', { method: 'POST', body: fd });
-              if (!r.ok) { this.error = t('image_extra_upload_failed'); return; }
+              if (!r.ok) {
+                // Surface the server's reason instead of a generic
+                // "upload failed" so guests see why (e.g. 403 from
+                // the guest write middleware) and owners see the real
+                // 4xx/5xx detail rather than a wall.
+                const err = await r.json().catch(() => ({}));
+                const detail = err.error?.message || err.detail || ('HTTP ' + r.status);
+                this.error = t('image_extra_upload_failed') + ': ' + detail;
+                return;
+              }
               const d = await r.json();
               if (role === 'qr') {
                 this.qrAssetId = d.id || '';
@@ -976,7 +985,12 @@
               fd.append('offer_id', this.offerId);
               fd.append('role', role);
               const r = await fetch('/api/v1/image-jobs/reference-upload', { method: 'POST', body: fd });
-              if (!r.ok) { this.error = t('image_extra_upload_failed'); return; }
+              if (!r.ok) {
+                const err = await r.json().catch(() => ({}));
+                const detail = err.error?.message || err.detail || ('HTTP ' + r.status);
+                this.error = t('image_extra_upload_failed') + ': ' + detail;
+                return;
+              }
               const d = await r.json();
               this.extraUploads.push({
                 upload_id: d.upload_id,
