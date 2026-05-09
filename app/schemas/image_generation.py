@@ -49,6 +49,7 @@ class PosterJobCreate(BaseModel):
 # since the same flow can produce article covers (16:9 / 4:3 / 1:1).
 BriefAspect = Literal["9:16", "1:1", "16:9", "4:3", "3:4", "4:5"]
 ReferenceUploadRole = Literal["supplemental", "qr"]
+BriefReferenceMode = Literal["auto", "style", "source_poster"]
 
 
 class ReferenceUploadInput(BaseModel):
@@ -79,8 +80,8 @@ class BriefJobCreate(BaseModel):
       - The brief text (full intent)
       - Offer KB context (auto-resolved from offer_id)
       - Brand logo + voice (auto-resolved from brandkit)
-      - Reference images (user-curated; auto-suggested when empty)
-      - Optional QR + extra assets
+      - Style reference images (user-curated; auto-suggested when empty)
+      - Optional QR + content reference assets
 
     The model decides composition, layout, palette, and typography. This
     is the trust-the-model path the slot system was over-engineered around.
@@ -96,13 +97,18 @@ class BriefJobCreate(BaseModel):
     # enforces this, but a direct API caller could otherwise pass any
     # number of large image bytes through to the model.
     reference_asset_ids: list[str] = Field(default_factory=list, max_length=5)
-    # Additional images (product shots / mascots / etc.) — passed alongside
-    # the style references. Kept separate so the prompt can describe them
-    # differently to the model if needed.
+    # Content reference images (screenshots / product shots / people /
+    # scenes). These define what the poster should show, while style
+    # references define how it should look.
     extra_asset_ids: list[str] = Field(default_factory=list, max_length=4)
     # One-off uploads for this job only. They are not saved as assets and
     # therefore do not get tagged or recommended later.
     extra_uploads: list[ReferenceUploadInput] = Field(default_factory=list, max_length=4)
+    # How to interpret user-provided references:
+    #   - auto: infer from brief wording ("改横版/改尺寸/改版式" => source_poster)
+    #   - style: learn visual style only; ignore logos/text/watermarks in refs
+    #   - source_poster: first reference is the poster to adapt; preserve content
+    reference_mode: BriefReferenceMode = "auto"
     # Preferred: asset_id of the QR upload — the server resolves it against
     # the asset table and verifies offer-scope membership before reading
     # the file. Path-traversal-safe by construction.

@@ -728,12 +728,15 @@ async def _load_reference_poster_bytes(
 
 
 def _shrink_for_provider(raw: bytes, *, max_side: int = 1536) -> bytes | None:
-    """PIL re-encode → JPEG quality 85, longest side <= max_side.
+    """Prepare reference bytes for provider upload.
 
-    Returns the smaller of (original, recoded) — if shrinkage doesn't
-    help (e.g. tiny logo already), keep the original to preserve any
-    transparency / sharpness. Returns None on decode failure so the
-    caller can fall back to the original bytes.
+    Normal posters are resized by longest side. Ultra-long posters use
+    a three-panel contact sheet instead: a 1125×5902 asset squeezed to
+    293×1536 loses layout/text hierarchy, while top/middle/bottom crops
+    keep each section readable within the same provider-safe envelope.
+
+    Returns the smaller useful derivative, or None when the original is
+    already small enough / PIL cannot decode it.
     """
     import io as _io
 
@@ -746,6 +749,9 @@ def _shrink_for_provider(raw: bytes, *, max_side: int = 1536) -> bytes | None:
             longest = max(w, h)
             if longest <= max_side and len(raw) <= 600_000:
                 return None  # already small enough; original is fine
+            long_ref = _make_long_reference_contact_sheet(img, max_side=max_side)
+            if long_ref is not None and len(long_ref) < len(raw):
+                return long_ref
             scale = max_side / float(longest) if longest > max_side else 1.0
             new_w = max(1, int(w * scale))
             new_h = max(1, int(h * scale))
@@ -759,6 +765,71 @@ def _shrink_for_provider(raw: bytes, *, max_side: int = 1536) -> bytes | None:
     except Exception as e:
         logger.debug("Reference shrink skipped: %s", e)
         return None
+
+
+_LONG_REFERENCE_CONTACT_SHEET_MIN_RATIO = 3.2
+
+
+def _make_long_reference_contact_sheet(img, *, max_side: int = 1536) -> bytes | None:
+    """Convert an ultra-long reference into top/middle/bottom panels.
+
+    The model needs readable composition cues, not a pixel-perfect copy.
+    For tall posters, place three vertical crops side-by-side; for wide
+    panoramas, stack three horizontal crops. This preserves local detail
+    without increasing multipart reference count.
+    """
+    import io as _io
+
+    from PIL import Image as _PILImage
+
+    w, h = img.size
+    short = min(w, h)
+    long = max(w, h)
+    # Below this ratio, longest-side resizing keeps enough local detail;
+    # above it, fitting the whole poster into 1536px makes text/layout cues too small.
+    if short <= 0 or long / float(short) < _LONG_REFERENCE_CONTACT_SHEET_MIN_RATIO:
+        return None
+
+    rgb = img.convert("RGB")
+    gutter = 12
+    panels = 3
+
+    if h >= w:
+        crop_h = min(h, max(w, int(w * 1.65)))
+        starts = [0, max(0, (h - crop_h) // 2), max(0, h - crop_h)]
+        crops = [rgb.crop((0, y, w, y + crop_h)) for y in starts]
+        panel_w = max(1, (max_side - gutter * (panels - 1)) // panels)
+        panel_h = max(1, int(crop_h * (panel_w / float(w))))
+        resized = [
+            crop.resize((panel_w, panel_h), _PILImage.LANCZOS) for crop in crops
+        ]
+        canvas = _PILImage.new(
+            "RGB",
+            (panel_w * panels + gutter * (panels - 1), panel_h),
+            "white",
+        )
+        for idx, crop in enumerate(resized):
+            canvas.paste(crop, (idx * (panel_w + gutter), 0))
+    else:
+        crop_w = min(w, max(h, int(h * 1.65)))
+        starts = [0, max(0, (w - crop_w) // 2), max(0, w - crop_w)]
+        crops = [rgb.crop((x, 0, x + crop_w, h)) for x in starts]
+        panel_h = max(1, (max_side - gutter * (panels - 1)) // panels)
+        panel_w = max(1, int(crop_w * (panel_h / float(h))))
+        resized = [
+            crop.resize((panel_w, panel_h), _PILImage.LANCZOS) for crop in crops
+        ]
+        canvas = _PILImage.new(
+            "RGB",
+            (panel_w, panel_h * panels + gutter * (panels - 1)),
+            "white",
+        )
+        for idx, crop in enumerate(resized):
+            canvas.paste(crop, (0, idx * (panel_h + gutter)))
+
+    buf = _io.BytesIO()
+    canvas.save(buf, format="JPEG", quality=88, optimize=True)
+    return buf.getvalue()
 
 
 # ── Brief-first flow (trust-the-model) ─────────────────────────────
@@ -838,13 +909,18 @@ async def create_brief_job(
     storage = LocalStorageAdapter()
 
     try:
-        # Resolve reference assets — user-curated, with auto-fill when empty.
+        has_manual_visual_refs = _has_manual_visual_references(data)
+        # Resolve reference assets — user-curated, with auto-fill only when
+        # the user has not already supplied visual references. If they did,
+        # silently adding unrelated "top" assets can pollute a layout
+        # transform with stale poster copy.
         ref_assets = await _resolve_reference_assets(
             db,
             offer_id=offer_uuid,
             brief=data.brief,
             user_picked_ids=data.reference_asset_ids,
             limit=3,
+            allow_auto=not has_manual_visual_refs,
         )
         ref_bytes = await _load_reference_poster_bytes(storage, ref_assets)
 
@@ -863,6 +939,11 @@ async def create_brief_job(
 
         logo_bytes = await _load_logo_bytes(db, brandkit, storage)
         qr_bytes = await _load_brief_qr_bytes(data, storage, db=db, offer_id=offer_uuid)
+        reference_mode = _resolve_brief_reference_mode(
+            data.brief,
+            has_manual_visual_refs=has_manual_visual_refs,
+            requested=data.reference_mode,
+        )
 
         prompt = _build_brief_prompt(
             brief=data.brief,
@@ -872,6 +953,8 @@ async def create_brief_job(
             has_logo=bool(logo_bytes),
             has_qr=bool(qr_bytes or qr_upload_bytes),
             extra_count=len(extra_bytes) + len(extra_upload_bytes),
+            reference_count=len(ref_bytes),
+            reference_mode=reference_mode,
         )
         # Append the user's persisted preferences for this offer's
         # image surface. The block is empty when there are no entries
@@ -888,7 +971,7 @@ async def create_brief_job(
         prompt += render_memories_block(memories)
 
         # Build the references list — order matters for the model:
-        # style references first, brand assets next, optional content last.
+        # style references first, content references next, brand assets last.
         references = list(ref_bytes) + list(extra_bytes) + list(extra_upload_bytes)
         if logo_bytes:
             references.append(logo_bytes)
@@ -954,6 +1037,7 @@ async def create_brief_job(
             "render_path": "ai_composed" if ai_composed_path_used else "ai_plate_with_logo",
             "reference_asset_ids_resolved": [str(a.id) for a in ref_assets],
             "extra_uploads_resolved": extra_uploads_used,
+            "reference_mode": reference_mode,
         }
         await db.commit()
     except AppError as e:
@@ -983,6 +1067,8 @@ def _build_brief_prompt(
     has_logo: bool,
     has_qr: bool,
     extra_count: int,
+    reference_count: int = 0,
+    reference_mode: str = "style",
 ) -> str:
     """Compose the prompt for the brief-first flow.
 
@@ -1017,14 +1103,58 @@ def _build_brief_prompt(
             lines.append("Brand tone: " + first + ".")
 
     lines.append("")
-    lines.append(
-        "Match the visual style, color palette, lighting, and typography aesthetic "
-        "of the provided reference poster(s)."
-    )
+    if reference_mode == "source_poster":
+        source_logo_rule = (
+            "- Logo handling: if a logo/wordmark/watermark in the source poster is the current brand, render one clean final logo only; if it is unrelated or third-party, remove or replace it with the provided current brand logo."
+            if has_logo
+            else "- Logo handling: if a logo/wordmark/watermark in the source poster is unrelated or third-party, remove it; no separate current-brand logo reference was provided, so do not invent one."
+        )
+        duplicate_logo_rule = (
+            "- Never stack, overlap, or duplicate a reference-image logo with the provided logo."
+            if has_logo
+            else "- Never stack, overlap, or duplicate logos from the reference image."
+        )
+        lines.extend(
+            [
+                "Reference mode: source-poster layout transform.",
+                "- Treat the first provided reference image as the source poster to adapt.",
+                "- Preserve its core message, text hierarchy, mascot/product/story elements, and visual intent.",
+                "- Recompose only what is needed to fit the requested format; do not replace the source poster's content with unrelated offer context.",
+                source_logo_rule,
+                duplicate_logo_rule,
+            ]
+        )
+    else:
+        if reference_count == 1:
+            style_rule = (
+                "- One style reference is provided. Treat it as the primary style anchor: make the new poster highly similar in layout structure, typography hierarchy, composition density, visual rhythm, lighting mood, dominant style, and color direction."
+            )
+        else:
+            style_rule = (
+                "- Multiple or auto-selected style references may be provided. Extract their shared design language; do not let any single reference image dominate the whole poster unless the user asks for that."
+            )
+        lines.extend(
+            [
+                "Reference mode: visual style inspiration.",
+                style_rule,
+                "- Style references define how the poster should look, not what it should say.",
+                "- Do not copy specific text, logos, wordmarks, watermarks, bylines, platform marks, UI brand marks, or QR codes visible in style references unless the user explicitly asks.",
+                "- If a style-reference logo is not the current brand logo, ignore or replace it with the provided current brand logo.",
+                "- User brief, content reference images, and explicit user changes override style-reference details.",
+            ]
+        )
+        if reference_count != 1 and not _brief_requests_dark_style(brief):
+            lines.append(
+                "- Keep the poster commercially vibrant and brand-appropriate; do not default to a monochrome, grayscale, black-and-white, or black-dominant palette only because a reference image is dark."
+            )
     if extra_count:
-        lines.append(
-            f"Additional reference image(s) ({extra_count}) follow the style references — "
-            "incorporate the elements they show (product shots, mascots, etc.) where appropriate."
+        lines.extend(
+            [
+                f"Content reference image(s) ({extra_count}) are provided after the style references.",
+                "- Treat content references as factual subject evidence: product UI, new feature screenshots, product shots, people, scenes, proof points, or concrete visual elements that this poster should communicate.",
+                "- Use the user brief and content references to decide what the poster is about; use style references only for visual treatment.",
+                "- Do not copy content-reference logos, watermarks, or unrelated brand marks unless they are the current brand assets.",
+            ]
         )
     if has_logo:
         lines.extend(
@@ -1055,6 +1185,97 @@ def _build_brief_prompt(
     return "\n".join(lines)
 
 
+_SOURCE_POSTER_HINTS = (
+    "改成",
+    "改为",
+    "改版",
+    "版式",
+    "横版",
+    "竖版",
+    "尺寸",
+    "比例",
+    "重排",
+    "重新排版",
+    "参考图",
+    "源图",
+    "原图",
+    "现有海报",
+    "已有海报",
+    "保留文案",
+    "保持内容",
+    "转成",
+    "转为",
+    "convert to",
+    "convert this",
+    "reformat",
+    "reflow",
+    "adapt to",
+    "adapt this",
+    "resize to",
+    "change to",
+    "make it 16:9",
+    "make it 9:16",
+    "make this 16:9",
+    "make this 9:16",
+    "keep the copy",
+    "keep the text",
+    "preserve content",
+    "existing poster",
+    "original poster",
+    "source poster",
+)
+
+
+_DARK_STYLE_HINTS = (
+    "黑",
+    "暗黑",
+    "暗色",
+    "深色",
+    "黑白",
+    "单色",
+    "水墨",
+    "赛博朋克",
+    "cyberpunk",
+    "dark",
+    "black",
+    "monochrome",
+    "grayscale",
+    "greyscale",
+    "noir",
+)
+
+
+def _brief_requests_dark_style(brief: str) -> bool:
+    normalized = (brief or "").strip().lower()
+    return any(hint in normalized for hint in _DARK_STYLE_HINTS)
+
+
+def _has_manual_visual_references(data: BriefJobCreate) -> bool:
+    """Whether the user supplied an explicit style/source reference.
+
+    Content references are subject evidence, not style references. They
+    should not disable auto style matching when the user has not picked
+    a style reference.
+    """
+    return bool(data.reference_asset_ids)
+
+
+def _resolve_brief_reference_mode(
+    brief: str,
+    *,
+    has_manual_visual_refs: bool,
+    requested: str = "auto",
+) -> str:
+    if requested in {"style", "source_poster"}:
+        return requested
+    if not has_manual_visual_refs:
+        return "style"
+    normalized = (brief or "").strip().lower()
+    if any(hint in normalized for hint in _SOURCE_POSTER_HINTS):
+        return "source_poster"
+    return "style"
+
+
 async def _resolve_reference_assets(
     db: AsyncSession,
     *,
@@ -1062,6 +1283,7 @@ async def _resolve_reference_assets(
     brief: str,
     user_picked_ids: list[str],
     limit: int = 3,
+    allow_auto: bool = True,
 ) -> list[Asset]:
     """Pick reference assets for the brief flow.
 
@@ -1071,6 +1293,8 @@ async def _resolve_reference_assets(
     """
     if user_picked_ids:
         return await _load_assets_by_ids(db, user_picked_ids, offer_id=offer_id)
+    if not allow_auto:
+        return []
     suggestions = await suggest_brief_references(
         db, offer_id=offer_id, brief=brief, limit=limit
     )
@@ -2148,6 +2372,7 @@ async def create_article_cover_job(
                 has_logo=bool(logo_bytes),
                 has_qr=False,
                 extra_count=len(extra_bytes) + len(extra_upload_bytes),
+                reference_count=len(ref_bytes),
             )
             if extra_text:
                 prompt += f"\nStyle note: {extra_text}"
