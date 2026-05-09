@@ -28,10 +28,9 @@ class OfferService:
     async def create(self, data: OfferCreate) -> Offer:
         # NOTE: ``offer_model`` (the derived 6-class enum) is **not** inferred
         # synchronously here. Doing so used to add a 0.5–1s LLM round-trip on
-        # every create, which the wizard pays end-to-end. We now schedule
-        # ``infer_offer_model_in_background`` from the route handler via
-        # FastAPI ``BackgroundTasks`` so the response returns as soon as the
-        # row is persisted; the model column is back-filled within ~1s.
+        # every create, which the wizard pays end-to-end. The route queues a
+        # durable ``offer.infer_model`` task after commit so the model column is
+        # back-filled without tying correctness to request-local background work.
         merchant = await self.merchant_repo.get_by_id(data.merchant_id)
         if not merchant:
             raise NotFoundError("Merchant", str(data.merchant_id))

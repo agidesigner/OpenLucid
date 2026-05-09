@@ -87,6 +87,78 @@ class GPTImageProvider:
             timeout=300.0,
         )
         self.model = model
+        # Cached list of image-capable models on the proxy. Populated
+        # lazily on the first error-path probe so we don't pay an
+        # extra round-trip on the happy path. Kept on the instance —
+        # adapter rebuilt per request, so cache lifetime is naturally
+        # bounded; we just want one probe per failed request, not one
+        # per call site within the same generation flow.
+        self._proxy_image_models_cache: list[str] | None = None
+
+    async def _list_proxy_image_models(self) -> list[str]:
+        """Probe ``/v1/models`` and filter to image-capable names.
+
+        Returns ``[]`` when the probe fails OR when the proxy advertises
+        no image-related models. Cached on the instance after the first
+        successful probe.
+        """
+        if self._proxy_image_models_cache is not None:
+            return self._proxy_image_models_cache
+        IMAGE_KEYWORDS = ("image", "dall", "sd", "flux", "stable-diffusion")
+        try:
+            page = await self.client.models.list()
+            names = [m.id for m in page.data]
+            img = sorted({n for n in names if any(k in n.lower() for k in IMAGE_KEYWORDS)})
+            self._proxy_image_models_cache = img
+            return img
+        except Exception as e:
+            logger.debug("models.list() probe failed: %s", e)
+            self._proxy_image_models_cache = []
+            return []
+
+    @staticmethod
+    def _looks_like_model_not_found(blob: str) -> bool:
+        """Detect ``model_not_found`` in either OpenAI canonical errors
+        or the user's localized proxy variant.
+
+        OpenAI / OpenAI-compatible proxies surface this as either:
+          - ``code: model_not_found`` (canonical)
+          - ``model … does not exist`` (older OpenAI prose)
+          - ``模型 … 不存在`` (the user's Chinese-localized proxy)
+        """
+        s = (blob or "")
+        s_lower = s.lower()
+        if "model_not_found" in s_lower:
+            return True
+        if "model" in s_lower and ("does not exist" in s_lower or "not found" in s_lower):
+            return True
+        if "不存在" in s and "模型" in s:
+            return True
+        return False
+
+    async def _humanize_image_error(self, raw: str) -> str:
+        """Convert raw upstream error text into an actionable message.
+
+        Only special-cases ``model_not_found``. Everything else falls
+        through with a short prefix so the original signal (timeout,
+        auth, rate limit, content policy) survives.
+        """
+        if self._looks_like_model_not_found(raw):
+            available = await self._list_proxy_image_models()
+            if available:
+                avail_list = ", ".join(f"`{n}`" for n in available[:5])
+                more = f"（共 {len(available)} 个）" if len(available) > 5 else ""
+                return (
+                    f"你配置的代理里没有模型 `{self.model}`。"
+                    f"代理实际支持的图像模型：{avail_list}{more}。"
+                    f"请去 设置 → 媒体能力 → 图像生成 切换 model。"
+                )
+            return (
+                f"你配置的代理里没有模型 `{self.model}`，"
+                f"且代理未列出任何图像模型。请在代理那边确认 image API "
+                f"是否安装，或在 设置 → 媒体能力 切换到其他 provider（如蝉镜）。"
+            )
+        return f"OpenAI image generation failed: {raw[:300]}"
 
     async def generate_image(self, req: GenerateImageRequest) -> GenerateImageResult:
         size, width, height = _SIZE_MAP.get(req.aspect_ratio, _SIZE_MAP["9:16"])
@@ -106,11 +178,8 @@ class GPTImageProvider:
             # a precise reason ("content policy violation", "invalid
             # api_key", etc.) that the user can act on.
             logger.error("gpt-image-1 request failed: %s", e)
-            raise AppError(
-                "IMAGE_PROVIDER_ERROR",
-                f"OpenAI image generation failed: {e}",
-                502,
-            ) from e
+            detail = await self._humanize_image_error(str(e))
+            raise AppError("IMAGE_PROVIDER_ERROR", detail, 502) from e
 
         if not resp.data:
             raise AppError(
@@ -242,23 +311,38 @@ class GPTImageProvider:
             )
         if resp.status_code == 400:
             body = resp.text
-            if "model_not_found" in body or "model" in body and "not exist" in body:
+            if self._looks_like_model_not_found(body):
+                # Two distinct causes share this upstream message:
+                #   (A) The model isn't on the proxy at all — the user
+                #       has the wrong model name in Settings and needs
+                #       to switch.
+                #   (B) The model exists on the proxy generally (it
+                #       answers /v1/chat etc.) but /v1/images/edits
+                #       can't serve it — caller should fall back to
+                #       /v1/images/generations text-only.
+                # Disambiguate via the cached models.list() probe:
+                # if the model is genuinely missing, surface the
+                # humanized "switch model" guidance; otherwise keep
+                # the legacy fallback so proxies that simply lack
+                # the edits endpoint still work.
+                available = await self._list_proxy_image_models()
+                if available and self.model not in available:
+                    detail = await self._humanize_image_error(body)
+                    raise AppError("IMAGE_PROVIDER_ERROR", detail, 502)
                 raise UnsupportedReferenceMode(
                     f"Model {self.model!r} unavailable on /v1/images/edits"
                 )
             raise AppError("IMAGE_PROVIDER_ERROR", f"OpenAI 400: {body[:300]}", 502)
         if resp.status_code >= 500:
-            raise AppError(
-                "IMAGE_PROVIDER_ERROR",
-                f"OpenAI {resp.status_code}: {resp.text[:300]}",
-                502,
-            )
+            # Some proxies return 5xx for model_not_found instead of the
+            # canonical 400 (the user's deployment does — Error code: 503
+            # with body code='model_not_found'). Run the same humanizer
+            # so users get an actionable message instead of a raw 5xx.
+            detail = await self._humanize_image_error(resp.text)
+            raise AppError("IMAGE_PROVIDER_ERROR", detail, 502)
         if resp.status_code != 200:
-            raise AppError(
-                "IMAGE_PROVIDER_ERROR",
-                f"OpenAI {resp.status_code}: {resp.text[:300]}",
-                502,
-            )
+            detail = await self._humanize_image_error(resp.text)
+            raise AppError("IMAGE_PROVIDER_ERROR", detail, 502)
 
         try:
             payload = resp.json()

@@ -110,11 +110,6 @@ mcp._mcp_server.version = VERSION
 # Module-level session factory reference; tests can monkey-patch this.
 _session_factory = async_session_factory
 
-# Strong references to fire-and-forget background tasks. asyncio only weakly
-# references tasks, so without this set they may be GC'd mid-run.
-_BACKGROUND_TASKS: set = set()
-
-
 # Known-bad / placeholder APP_URL hosts: if Settings hasn't been configured
 # with a real public URL, any preview_url we hand to an agent would be
 # unreachable and confusing. We detect and omit those URLs instead.
@@ -1223,6 +1218,38 @@ async def get_offer_context_summary(offer_id: str) -> str:
         return _serialize(ctx, unwrap_offer=True)
 
 
+@mcp.tool()
+async def get_context_pack(
+    offer_id: str,
+    surface: str = "all",
+    intent: str = "",
+    language: str = "zh-CN",
+    max_knowledge: int = 20,
+    max_assets: int = 20,
+) -> str:
+    """Get a compact reusable Context Pack for an offer.
+
+    Compared with get_offer_context_summary, this includes prompt-ready overlays
+    that generation agents usually need: brand voice and persistent user
+    memories, already filtered by surface ('all', 'image', or 'script').
+    Use this before composing multi-step agent workflows that need the same
+    grounding across tools.
+    """
+    from app.application.context_pack_service import build_marketing_context_pack
+
+    async with _session_factory() as session:
+        pack = await build_marketing_context_pack(
+            session,
+            offer_id=uuid.UUID(offer_id),
+            surface=surface,
+            intent=intent or None,
+            language=language,
+            max_knowledge=max_knowledge,
+            max_assets=max_assets,
+        )
+        return json.dumps(pack, ensure_ascii=False, indent=2, default=str)
+
+
 # ── Strategy Unit Tools ───────────────────────────────────────
 
 
@@ -1634,159 +1661,34 @@ async def run_app(
       reach_growth, lead_generation, conversion, education, traffic_redirect, other,
       seeding, knowledge_sharing, brand_awareness.
     """
-    from app.exceptions import AppError
+    from app.application.app_runtime import AppRunRequest, run_openlucid_app
 
-    oid = uuid.UUID(offer_id)
-    suid = uuid.UUID(strategy_unit_id) if strategy_unit_id else None
-
-    if app_id == "kb_qa":
-        if action != "ask":
-            raise AppError("UNKNOWN_ACTION", f"Unknown action '{action}' for kb_qa. Available: ask", 400)
-        from app.application.kb_qa_service import KBQAService
-        from app.schemas.app import KBQAAskRequest
-
-        async with _session_factory() as session:
-            svc = KBQAService(session)
-            req = KBQAAskRequest(
-                offer_id=oid,
-                question=question,
-                style_id=style_id,
-                language=language,
-                config_id=config_id,
-            )
-            result = await svc.ask(req)
-            return _serialize(result)
-
-    elif app_id == "script_writer":
-        if action == "suggest_topic":
-            from app.application.script_writer_service import ScriptWriterService
-
-            async with _session_factory() as session:
-                svc = ScriptWriterService(session)
-                topic_text = await svc.suggest_topic(
-                    offer_id=offer_id,
-                    strategy_unit_id=strategy_unit_id,
-                    goal=goal,
-                    language=language,
-                    config_id=config_id,
-                )
-                return json.dumps({"topic": topic_text}, ensure_ascii=False)
-
-        elif action == "generate":
-            from app.application.script_writer_service import (
-                DEFAULT_SYSTEM_PROMPT_EN,
-                DEFAULT_SYSTEM_PROMPT_ZH,
-                ScriptWriterService,
-            )
-            from app.schemas.app import ScriptWriterRequest
-
-            sys_prompt = DEFAULT_SYSTEM_PROMPT_EN if language.startswith("en") else DEFAULT_SYSTEM_PROMPT_ZH
-            async with _session_factory() as session:
-                svc = ScriptWriterService(session)
-                req = ScriptWriterRequest(
-                    offer_id=oid,
-                    strategy_unit_id=suid,
-                    system_prompt=sys_prompt,
-                    topic=topic,
-                    goal=goal,
-                    tone=tone or None,
-                    word_count=_resolve_word_count(word_count, platform_id),
-                    cta=cta or None,
-                    industry=industry or None,
-                    reference=reference or None,
-                    extra_req=extra_req or None,
-                    language=language,
-                    config_id=config_id,
-                    # Composer dimensions (optional) — any set → structured output
-                    platform_id=platform_id,
-                    persona_id=persona_id,
-                    structure_id=structure_id,
-                    goal_id=goal_id,
-                    # Topic plan linkage
-                    topic_plan_id=uuid.UUID(topic_plan_id) if topic_plan_id else None,
-                    # Trend-bridge inputs — agents can paste a trend
-                    # article URL/text directly without going through
-                    # topic_studio first.
-                    external_context_text=external_context_text or None,
-                    external_context_url=external_context_url or None,
-                    # MCP-originated creations are tagged distinctly so Settings
-                    # and analytics can separate agent output from WebUI output.
-                    source_app="mcp:external",
-                )
-                result = await svc.generate(req)
-                return json.dumps(result, ensure_ascii=False, indent=2)
-        else:
-            raise AppError("UNKNOWN_ACTION", f"Unknown action '{action}' for script_writer. Available: suggest_topic, generate", 400)
-
-    elif app_id == "topic_studio":
-        if action != "generate":
-            raise AppError("UNKNOWN_ACTION", f"Unknown action '{action}' for topic_studio. Available: generate", 400)
-        from app.application.topic_plan_service import TopicPlanService
-        from app.schemas.topic_plan import TopicPlanGenerateRequest, TopicPlanResponse
-
-        async with _session_factory() as session:
-            svc = TopicPlanService(session)
-            req = TopicPlanGenerateRequest(
-                offer_id=oid,
-                strategy_unit_id=suid,
-                count=word_count if (word_count is not None and word_count <= 20) else 5,
-                language=language,
-                config_id=config_id,
-            )
-            plans, thinking, hotspot = await svc.generate(req)
-            await session.commit()
-            serialized = [TopicPlanResponse.model_validate(p, from_attributes=True).model_dump(mode="json") for p in plans]
-            result = {"plans": serialized, "thinking": thinking}
-            if hotspot is not None:
-                result["hotspot"] = hotspot.model_dump(mode="json", exclude_none=True)
-            return json.dumps(result, ensure_ascii=False, indent=2, default=str)
-
-    elif app_id == "content_studio":
-        # Content Studio reuses ScriptWriterService but is scoped to text / social
-        # platforms (the web UI filters `content_type !== 'video'`). MCP agents are
-        # expected to pick a text-format platform_id for this app; the service
-        # itself is platform-agnostic.
-        if action != "generate":
-            raise AppError("UNKNOWN_ACTION", f"Unknown action '{action}' for content_studio. Available: generate", 400)
-        from app.application.script_writer_service import (
-            DEFAULT_SYSTEM_PROMPT_EN,
-            DEFAULT_SYSTEM_PROMPT_ZH,
-            ScriptWriterService,
-        )
-        from app.schemas.app import ScriptWriterRequest
-
-        sys_prompt = DEFAULT_SYSTEM_PROMPT_EN if language.startswith("en") else DEFAULT_SYSTEM_PROMPT_ZH
-        async with _session_factory() as session:
-            svc = ScriptWriterService(session)
-            req = ScriptWriterRequest(
-                offer_id=oid,
-                strategy_unit_id=suid,
-                system_prompt=sys_prompt,
-                topic=topic,
-                goal=goal,
-                tone=tone or None,
-                word_count=_resolve_word_count(word_count, platform_id),
-                cta=cta or None,
-                industry=industry or None,
-                reference=reference or None,
-                extra_req=extra_req or None,
-                language=language,
-                config_id=config_id,
-                platform_id=platform_id,
-                persona_id=persona_id,
-                structure_id=structure_id,
-                goal_id=goal_id,
-                topic_plan_id=uuid.UUID(topic_plan_id) if topic_plan_id else None,
-                external_context_text=external_context_text or None,
-                external_context_url=external_context_url or None,
-                source_app="mcp:external",
-            )
-            result = await svc.generate(req)
-            return json.dumps(result, ensure_ascii=False, indent=2)
-
-    else:
-        available = ["kb_qa", "script_writer", "content_studio", "topic_studio"]
-        raise AppError("UNKNOWN_APP", f"Unknown app_id '{app_id}'. Available: {available}", 400)
+    req = AppRunRequest(
+        app_id=app_id,
+        action=action,
+        offer_id=offer_id,
+        strategy_unit_id=strategy_unit_id,
+        language=language,
+        config_id=config_id,
+        question=question,
+        style_id=style_id,
+        topic=topic,
+        goal=goal,
+        tone=tone,
+        word_count=word_count,
+        cta=cta,
+        industry=industry,
+        reference=reference,
+        extra_req=extra_req,
+        platform_id=platform_id,
+        persona_id=persona_id,
+        structure_id=structure_id,
+        goal_id=goal_id,
+        topic_plan_id=topic_plan_id,
+        external_context_text=external_context_text,
+        external_context_url=external_context_url,
+    )
+    return await run_openlucid_app(req, session_factory=_session_factory)
 
 
 # ── Composite Tools ────────────────────────────────────────────
@@ -2651,14 +2553,10 @@ async def upload_asset_from_url(
         asset_id = asset.id
         response = _serialize(asset, AssetResponse)
 
-    # Kick background parse (metadata extraction + vision LLM tagging + slice
-    # generation), matching what REST `/assets/upload` does. Fire-and-forget,
-    # but hold a reference so the loop doesn't GC the weakly-referenced task.
-    import asyncio as _asyncio
-    from app.api.assets import _parse_in_background
-    task = _asyncio.create_task(_parse_in_background(asset_id))
-    _BACKGROUND_TASKS.add(task)
-    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    async with _session_factory() as session:
+        from app.application.task_service import enqueue_asset_parse
+        await enqueue_asset_parse(session, asset_id)
+        await session.commit()
 
     return response
 

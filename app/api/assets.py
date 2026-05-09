@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import logging
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.adapters.asset_parser import LocalAssetParser, LocalMetadataExtractor
 from app.adapters.storage import LocalStorageAdapter
 from app.api.deps import PaginationDep
 from app.application.asset_service import AssetService
-from app.database import async_session_factory, get_db
+from app.application.task_service import enqueue_asset_parse
+from app.database import get_db
 from app.domain.enums import AssetType, ScopeType
 from app.schemas.asset import (
     AssetCopyCreate,
@@ -26,7 +25,6 @@ from app.schemas.asset import (
 from app.schemas.asset_slice import AssetSliceResponse
 from app.schemas.common import PaginatedResponse
 
-logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/assets", tags=["assets"])
 
 
@@ -36,7 +34,6 @@ def get_storage() -> LocalStorageAdapter:
 
 @router.post("/upload", response_model=AssetResponse, status_code=201)
 async def upload_asset(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     scope_type: ScopeType = Form(...),
     scope_id: uuid.UUID = Form(...),
@@ -55,12 +52,12 @@ async def upload_asset(
     svc = AssetService(db, storage)
     asset = await svc.upload(content, file.filename or "unnamed", file.content_type, meta)
 
-    # Commit NOW so the background task (which opens its own session) can find the asset
+    # Commit NOW so the task worker (which opens its own session) can find the asset.
     await db.commit()
     await db.refresh(asset)
 
-    # Auto-trigger background parse
-    background_tasks.add_task(_parse_in_background, asset.id)
+    await enqueue_asset_parse(db, asset.id)
+    await db.commit()
     return asset
 
 
@@ -252,30 +249,17 @@ async def list_processing_jobs(asset_id: uuid.UUID, db: AsyncSession = Depends(g
     return await svc.get_processing_jobs(asset_id)
 
 
-async def _parse_in_background(asset_id: uuid.UUID) -> None:
-    """Background task: opens its own DB session and runs parse pipeline."""
-    storage = get_storage()
-    extractor = LocalMetadataExtractor()
-    parser = LocalAssetParser(extractor)
-    async with async_session_factory() as session:
-        try:
-            svc = AssetService(session, storage)
-            await svc.run_parse(asset_id, extractor, parser)
-        except Exception:
-            logger.exception("Background parse failed for asset %s", asset_id)
-
-
 @router.post("/{asset_id}/parse", response_model=AssetResponse)
 async def trigger_parse(
     asset_id: uuid.UUID,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     storage = get_storage()
     svc = AssetService(db, storage)
     asset = await svc.get(asset_id)
 
-    background_tasks.add_task(_parse_in_background, asset_id)
+    await enqueue_asset_parse(db, asset_id)
+    await db.commit()
     return asset
 
 

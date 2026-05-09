@@ -23,6 +23,7 @@ from app.models.video_generation_job import VideoGenerationJob
 from app.models.image_generation_job import ImageGenerationJob
 from app.models.media_capability_default import MediaCapabilityDefault
 from app.models.memory_entry import MemoryEntry
+from app.models.task_run import TaskRun
 
 __all__ = [
     "Base",
@@ -53,4 +54,5 @@ __all__ = [
     "ImageGenerationJob",
     "MediaCapabilityDefault",
     "MemoryEntry",
+    "TaskRun",
 ]

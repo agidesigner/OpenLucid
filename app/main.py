@@ -1,5 +1,5 @@
 import re
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, Request
@@ -105,6 +105,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # 3. Background startup tasks (hash backfill + re-queue stuck parses)
     task = asyncio.create_task(_startup_recovery())
     task.add_done_callback(_log_task_exception)
+    from app.application.task_service import task_worker_loop
+    worker_task = asyncio.create_task(task_worker_loop(), name="task-runner")
+    worker_task.add_done_callback(_log_task_exception)
 
     # 4. APP_URL sanity — surface-clarify rather than silently embed bogus
     # preview_urls in MCP responses. Agents receive useless URLs like
@@ -127,8 +130,13 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # the first /mcp request. (SSE transport doesn't need this — it
     # initializes per-connection inside sse_app.)
     from app.mcp_server import mcp as _mcp_server
-    async with _mcp_server.session_manager.run():
-        yield
+    try:
+        async with _mcp_server.session_manager.run():
+            yield
+    finally:
+        worker_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await worker_task
 
 
 def _log_task_exception(task: "asyncio.Task") -> None:
@@ -145,7 +153,6 @@ def _log_task_exception(task: "asyncio.Task") -> None:
 
 async def _startup_recovery() -> None:
     """Backfill missing file hashes and re-queue stuck assets on startup."""
-    import asyncio
     import hashlib
     import logging
     import os
@@ -180,7 +187,15 @@ async def _startup_recovery() -> None:
                 await session.commit()
                 logger.info("Startup: backfilled file_hash for %d assets", backfilled)
 
-        # 2. Re-queue assets stuck in pending/processing from a previous run
+        # 2. Recover task rows left running by a worker crash.
+        async with async_session_factory() as session:
+            from app.application.task_service import requeue_stale_running_tasks
+            recovered = await requeue_stale_running_tasks(session)
+            if recovered:
+                await session.commit()
+                logger.info("Startup: recovered %d stale running tasks", recovered)
+
+        # 3. Re-queue assets stuck in pending/processing from a previous run
         async with async_session_factory() as session:
             result = await session.execute(
                 select(Asset.id).where(Asset.parse_status.in_(["pending", "processing"]))
@@ -189,11 +204,13 @@ async def _startup_recovery() -> None:
 
         if stuck_ids:
             logger.info("Startup: re-queuing %d stuck assets", len(stuck_ids))
-            from app.api.assets import _parse_in_background
-            for asset_id in stuck_ids:
-                asyncio.create_task(_parse_in_background(asset_id))
+            from app.application.task_service import enqueue_asset_parse
+            async with async_session_factory() as session:
+                for asset_id in stuck_ids:
+                    await enqueue_asset_parse(session, asset_id)
+                await session.commit()
 
-        # 3. Reconcile the google media-provider mirror with the current
+        # 4. Reconcile the google media-provider mirror with the current
         # gemini LLM config. The mirror is normally maintained by hooks in
         # LLM CRUD, but pre-existing gemini rows (created before the hooks
         # landed) need a one-shot backfill — and we run it every boot so

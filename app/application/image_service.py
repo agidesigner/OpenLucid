@@ -536,7 +536,12 @@ async def create_poster_job(
         prompt_used = ""
 
         if ref_bytes or logo_bytes:
-            edits_prompt = _build_edits_prompt(template, data, has_qr=bool(qr_bytes))
+            edits_prompt = _build_edits_prompt(
+                template,
+                data,
+                has_logo=bool(logo_bytes),
+                has_qr=bool(qr_bytes),
+            )
             references = list(ref_bytes)
             if logo_bytes:
                 references.append(logo_bytes)
@@ -630,7 +635,7 @@ async def create_poster_job(
 
 
 def _build_edits_prompt(
-    template: Template, data: PosterJobCreate, *, has_qr: bool
+    template: Template, data: PosterJobCreate, *, has_logo: bool, has_qr: bool
 ) -> str:
     """Build the prompt for the trust-the-model edits path.
 
@@ -666,8 +671,20 @@ def _build_edits_prompt(
         "Match the visual style, color palette, lighting, and typography aesthetic of the provided reference poster(s).",
         "",
         "Brand assets provided as additional reference images (after the style reference posters):",
-        "  - The brand logo: place in the top-left corner. Recolor it as needed so it stays readable against the chosen background.",
     ]
+    if has_logo:
+        parts.extend(
+            [
+                "  - The provided brand logo is the ONLY logo / brand mark allowed in the poster.",
+                "  - Place that provided logo once, in the top-left corner. Recolor it as needed so it stays readable against the chosen background.",
+                "  - Do NOT invent, redraw, duplicate, mirror, remix, or add any other logo, icon, wordmark, watermark, signature, or decorative brand mark.",
+                "  - If the brand name appears in headline/body copy, treat it as ordinary text only; do not style it as a second logo.",
+            ]
+        )
+    else:
+        parts.append(
+            "  - No brand logo was provided. Do NOT invent any logo, icon, wordmark, watermark, signature, or decorative brand mark."
+        )
     if has_qr:
         parts.append(
             "  - A QR code: place it cleanly in the bottom-right area. "
@@ -852,6 +869,7 @@ async def create_brief_job(
             offer=offer,
             brandkit=brandkit,
             aspect=data.aspect_ratio,
+            has_logo=bool(logo_bytes),
             has_qr=bool(qr_bytes or qr_upload_bytes),
             extra_count=len(extra_bytes) + len(extra_upload_bytes),
         )
@@ -962,6 +980,7 @@ def _build_brief_prompt(
     offer: Offer,
     brandkit: BrandKit | None,
     aspect: str,
+    has_logo: bool,
     has_qr: bool,
     extra_count: int,
 ) -> str:
@@ -982,7 +1001,7 @@ def _build_brief_prompt(
         f"Create a marketing image based on this user brief: 「{brief.strip()}」.",
         "",
         f"Format: {aspect_hint}.",
-        f"Brand: {offer.name}.",
+        f"Brand context: {offer.name}. Use this as context, not as permission to create a new brand mark.",
     ]
     if sp_points:
         lines.append(
@@ -1007,10 +1026,20 @@ def _build_brief_prompt(
             f"Additional reference image(s) ({extra_count}) follow the style references — "
             "incorporate the elements they show (product shots, mascots, etc.) where appropriate."
         )
-    lines.append(
-        "Place the brand logo (provided) clearly in a corner; recolor it as needed to "
-        "remain readable against the chosen background."
-    )
+    if has_logo:
+        lines.extend(
+            [
+                "Logo discipline:",
+                "- Use only the provided logo as the brand mark.",
+                "- Place the provided logo exactly once in a single corner; do not place a second logo anywhere else.",
+                "- Do not invent, redraw, duplicate, mirror, remix, or add any other logo, icon, wordmark, watermark, signature, or decorative brand mark.",
+                "- The brand name may appear only as ordinary headline/body text when required by the brief; do not style it as a second logo.",
+            ]
+        )
+    else:
+        lines.append(
+            "No logo reference was provided. Do not invent any logo, icon, wordmark, watermark, signature, or decorative brand mark."
+        )
     if has_qr:
         lines.append(
             "Include the QR code (provided) in the bottom-right area. "
@@ -2116,6 +2145,7 @@ async def create_article_cover_job(
                 offer=offer,
                 brandkit=brandkit,
                 aspect=data.aspect_ratio,
+                has_logo=bool(logo_bytes),
                 has_qr=False,
                 extra_count=len(extra_bytes) + len(extra_upload_bytes),
             )
