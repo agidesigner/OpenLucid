@@ -707,7 +707,7 @@ class ScriptWriterService:
                     render_memories_block,
                 )
                 memories = await list_memories_for_offer(
-                    self.db, offer_id=request.offer_id, surface="script"
+                    self.session, offer_id=request.offer_id, surface="script"
                 )
                 # render_memories_block returns "" when empty so suffixing
                 # is unconditional and the layer separator stays clean.
