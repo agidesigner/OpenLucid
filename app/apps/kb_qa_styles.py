@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.context import get_effective_prompt
+
 
 @dataclass
 class StyleTemplate:
@@ -29,6 +31,14 @@ STYLE_TEMPLATES: dict[str, StyleTemplate] = {}
 
 def _register(t: StyleTemplate) -> None:
     STYLE_TEMPLATES[t.style_id] = t
+
+
+async def get_style_system_prompt_prefix(style_id: str) -> str:
+    style = STYLE_TEMPLATES.get(style_id) or STYLE_TEMPLATES[DEFAULT_STYLE_ID]
+    return await get_effective_prompt(
+        f"kb_qa.style.{style.style_id}",
+        style.system_prompt_prefix,
+    )
 
 
 _register(StyleTemplate(

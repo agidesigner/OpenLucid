@@ -130,6 +130,11 @@
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
           <span x-text="t('nav_prompt_presets')"></span>
         </a>
+        <a href="?section=llm-traces" @click.prevent="section='llm-traces'; pushState('llm-traces')"
+           class="setting-nav-item" :class="section==='llm-traces' && 'active'">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 17v-4m3 4V7m3 10v-7m5 9H4a1 1 0 01-1-1V6a1 1 0 011-1h16a1 1 0 011 1v12a1 1 0 01-1 1z"/></svg>
+          <span x-text="t('nav_llm_traces')"></span>
+        </a>
 
         <p class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-2 mt-4 mb-1" x-text="t('nav_service')"></p>
         <a href="?section=service" @click.prevent="section='service'; pushState('service')"
@@ -161,7 +166,7 @@
 
       <!-- Settings content -->
       <main class="flex-1 overflow-y-auto p-8">
-        <div class="max-w-2xl">
+        <div :class="section==='llm-traces' ? 'max-w-6xl' : 'max-w-2xl'">
 
           <!-- Language -->
           <div x-show="section==='language'">
@@ -1620,7 +1625,7 @@
           </div>
 
           <!-- Prompt Presets -->
-          <div x-show="section==='prompt-presets'" x-cloak x-data="promptPresetsSection()" x-init="loadPromptPresets()">
+          <div x-show="section==='prompt-presets'" x-cloak x-data="promptPresetsSection()" x-effect="section==='prompt-presets' && ensureLoaded()">
             <h2 class="text-lg font-semibold text-gray-900 mb-1" x-text="t('prompt_presets_title')"></h2>
             <p class="text-sm text-gray-500 mb-4" x-text="t('prompt_presets_subtitle')"></p>
 
@@ -1630,15 +1635,21 @@
             </div>
 
             <!-- Filters -->
-            <div class="flex items-center gap-3 mb-4">
-              <input type="text" x-model="searchQuery" @input="filterPresets()"
-                     :placeholder="t('prompt_presets_search')"
-                     class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
-              <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none whitespace-nowrap">
-                <input type="checkbox" x-model="modifiedOnly" @change="filterPresets()"
-                       class="rounded border-gray-300 text-accent focus:ring-accent/30">
-                <span x-text="t('prompt_presets_modified_only')"></span>
-              </label>
+            <div class="flex flex-col gap-3 mb-4 md:flex-row md:items-center md:justify-between">
+              <div class="flex items-center gap-3">
+                <input type="text" x-model="searchQuery" @input="filterPresets()"
+                       :placeholder="t('prompt_presets_search')"
+                       class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none whitespace-nowrap">
+                  <input type="checkbox" x-model="modifiedOnly" @change="filterPresets()"
+                         class="rounded border-gray-300 text-accent focus:ring-accent/30">
+                  <span x-text="t('prompt_presets_modified_only')"></span>
+                </label>
+              </div>
+              <button @click="resetAllPresets()"
+                      :disabled="savingAll || !allPresets.some(p => p.is_modified)"
+                      class="px-3 py-2 rounded-lg text-sm font-medium border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                      x-text="savingAll ? t('saving') : t('restore_all_defaults')"></button>
             </div>
 
             <!-- Loading state -->
@@ -1738,6 +1749,270 @@
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                 </svg>
                 <p x-text="t('no_presets_found')"></p>
+              </div>
+            </div>
+          </div>
+
+          <!-- LLM Traces -->
+          <div x-show="section==='llm-traces'" x-cloak x-data="llmTracesSection()" x-effect="section==='llm-traces' && ensureLoaded()">
+            <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between mb-6">
+              <div>
+                <h2 class="text-lg font-semibold text-gray-900 mb-1" x-text="t('llm_traces_title')"></h2>
+                <p class="text-sm text-gray-500" x-text="t('llm_traces_subtitle')"></p>
+              </div>
+              <div class="flex items-center gap-2">
+                <button @click="loadTraces()"
+                        :disabled="loading"
+                        class="px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                        x-text="t('trace_refresh')"></button>
+                <button @click="clearTraces()"
+                        :disabled="clearing || loading"
+                        class="px-3 py-2 rounded-lg text-sm font-medium border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 transition-colors"
+                        x-text="clearing ? t('saving') : t('clear_traces')"></button>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+              <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <div class="text-xs text-gray-400 mb-1" x-text="t('total_calls')"></div>
+                <div class="text-2xl font-semibold text-gray-900" x-text="formatNumber(stats.total)"></div>
+              </div>
+              <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <div class="text-xs text-gray-400 mb-1" x-text="t('total_tokens')"></div>
+                <div class="text-2xl font-semibold text-gray-900" x-text="formatNumber(stats.total_tokens)"></div>
+              </div>
+              <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <div class="text-xs text-gray-400 mb-1" x-text="t('avg_latency')"></div>
+                <div class="text-2xl font-semibold text-gray-900" x-text="stats.avg_latency_ms != null ? formatNumber(stats.avg_latency_ms) + ' ms' : '—'"></div>
+              </div>
+              <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <div class="text-xs text-gray-400 mb-1" x-text="t('error_rate')"></div>
+                <div class="text-2xl font-semibold text-gray-900" x-text="formatPercent(stats.error_rate)"></div>
+              </div>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-6">
+              <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('trace_filters_scene')"></label>
+                  <select x-model="filters.scene_key" @change="applyFilters()"
+                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                    <option value="" x-text="t('trace_all_scenes')"></option>
+                    <template x-for="scene in sceneOptions" :key="scene.value">
+                      <option :value="scene.value" x-text="scene.label"></option>
+                    </template>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('trace_filters_status')"></label>
+                  <select x-model="filters.status" @change="applyFilters()"
+                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                    <option value="" x-text="t('trace_all_statuses')"></option>
+                    <option value="success" x-text="t('trace_status_success')"></option>
+                    <option value="error" x-text="t('trace_status_error')"></option>
+                    <option value="pending" x-text="t('trace_status_pending')"></option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('trace_filters_since')"></label>
+                  <select x-model="filters.since" @change="applyFilters()"
+                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                    <option value="1h" x-text="t('trace_since_1h')"></option>
+                    <option value="6h" x-text="t('trace_since_6h')"></option>
+                    <option value="24h" x-text="t('trace_since_24h')"></option>
+                    <option value="7d" x-text="t('trace_since_7d')"></option>
+                    <option value="all" x-text="t('trace_since_all')"></option>
+                  </select>
+                </div>
+                <div class="xl:col-span-2">
+                  <label class="block text-xs font-medium text-gray-500 mb-1.5" x-text="t('trace_filters_query')"></label>
+                  <div class="flex gap-2">
+                    <input type="text" x-model="filters.query" @keydown.enter.prevent="applyFilters()"
+                           :placeholder="t('trace_search_placeholder')"
+                           class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                    <button @click="applyFilters()"
+                            class="px-4 py-2 rounded-lg text-sm font-medium bg-accent text-white hover:bg-accent-hover transition-colors"
+                            x-text="t('trace_apply_filters')"></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div x-show="loading" class="text-center py-12 text-gray-400">
+              <svg class="animate-spin h-8 w-8 mx-auto mb-2" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <span x-text="t('loading')"></span>
+            </div>
+
+            <div x-show="!loading" class="space-y-3">
+              <template x-for="trace in traces" :key="trace.id">
+                <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  <button type="button"
+                          class="w-full p-4 text-left hover:bg-gray-50 transition-colors"
+                          @click="toggleTrace(trace.id)">
+                    <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 flex-wrap mb-1.5">
+                          <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-gray-100 text-gray-700"
+                                x-text="sceneLabel(trace.scene_key)"></span>
+                          <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium"
+                                :class="statusClass(trace.status)"
+                                x-text="statusLabel(trace.status)"></span>
+                          <span class="text-sm font-semibold text-gray-900 truncate" x-text="trace.model_name"></span>
+                        </div>
+                        <p class="text-xs text-gray-500 line-clamp-2" x-text="summaryText(trace)"></p>
+                      </div>
+                      <div class="flex items-center gap-3 text-[11px] text-gray-400 shrink-0">
+                        <span x-text="relativeTime(trace.created_at)"></span>
+                        <span x-show="trace.latency_ms != null" x-text="formatNumber(trace.latency_ms) + ' ms'"></span>
+                        <span x-show="trace.total_tokens != null" x-text="formatNumber(trace.total_tokens) + ' tok'"></span>
+                        <svg class="w-4 h-4 transition-transform" :class="expanded[trace.id] && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                      </div>
+                    </div>
+                  </button>
+
+                  <div x-show="expanded[trace.id]" x-collapse>
+                    <div class="px-4 pb-4 border-t border-gray-100 pt-4">
+                      <div class="flex gap-2 mb-4 flex-wrap">
+                        <button @click="tabs[trace.id] = 'input'"
+                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                                :class="tabActive(trace.id, 'input')"
+                                x-text="t('trace_tab_input')"></button>
+                        <button @click="tabs[trace.id] = 'thinking'"
+                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                                :class="tabActive(trace.id, 'thinking')"
+                                x-text="t('trace_tab_thinking')"></button>
+                        <button @click="tabs[trace.id] = 'response'"
+                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                                :class="tabActive(trace.id, 'response')"
+                                x-text="t('trace_tab_response')"></button>
+                        <button @click="tabs[trace.id] = 'metadata'"
+                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                                :class="tabActive(trace.id, 'metadata')"
+                                x-text="t('trace_tab_metadata')"></button>
+                      </div>
+
+                      <div x-show="loadingDetail[trace.id]" class="text-sm text-gray-400 py-4" x-text="t('trace_loading_detail')"></div>
+                      <div x-show="detailErrors[trace.id]" class="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg" x-text="detailErrors[trace.id]"></div>
+
+                      <template x-if="details[trace.id]">
+                        <div class="space-y-4">
+                          <div x-show="tabs[trace.id] === 'input'" class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                            <div>
+                              <div class="text-xs font-medium text-gray-500 mb-1.5" x-text="t('trace_system_prompt')"></div>
+                              <pre class="bg-gray-50 border border-gray-100 rounded-xl p-3 text-xs text-gray-700 whitespace-pre-wrap break-words overflow-auto max-h-80" x-text="details[trace.id].system_prompt || '—'"></pre>
+                            </div>
+                            <div>
+                              <div class="text-xs font-medium text-gray-500 mb-1.5" x-text="t('trace_user_prompt')"></div>
+                              <pre class="bg-gray-50 border border-gray-100 rounded-xl p-3 text-xs text-gray-700 whitespace-pre-wrap break-words overflow-auto max-h-80" x-text="details[trace.id].user_prompt || '—'"></pre>
+                            </div>
+                          </div>
+
+                          <div x-show="tabs[trace.id] === 'thinking'">
+                            <pre class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 whitespace-pre-wrap break-words overflow-auto max-h-96" x-text="details[trace.id].thinking_text || t('trace_no_thinking')"></pre>
+                          </div>
+
+                          <div x-show="tabs[trace.id] === 'response'">
+                            <pre class="bg-white border border-gray-200 rounded-xl p-3 text-xs text-gray-700 whitespace-pre-wrap break-words overflow-auto max-h-96" x-text="details[trace.id].response_text || '—'"></pre>
+                          </div>
+
+                          <div x-show="tabs[trace.id] === 'metadata'" class="space-y-4">
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                              <div class="bg-gray-50 rounded-xl p-3">
+                                <div class="text-[11px] text-gray-400 mb-1" x-text="t('trace_call_type')"></div>
+                                <div class="text-sm font-medium text-gray-800" x-text="callTypeLabel(details[trace.id].call_type)"></div>
+                              </div>
+                              <div class="bg-gray-50 rounded-xl p-3">
+                                <div class="text-[11px] text-gray-400 mb-1" x-text="t('trace_model')"></div>
+                                <div class="text-sm font-medium text-gray-800 break-all" x-text="details[trace.id].model_name || '—'"></div>
+                              </div>
+                              <div class="bg-gray-50 rounded-xl p-3">
+                                <div class="text-[11px] text-gray-400 mb-1" x-text="t('trace_provider')"></div>
+                                <div class="text-sm font-medium text-gray-800" x-text="details[trace.id].provider || '—'"></div>
+                              </div>
+                              <div class="bg-gray-50 rounded-xl p-3">
+                                <div class="text-[11px] text-gray-400 mb-1" x-text="t('trace_request_id')"></div>
+                                <div class="text-sm font-medium text-gray-800 break-all" x-text="details[trace.id].request_id || '—'"></div>
+                              </div>
+                              <div class="bg-gray-50 rounded-xl p-3">
+                                <div class="text-[11px] text-gray-400 mb-1" x-text="t('trace_entity_type')"></div>
+                                <div class="text-sm font-medium text-gray-800" x-text="details[trace.id].entity_type || '—'"></div>
+                              </div>
+                              <div class="bg-gray-50 rounded-xl p-3">
+                                <div class="text-[11px] text-gray-400 mb-1" x-text="t('trace_entity_id')"></div>
+                                <div class="text-sm font-medium text-gray-800 break-all" x-text="details[trace.id].entity_id || '—'"></div>
+                              </div>
+                              <div class="bg-gray-50 rounded-xl p-3">
+                                <div class="text-[11px] text-gray-400 mb-1" x-text="t('trace_created_at')"></div>
+                                <div class="text-sm font-medium text-gray-800 break-all" x-text="formatDateTime(details[trace.id].created_at)"></div>
+                              </div>
+                              <div class="bg-gray-50 rounded-xl p-3">
+                                <div class="text-[11px] text-gray-400 mb-1" x-text="t('trace_finished_at')"></div>
+                                <div class="text-sm font-medium text-gray-800 break-all" x-text="details[trace.id].finished_at ? formatDateTime(details[trace.id].finished_at) : '—'"></div>
+                              </div>
+                              <div class="bg-gray-50 rounded-xl p-3">
+                                <div class="text-[11px] text-gray-400 mb-1" x-text="t('trace_latency')"></div>
+                                <div class="text-sm font-medium text-gray-800" x-text="details[trace.id].latency_ms != null ? formatNumber(details[trace.id].latency_ms) + ' ms' : '—'"></div>
+                              </div>
+                              <div class="bg-gray-50 rounded-xl p-3">
+                                <div class="text-[11px] text-gray-400 mb-1" x-text="t('trace_prompt_tokens')"></div>
+                                <div class="text-sm font-medium text-gray-800" x-text="details[trace.id].prompt_tokens != null ? formatNumber(details[trace.id].prompt_tokens) : '—'"></div>
+                              </div>
+                              <div class="bg-gray-50 rounded-xl p-3">
+                                <div class="text-[11px] text-gray-400 mb-1" x-text="t('trace_completion_tokens')"></div>
+                                <div class="text-sm font-medium text-gray-800" x-text="details[trace.id].completion_tokens != null ? formatNumber(details[trace.id].completion_tokens) : '—'"></div>
+                              </div>
+                              <div class="bg-gray-50 rounded-xl p-3">
+                                <div class="text-[11px] text-gray-400 mb-1" x-text="t('trace_tokens')"></div>
+                                <div class="text-sm font-medium text-gray-800" x-text="details[trace.id].total_tokens != null ? formatNumber(details[trace.id].total_tokens) : '—'"></div>
+                              </div>
+                            </div>
+
+                            <div x-show="details[trace.id].error_message" class="bg-red-50 border border-red-100 rounded-xl p-3">
+                              <div class="text-xs font-medium text-red-700 mb-1.5" x-text="t('trace_error_message')"></div>
+                              <pre class="text-xs text-red-700 whitespace-pre-wrap break-words" x-text="details[trace.id].error_message"></pre>
+                            </div>
+
+                            <div>
+                              <div class="text-xs font-medium text-gray-500 mb-1.5" x-text="t('trace_extra_params')"></div>
+                              <pre class="bg-gray-50 border border-gray-100 rounded-xl p-3 text-xs text-gray-700 whitespace-pre-wrap break-words overflow-auto max-h-72" x-text="prettyJson(details[trace.id].extra_params)"></pre>
+                            </div>
+
+                            <div>
+                              <div class="text-xs font-medium text-gray-500 mb-1.5" x-text="t('trace_tool_calls')"></div>
+                              <pre class="bg-gray-50 border border-gray-100 rounded-xl p-3 text-xs text-gray-700 whitespace-pre-wrap break-words overflow-auto max-h-72" x-text="prettyJson(details[trace.id].tool_calls)"></pre>
+                            </div>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <div x-show="!traces.length" class="text-center py-12 text-gray-400">
+                <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-6m3 6V7m3 10v-3m4 5H5a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v12a2 2 0 01-2 2z"/>
+                </svg>
+                <p x-text="t('trace_no_results')"></p>
+              </div>
+            </div>
+
+            <div x-show="!loading && traces.length" class="flex items-center justify-between mt-6">
+              <div class="text-xs text-gray-400" x-text="paginationText()"></div>
+              <div class="flex items-center gap-2">
+                <button @click="prevPage()"
+                        :disabled="page <= 1"
+                        class="px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 transition-colors"
+                        x-text="t('trace_prev_page')"></button>
+                <button @click="nextPage()"
+                        :disabled="!hasMore"
+                        class="px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 transition-colors"
+                        x-text="t('trace_next_page')"></button>
               </div>
             </div>
           </div>
@@ -2747,6 +3022,7 @@
 
     function promptPresetsSection() {
       return {
+        initialized: false,
         loading: false,
         allPresets: [],
         filteredPresets: [],
@@ -2755,8 +3031,15 @@
         expandedPresets: {},
         presetTabs: {},
         editingContent: {},
+        savingAll: false,
         savingPresets: {},
         presetErrors: {},
+
+        async ensureLoaded() {
+          if (this.initialized) return;
+          this.initialized = true;
+          await this.loadPromptPresets();
+        },
 
         async loadPromptPresets() {
           this.loading = true;
@@ -2802,10 +3085,6 @@
         },
 
         async savePreset(key) {
-          console.log('[savePreset] Called with key:', key);
-          console.log('[savePreset] editingContent[key]:', this.editingContent[key]);
-          console.log('[savePreset] savingPresets[key]:', this.savingPresets[key]);
-          
           const content = this.editingContent[key];
           if (!content || !content.trim()) {
             this.presetErrors[key] = window.t('content_required');
@@ -2863,6 +3142,259 @@
           } finally {
             this.savingPresets[key] = false;
           }
+        },
+
+        async resetAllPresets() {
+          if (!confirm(window.t('confirm_restore_all_defaults'))) return;
+
+          this.savingAll = true;
+          try {
+            const r = await fetch('/api/v1/settings/prompt-presets/reset-all', {
+              method: 'POST',
+            });
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            this.expandedPresets = {};
+            this.presetErrors = {};
+            await this.loadPromptPresets();
+            window.toast?.success?.(window.t('restored_all'));
+          } catch (e) {
+            console.error('Failed to reset all presets:', e);
+            window.toast?.error?.(window.t('reset_all_failed'));
+          } finally {
+            this.savingAll = false;
+          }
+        },
+      };
+    }
+
+    function llmTracesSection() {
+      return {
+        initialized: false,
+        loading: false,
+        clearing: false,
+        page: 1,
+        pageSize: 20,
+        total: 0,
+        hasMore: false,
+        traces: [],
+        stats: {
+          total: 0,
+          total_tokens: 0,
+          avg_latency_ms: null,
+          error_rate: 0,
+        },
+        filters: {
+          scene_key: '',
+          status: '',
+          since: '24h',
+          query: '',
+        },
+        sceneOptions: [],
+        expanded: {},
+        tabs: {},
+        details: {},
+        loadingDetail: {},
+        detailErrors: {},
+
+        ensureLoaded() {
+          if (this.initialized) return;
+          this.initialized = true;
+          this.sceneOptions = [
+            { value: 'script_writer', label: t('scene_script_writer') },
+            { value: 'topic_studio', label: t('scene_topic_studio') },
+            { value: 'knowledge', label: t('scene_knowledge') },
+            { value: 'kb_qa', label: t('scene_kb_qa') },
+            { value: 'brandkit_extract', label: t('scene_brandkit_extract') },
+            { value: 'asset_tagging', label: t('scene_asset_tagging') },
+            { value: 'offer_model', label: t('scene_offer_model') },
+            { value: '__default__', label: t('scene_default') },
+          ];
+          this.loadTraces();
+        },
+
+        sinceIso() {
+          if (this.filters.since === 'all') return null;
+          const now = new Date();
+          const dt = new Date(now);
+          if (this.filters.since === '1h') dt.setHours(dt.getHours() - 1);
+          else if (this.filters.since === '6h') dt.setHours(dt.getHours() - 6);
+          else if (this.filters.since === '24h') dt.setHours(dt.getHours() - 24);
+          else if (this.filters.since === '7d') dt.setDate(dt.getDate() - 7);
+          return dt.toISOString();
+        },
+
+        async loadTraces() {
+          this.loading = true;
+          try {
+            const params = new URLSearchParams({
+              page: String(this.page),
+              size: String(this.pageSize),
+            });
+            if (this.filters.scene_key) params.set('scene_key', this.filters.scene_key);
+            if (this.filters.status) params.set('status', this.filters.status);
+            const since = this.sinceIso();
+            if (since) params.set('since', since);
+            if (this.filters.query.trim()) params.set('query', this.filters.query.trim());
+
+            const r = await fetch(`/api/v1/settings/llm-traces?${params.toString()}`);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const data = await r.json();
+            this.traces = data.traces || [];
+            this.stats = data.stats || this.stats;
+            this.total = data.total || 0;
+            this.hasMore = !!data.has_more;
+            this.page = data.page || this.page;
+          } catch (e) {
+            console.error('Failed to load llm traces:', e);
+            window.toast?.error?.(window.t('load_failed'));
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        applyFilters() {
+          this.page = 1;
+          this.loadTraces();
+        },
+
+        async toggleTrace(id) {
+          this.expanded[id] = !this.expanded[id];
+          if (this.expanded[id]) {
+            this.tabs[id] = this.tabs[id] || 'input';
+            if (!this.details[id] && !this.loadingDetail[id]) {
+              await this.loadDetail(id);
+            }
+          }
+        },
+
+        async loadDetail(id) {
+          this.loadingDetail[id] = true;
+          this.detailErrors[id] = '';
+          try {
+            const r = await fetch(`/api/v1/settings/llm-traces/${id}`);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            this.details[id] = await r.json();
+          } catch (e) {
+            console.error('Failed to load llm trace detail:', e);
+            this.detailErrors[id] = window.t('load_failed');
+          } finally {
+            this.loadingDetail[id] = false;
+          }
+        },
+
+        async clearTraces() {
+          if (!confirm(window.t('confirm_clear_traces'))) return;
+          this.clearing = true;
+          try {
+            const r = await fetch('/api/v1/settings/llm-traces', { method: 'DELETE' });
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            this.expanded = {};
+            this.tabs = {};
+            this.details = {};
+            this.detailErrors = {};
+            await this.loadTraces();
+            window.toast?.success?.(window.t('cleared'));
+          } catch (e) {
+            console.error('Failed to clear llm traces:', e);
+            window.toast?.error?.(window.t('delete_failed'));
+          } finally {
+            this.clearing = false;
+          }
+        },
+
+        prevPage() {
+          if (this.page <= 1) return;
+          this.page -= 1;
+          this.loadTraces();
+        },
+
+        nextPage() {
+          if (!this.hasMore) return;
+          this.page += 1;
+          this.loadTraces();
+        },
+
+        formatNumber(v) {
+          return new Intl.NumberFormat((window._odLang || 'zh').startsWith('zh') ? 'zh-CN' : 'en-US').format(v || 0);
+        },
+
+        formatPercent(v) {
+          return `${((v || 0) * 100).toFixed(1)}%`;
+        },
+
+        formatDateTime(iso) {
+          if (!iso) return '—';
+          const dt = new Date(iso);
+          return dt.toLocaleString((window._odLang || 'zh').startsWith('zh') ? 'zh-CN' : 'en-US');
+        },
+
+        relativeTime(iso) {
+          if (!iso) return '—';
+          const diff = Date.now() - new Date(iso).getTime();
+          if (diff < 60 * 1000) return t('trace_just_now');
+          if (diff < 60 * 60 * 1000) return `${Math.floor(diff / 60000)}m`;
+          if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / 3600000)}h`;
+          if (diff < 7 * 24 * 60 * 60 * 1000) return `${Math.floor(diff / 86400000)}d`;
+          return this.formatDateTime(iso);
+        },
+
+        sceneLabel(sceneKey) {
+          const map = {
+            script_writer: 'scene_script_writer',
+            topic_studio: 'scene_topic_studio',
+            knowledge: 'scene_knowledge',
+            kb_qa: 'scene_kb_qa',
+            brandkit_extract: 'scene_brandkit_extract',
+            asset_tagging: 'scene_asset_tagging',
+            offer_model: 'scene_offer_model',
+          };
+          return t(map[sceneKey] || 'scene_default');
+        },
+
+        statusLabel(status) {
+          if (status === 'success') return t('trace_status_success');
+          if (status === 'error') return t('trace_status_error');
+          return t('trace_status_pending');
+        },
+
+        statusClass(status) {
+          if (status === 'success') return 'bg-green-50 text-green-700';
+          if (status === 'error') return 'bg-red-50 text-red-700';
+          return 'bg-amber-50 text-amber-700';
+        },
+
+        callTypeLabel(callType) {
+          const map = {
+            chat: 'trace_call_type_chat',
+            chat_json: 'trace_call_type_chat_json',
+            chat_stream: 'trace_call_type_chat_stream',
+            chat_vision: 'trace_call_type_chat_vision',
+          };
+          return t(map[callType] || 'trace_call_type_chat');
+        },
+
+        summaryText(trace) {
+          return trace.response_preview || trace.thinking_preview || trace.user_prompt_preview || trace.system_prompt_preview || this.callTypeLabel(trace.call_type);
+        },
+
+        prettyJson(value) {
+          if (!value || (Array.isArray(value) && value.length === 0)) return '—';
+          try {
+            return JSON.stringify(value, null, 2);
+          } catch {
+            return String(value);
+          }
+        },
+
+        tabActive(id, tab) {
+          return this.tabs[id] === tab ? 'bg-accent text-white' : 'text-gray-600 hover:bg-gray-100';
+        },
+
+        paginationText() {
+          if (!this.total) return '0';
+          const start = (this.page - 1) * this.pageSize + 1;
+          const end = start + this.traces.length - 1;
+          return `${start}-${end} / ${this.formatNumber(this.total)}`;
         },
       };
     }

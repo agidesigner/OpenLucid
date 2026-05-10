@@ -31,6 +31,9 @@ from app.schemas.setting import (
     LLMFetchModelsResponse,
     LLMSceneConfigsResponse,
     LLMSceneConfigsUpdate,
+    LLMTraceClearResponse,
+    LLMTraceDetailResponse,
+    LLMTraceListResponse,
     LLMValidateRequest,
     McpTokenCreate,
     McpTokenCreatedResponse,
@@ -370,3 +373,54 @@ async def reset_all_prompt_presets_endpoint(
     
     count = await reset_all_prompt_presets(db, user_id)
     return {"reset_count": count}
+
+
+# ── LLM Traces ──────────────────────────────────────────────────
+
+@router.get("/llm-traces", response_model=LLMTraceListResponse)
+async def list_llm_traces_endpoint(
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    scene_key: str | None = Query(None),
+    status: str | None = Query(None),
+    since: datetime | None = Query(None),
+    query: str | None = Query(None),
+    _user_id: str = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.application.llm_trace_service import list_llm_traces
+
+    return await list_llm_traces(
+        db,
+        page=page,
+        size=size,
+        scene_key=scene_key,
+        status=status,
+        since=since,
+        query=query,
+    )
+
+
+@router.get("/llm-traces/{trace_id}", response_model=LLMTraceDetailResponse)
+async def get_llm_trace_detail_endpoint(
+    trace_id: uuid.UUID,
+    _user_id: str = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.application.llm_trace_service import get_llm_trace_detail
+
+    trace = await get_llm_trace_detail(db, trace_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail="Trace not found")
+    return trace
+
+
+@router.delete("/llm-traces", response_model=LLMTraceClearResponse)
+async def clear_llm_traces_endpoint(
+    before: datetime | None = Query(None),
+    _user_id: str = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.application.llm_trace_service import clear_llm_traces
+
+    return await clear_llm_traces(db, before=before)

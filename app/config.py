@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     # (e.g. some proxies advertise "gpt-image-1.5" or "gpt-image-2").
     IMAGE_MODEL: str = "gpt-image-1"
 
+    # LLM trace retention. Set either value to 0 to disable that rule.
+    LLM_TRACE_RETENTION_DAYS: int = 7
+    LLM_TRACE_RETENTION_MAX_COUNT: int = 5000
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 

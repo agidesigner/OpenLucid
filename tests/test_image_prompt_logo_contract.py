@@ -1,7 +1,16 @@
 """Pin image-generation prompt rules that prevent duplicate logos."""
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
+
+
+def _run(coro):
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 def _fake_offer():
@@ -15,7 +24,7 @@ def _fake_offer():
 def test_brief_prompt_uses_provided_logo_once_and_forbids_invented_marks():
     from app.application.image_service import _build_brief_prompt
 
-    prompt = _build_brief_prompt(
+    prompt = _run(_build_brief_prompt(
         brief="做一张教育培训行业海报",
         offer=_fake_offer(),
         brandkit=None,
@@ -23,7 +32,7 @@ def test_brief_prompt_uses_provided_logo_once_and_forbids_invented_marks():
         has_logo=True,
         has_qr=False,
         extra_count=0,
-    )
+    ))
 
     assert "Use only the provided logo as the brand mark" in prompt
     assert "exactly once" in prompt
@@ -36,7 +45,7 @@ def test_brief_prompt_uses_provided_logo_once_and_forbids_invented_marks():
 def test_brief_prompt_without_logo_forbids_model_inventing_a_logo():
     from app.application.image_service import _build_brief_prompt
 
-    prompt = _build_brief_prompt(
+    prompt = _run(_build_brief_prompt(
         brief="做一张教育培训行业海报",
         offer=_fake_offer(),
         brandkit=None,
@@ -44,7 +53,7 @@ def test_brief_prompt_without_logo_forbids_model_inventing_a_logo():
         has_logo=False,
         has_qr=False,
         extra_count=0,
-    )
+    ))
 
     assert "No logo reference was provided" in prompt
     assert "Do not invent any logo" in prompt

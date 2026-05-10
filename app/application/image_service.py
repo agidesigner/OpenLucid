@@ -39,6 +39,7 @@ from app.adapters.image.factory import get_image_provider
 from app.adapters.image.gpt_image import GPTImageProvider
 from app.adapters.storage import LocalStorageAdapter
 from app.config import settings
+from app.context import get_effective_prompt
 from app.application import style_extractor
 from app.application.image_template import (
     Template,
@@ -71,6 +72,53 @@ logger = logging.getLogger(__name__)
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+class _PromptFormatMap(dict):
+    def __missing__(self, key: str) -> str:
+        return ""
+
+
+def _render_prompt_template(
+    template: str,
+    *,
+    preset_key: str,
+    fallback_getter: Any,
+    context: dict[str, Any],
+) -> str:
+    def _apply(raw: str) -> str:
+        rendered = raw
+        for key, value in sorted(context.items(), key=lambda item: len(item[0]), reverse=True):
+            rendered = rendered.replace(f"{{{key}}}", "" if value is None else str(value))
+        return rendered
+
+    try:
+        return _apply(template)
+    except Exception:
+        logger.warning(
+            "Prompt preset %s failed to render, using default template",
+            preset_key,
+            exc_info=True,
+        )
+        return _apply(fallback_getter())
+
+
+def _default_image_brief_template() -> str:
+    from app.application.prompt_preset_service import _get_image_brief_template
+
+    return _get_image_brief_template()
+
+
+def _default_image_refine_template() -> str:
+    from app.application.prompt_preset_service import _get_image_refine_template
+
+    return _get_image_refine_template()
+
+
+def _default_cover_derive_prompt() -> str:
+    from app.application.prompt_preset_service import _get_cover_derive_prompt
+
+    return _get_cover_derive_prompt()
 
 
 _REFERENCE_UPLOAD_ROLES = {"supplemental", "qr"}
@@ -864,7 +912,7 @@ async def create_brief_job(
         logo_bytes = await _load_logo_bytes(db, brandkit, storage)
         qr_bytes = await _load_brief_qr_bytes(data, storage, db=db, offer_id=offer_uuid)
 
-        prompt = _build_brief_prompt(
+        prompt = await _build_brief_prompt(
             brief=data.brief,
             offer=offer,
             brandkit=brandkit,
@@ -974,7 +1022,7 @@ async def create_brief_job(
     return _to_response(job)
 
 
-def _build_brief_prompt(
+async def _build_brief_prompt(
     *,
     brief: str,
     offer: Offer,
@@ -996,63 +1044,70 @@ def _build_brief_prompt(
     voice = (brandkit.brand_voice or "").strip() if brandkit else ""
 
     aspect_hint = _ASPECT_HINTS_ZH.get(aspect, f"{aspect} format")
-
-    lines: list[str] = [
-        f"Create a marketing image based on this user brief: 「{brief.strip()}」.",
-        "",
-        f"Format: {aspect_hint}.",
-        f"Brand context: {offer.name}. Use this as context, not as permission to create a new brand mark.",
-    ]
+    selling_points_line = ""
     if sp_points:
-        lines.append(
-            "Brand selling points: " + " / ".join(str(p) for p in sp_points[:4]) + "."
+        selling_points_line = (
+            "Brand selling points: " + " / ".join(str(p) for p in sp_points[:4]) + ".\n"
         )
+    audience_line = ""
     if audience:
-        lines.append(
-            "Target audience: " + " / ".join(str(a) for a in audience[:3]) + "."
+        audience_line = (
+            "Target audience: " + " / ".join(str(a) for a in audience[:3]) + ".\n"
         )
+    brand_tone_line = ""
     if voice:
         first = voice.split("。")[0].split(".")[0].strip()
         if first and len(first) <= 140:
-            lines.append("Brand tone: " + first + ".")
+            brand_tone_line = f"Brand tone: {first}.\n"
 
-    lines.append("")
-    lines.append(
-        "Match the visual style, color palette, lighting, and typography aesthetic "
-        "of the provided reference poster(s)."
-    )
+    extra_reference_line = ""
     if extra_count:
-        lines.append(
+        extra_reference_line = (
             f"Additional reference image(s) ({extra_count}) follow the style references — "
-            "incorporate the elements they show (product shots, mascots, etc.) where appropriate."
+            "incorporate the elements they show (product shots, mascots, etc.) where appropriate.\n"
         )
+
     if has_logo:
-        lines.extend(
-            [
-                "Logo discipline:",
-                "- Use only the provided logo as the brand mark.",
-                "- Place the provided logo exactly once in a single corner; do not place a second logo anywhere else.",
-                "- Do not invent, redraw, duplicate, mirror, remix, or add any other logo, icon, wordmark, watermark, signature, or decorative brand mark.",
-                "- The brand name may appear only as ordinary headline/body text when required by the brief; do not style it as a second logo.",
-            ]
+        logo_block = (
+            "\nLogo discipline:\n"
+            "- Use only the provided logo as the brand mark.\n"
+            "- Place the provided logo exactly once in a single corner; do not place a second logo anywhere else.\n"
+            "- Do not invent, redraw, duplicate, mirror, remix, or add any other logo, icon, wordmark, watermark, signature, or decorative brand mark.\n"
+            "- The brand name may appear only as ordinary headline/body text when required by the brief; do not style it as a second logo.\n\n"
         )
     else:
-        lines.append(
-            "No logo reference was provided. Do not invent any logo, icon, wordmark, watermark, signature, or decorative brand mark."
+        logo_block = (
+            "\nNo logo reference was provided. Do not invent any logo, icon, wordmark, watermark, signature, or decorative brand mark.\n\n"
         )
+
+    qr_block = ""
     if has_qr:
-        lines.append(
+        qr_block = (
             "Include the QR code (provided) in the bottom-right area. "
             "Render the QR pixel-faithfully — do not stylize or recolor it; preserve its "
-            "original black-and-white pattern so it remains scannable."
+            "original black-and-white pattern so it remains scannable.\n\n"
         )
-    lines.append(
-        "Render any required text crisply, with high-contrast typography that matches the "
-        "reference style. Spell every Chinese character correctly — do not invent or "
-        "abbreviate words from the brief."
-    )
 
-    return "\n".join(lines)
+    template = await get_effective_prompt(
+        "image.brief_template",
+        _default_image_brief_template,
+    )
+    return _render_prompt_template(
+        template,
+        preset_key="image.brief_template",
+        fallback_getter=_default_image_brief_template,
+        context={
+            "brief": brief.strip(),
+            "aspect_hint": aspect_hint,
+            "brand_name": offer.name,
+            "selling_points_line": selling_points_line,
+            "audience_line": audience_line,
+            "brand_tone_line": brand_tone_line,
+            "extra_reference_line": extra_reference_line,
+            "logo_block": logo_block,
+            "qr_block": qr_block,
+        },
+    )
 
 
 async def _resolve_reference_assets(
@@ -1557,7 +1612,7 @@ async def create_refine_job(
         if brandkit:
             logo_bytes = await _load_logo_bytes(db, brandkit, storage)
 
-        prompt = _build_refine_prompt(
+        prompt = await _build_refine_prompt(
             refinement=data.refinement,
             parent_brief=parent_brief,
             offer=offer,
@@ -1674,7 +1729,7 @@ async def create_refine_job(
     return _to_response(job)
 
 
-def _build_refine_prompt(
+async def _build_refine_prompt(
     *,
     refinement: str,
     parent_brief: str,
@@ -1689,22 +1744,23 @@ def _build_refine_prompt(
     initial intent.
     """
     aspect_hint = _ASPECT_HINTS_ZH.get(aspect, f"{aspect} format")
-    brand_line = ""
-    if offer:
-        brand_line = f"Brand: {offer.name}."
-
-    return (
-        f"Refine the provided image based on this change request: 「{refinement.strip()}」.\n"
-        f"\n"
-        f"Original brief was: 「{parent_brief.strip() or '(unspecified)'}」.\n"
-        f"{brand_line}\n"
-        f"\n"
-        f"Keep the overall composition, characters, brand identity, color palette, and major "
-        f"visual elements the same as the provided image. Apply only the change requested above. "
-        f"Preserve any existing text content unless the change explicitly asks otherwise; spell every "
-        f"Chinese character correctly.\n"
-        f"\n"
-        f"Format: {aspect_hint}."
+    brand_name = offer.name if offer else ""
+    brand_line = f"Brand: {brand_name}.\n" if brand_name else ""
+    template = await get_effective_prompt(
+        "image.refine_template",
+        _default_image_refine_template,
+    )
+    return _render_prompt_template(
+        template,
+        preset_key="image.refine_template",
+        fallback_getter=_default_image_refine_template,
+        context={
+            "refinement": refinement.strip(),
+            "parent_brief": parent_brief.strip() or "(unspecified)",
+            "brand_name": brand_name,
+            "brand_line": brand_line,
+            "aspect_hint": aspect_hint,
+        },
     )
 
 
@@ -1914,23 +1970,26 @@ async def _suggest_assets_by_tags(
     return [aid for _, aid in scored[:limit]]
 
 
-_COVER_DERIVE_PROMPT = (
-    "You are an image-design assistant. Given the article below, produce a "
-    "one-shot visual brief for a single cover image.\n\n"
-    "CRITICAL: Output the `brief` and `tags` in the SAME LANGUAGE as the "
-    "article content. If the article is Chinese, write Chinese. If "
-    "English, write English. Do not translate or mix languages.\n\n"
-    "- brief: ONE sentence describing subject, action, and mood. "
-    "30-60 Chinese chars or 12-25 English words. No brand names, no "
-    "product names, no text to be rendered in the image.\n"
-    "- tags: 3-5 short visual keywords for asset-library retrieval "
-    "(same language as the article).\n\n"
-    "Article title: {title}\n"
-    "Platform: {platform}\n"
-    "Body excerpt: {body}\n\n"
-    "Return ONLY a JSON object: "
-    "{{\"brief\": \"...\", \"tags\": [\"...\", \"...\"]}}"
-)
+async def _build_cover_derive_prompt(
+    *,
+    title: str,
+    platform: str,
+    body: str,
+) -> str:
+    template = await get_effective_prompt(
+        "image.cover_derive",
+        _default_cover_derive_prompt,
+    )
+    return _render_prompt_template(
+        template,
+        preset_key="image.cover_derive",
+        fallback_getter=_default_cover_derive_prompt,
+        context={
+            "title": title,
+            "platform": platform,
+            "body": body,
+        },
+    )
 
 
 async def derive_article_cover_suggestion(
@@ -1974,7 +2033,7 @@ async def derive_article_cover_suggestion(
 
     title = (creation.title or "").strip()
     body_excerpt = (creation.content or "").strip()[:800]
-    prompt = _COVER_DERIVE_PROMPT.format(
+    prompt = await _build_cover_derive_prompt(
         title=title or "(untitled)",
         platform=platform_id or "unspecified",
         body=body_excerpt or "(empty)",
@@ -2140,7 +2199,7 @@ async def create_article_cover_job(
 
             logo_bytes = await _load_logo_bytes(db, brandkit, storage)
 
-            prompt = _build_brief_prompt(
+            prompt = await _build_brief_prompt(
                 brief=brief_text,
                 offer=offer,
                 brandkit=brandkit,
