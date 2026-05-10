@@ -201,3 +201,33 @@ class McpTokenResponse(BaseModel):
 
 class McpTokenCreatedResponse(McpTokenResponse):
     raw_token: str  # shown only once
+
+
+# ── Prompt Presets ──────────────────────────────────────────────
+
+class PromptPresetItem(BaseModel):
+    """A single prompt preset with system default + optional user override."""
+    preset_key: str
+    title: str
+    category: str  # script_writer | topic_studio | image | knowledge | brandkit | kb_qa
+    lang: str  # zh | en | multi
+    description: str  # brief explanation of what this prompt controls
+    default_content: str  # system default (from code/files)
+    user_content: str | None = None  # user override (NULL = using default)
+    is_modified: bool  # True when user_content is not None
+    updated_at: str | None = None  # ISO timestamp of last user edit
+
+
+class PromptPresetsResponse(BaseModel):
+    """Grouped list of all available prompt presets."""
+    presets: list[PromptPresetItem]
+
+
+class PromptPresetUpdate(BaseModel):
+    """Save a user override for a specific preset."""
+    content: str
+
+
+class PromptPresetResetRequest(BaseModel):
+    """Optional body for reset-all endpoint."""
+    confirm: bool = True

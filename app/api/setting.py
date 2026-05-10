@@ -3,11 +3,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require_owner
 from app.application.setting_service import (
     activate_llm_config,
     create_llm_config,
@@ -37,6 +37,9 @@ from app.schemas.setting import (
     McpTokenResponse,
     MediaCapabilitiesResponse,
     MediaCapabilitiesUpdateRequest,
+    PromptPresetItem,
+    PromptPresetsResponse,
+    PromptPresetUpdate,
 )
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -290,3 +293,80 @@ async def export_logs():
         content,
         headers={"Content-Disposition": f'attachment; filename="openlucid-logs-{ts}.txt"'},
     )
+
+
+# ── Prompt Presets ──────────────────────────────────────────────
+
+@router.get("/prompt-presets", response_model=PromptPresetsResponse)
+async def list_prompt_presets_endpoint(
+    category: str | None = Query(None, description="Filter by category"),
+    modified_only: bool = Query(False, description="Only show modified presets"),
+    user_id: str = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all available prompt presets with user overrides merged.
+    
+    Owner-only endpoint: each user has their own override layer.
+    """
+    from app.application.prompt_preset_service import list_prompt_presets
+    
+    presets = await list_prompt_presets(db, user_id, category, modified_only)
+    return PromptPresetsResponse(presets=presets)
+
+
+@router.get("/prompt-presets/{preset_key}", response_model=PromptPresetItem)
+async def get_prompt_preset_endpoint(
+    preset_key: str,
+    user_id: str = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a single prompt preset with user override merged."""
+    from app.application.prompt_preset_service import get_prompt_preset
+    
+    preset = await get_prompt_preset(db, user_id, preset_key)
+    if not preset:
+        raise HTTPException(status_code=404, detail=f"Preset not found: {preset_key}")
+    return preset
+
+
+@router.put("/prompt-presets/{preset_key}", response_model=PromptPresetItem)
+async def save_prompt_preset_endpoint(
+    preset_key: str,
+    data: PromptPresetUpdate,
+    user_id: str = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save or update a user override for a prompt preset."""
+    from app.application.prompt_preset_service import save_prompt_preset
+    
+    try:
+        return await save_prompt_preset(db, user_id, preset_key, data.content)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/prompt-presets/{preset_key}", response_model=PromptPresetItem)
+async def reset_prompt_preset_endpoint(
+    preset_key: str,
+    user_id: str = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete user override for a preset, restoring system default."""
+    from app.application.prompt_preset_service import reset_prompt_preset
+    
+    try:
+        return await reset_prompt_preset(db, user_id, preset_key)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/prompt-presets/reset-all")
+async def reset_all_prompt_presets_endpoint(
+    user_id: str = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete all user overrides, restoring all system defaults."""
+    from app.application.prompt_preset_service import reset_all_prompt_presets
+    
+    count = await reset_all_prompt_presets(db, user_id)
+    return {"reset_count": count}
