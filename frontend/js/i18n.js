@@ -290,7 +290,7 @@ window.I18N = {
       image_select_offer: '— Select Offer —',
       image_empty_title: 'Write a brief, AI generates',
       image_empty_desc: 'Pick an offer first. Posters from your asset library auto-feed as style references; the model decides composition, color, typography.',
-      image_subject_label: 'Subject expression',
+      image_subject_label: 'Message',
       image_subject_desc: 'Describe what this poster should communicate. Add screenshots or product images below when the subject needs visual evidence.',
       image_brief_placeholder: 'e.g. OpenLucid v1.5 just shipped — write a brief, AI generates marketing posters with one-shot refinement; make a launch image for Twitter / Hacker News',
       image_chars_count: '{n} / 500',
