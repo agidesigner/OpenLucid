@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel
 
 # Each label is (zh, en); callers use _pick(lang, label_tuple).
@@ -201,3 +203,99 @@ class McpTokenResponse(BaseModel):
 
 class McpTokenCreatedResponse(McpTokenResponse):
     raw_token: str  # shown only once
+
+
+# ── Prompt Presets ──────────────────────────────────────────────
+
+class PromptPresetItem(BaseModel):
+    """A single prompt preset with system default + optional user override."""
+    preset_key: str
+    title: str
+    category: str  # script_writer | topic_studio | image | knowledge | brandkit | kb_qa
+    lang: str  # zh | en | multi
+    description: str  # brief explanation of what this prompt controls
+    default_content: str  # system default (from code/files)
+    user_content: str | None = None  # user override (NULL = using default)
+    is_modified: bool  # True when user_content is not None
+    updated_at: str | None = None  # ISO timestamp of last user edit
+
+
+class PromptPresetsResponse(BaseModel):
+    """Grouped list of all available prompt presets."""
+    presets: list[PromptPresetItem]
+
+
+class PromptPresetUpdate(BaseModel):
+    """Save a user override for a specific preset."""
+    content: str
+
+
+class PromptPresetResetRequest(BaseModel):
+    """Optional body for reset-all endpoint."""
+    confirm: bool = True
+
+
+# ── LLM Traces ──────────────────────────────────────────────────
+
+class LLMTraceStatsResponse(BaseModel):
+    total: int
+    total_tokens: int
+    avg_latency_ms: int | None = None
+    error_rate: float
+
+
+class LLMTraceListItem(BaseModel):
+    id: str
+    scene_key: str | None = None
+    call_type: str
+    model_name: str
+    provider: str
+    status: str
+    latency_ms: int | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    created_at: str
+    finished_at: str | None = None
+    system_prompt_preview: str | None = None
+    user_prompt_preview: str | None = None
+    response_preview: str | None = None
+    thinking_preview: str | None = None
+
+
+class LLMTraceDetailResponse(BaseModel):
+    id: str
+    scene_key: str | None = None
+    call_type: str
+    model_name: str
+    provider: str
+    status: str
+    error_message: str | None = None
+    latency_ms: int | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    request_id: str | None = None
+    entity_type: str | None = None
+    entity_id: str | None = None
+    system_prompt: str | None = None
+    user_prompt: str | None = None
+    response_text: str | None = None
+    thinking_text: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+    extra_params: dict[str, Any] | None = None
+    created_at: str
+    updated_at: str
+    finished_at: str | None = None
+
+
+class LLMTraceListResponse(BaseModel):
+    traces: list[LLMTraceListItem]
+    stats: LLMTraceStatsResponse
+    has_more: bool
+    page: int
+    total: int
+
+
+class LLMTraceClearResponse(BaseModel):
+    deleted_count: int

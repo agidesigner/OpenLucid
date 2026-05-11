@@ -10,7 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.ai import AIAdapter, _extract_thinking, get_ai_adapter
 from app.application.context_service import ContextService
-from app.apps.kb_qa_styles import DEFAULT_STYLE_ID, STYLE_TEMPLATES
+from app.apps.kb_qa_styles import (
+    DEFAULT_STYLE_ID,
+    STYLE_TEMPLATES,
+    get_style_system_prompt_prefix,
+)
 from app.schemas.app import KBQAAskRequest, KBQAAskResponse, KBQAReferencedKnowledge
 
 logger = logging.getLogger(__name__)
@@ -124,10 +128,11 @@ class KBQAService:
                      len(knowledge_items), len(all_items), _MAX_KNOWLEDGE_ITEMS, type_counts)
 
         style = STYLE_TEMPLATES.get(request.style_id) or STYLE_TEMPLATES[DEFAULT_STYLE_ID]
+        style_prompt = await get_style_system_prompt_prefix(style.style_id)
         logger.info("KB QA: style=%s, lang=%s, question=\"%s\"", request.style_id, request.language, request.question[:80])
 
         brand_voice = await ctx_service.resolve_brand_voice(request.offer_id)
-        return self.ai, knowledge_items, all_items, style.system_prompt_prefix, context, brand_voice
+        return self.ai, knowledge_items, all_items, style_prompt, context, brand_voice
 
     async def ask(self, request: KBQAAskRequest) -> KBQAAskResponse:
         t0 = time.monotonic()

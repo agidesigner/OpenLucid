@@ -20,8 +20,276 @@ from app.adapters.prompt_builder import (
     rank_knowledge_for_external_context,
     rank_knowledge_for_strategy,
 )
+from app.context import get_effective_prompt
 
 logger = logging.getLogger(__name__)
+
+
+async def _get_topic_viral_signals_block(language: str) -> str:
+    is_en = language.startswith("en")
+    preset_key = "topic.viral_signals.en" if is_en else "topic.viral_signals.zh"
+    default_text = (
+        """
+
+## Viral Signals (Always Apply)
+- Titles should NOT read like instructional copy (\"How to X\", \"Tips for X\") — write like a viral creator post
+- Hooks must grab attention in the first 3 seconds — never neutral statements
+- Prefer: contrast, suspense, emotion, numbers, comparison, first-person mistakes
+- Avoid: standard marketing speak, official tone, adjective stacking
+- Each title should contain a concrete visual or emotional cue"""
+        if is_en
+        else
+        """
+
+## 网感要求（默认开启）
+- title 不要写「教你 X」「分享 X」这种说明文风——要写成像朋友圈/小红书爆款标题
+- hook 必须是前 3 秒能勾住的话，不能是中性陈述
+- 优先使用：反差、悬念、情绪、数字、对比、第一人称踩坑
+- 避免：标准营销话术、官腔、形容词堆砌
+- 每个标题至少含 1 个具象画面或情绪词"""
+    )
+    return await get_effective_prompt(preset_key, default_text)
+
+
+# ============================================================================
+# LLM Trace Instrumentation
+# ============================================================================
+
+def _clear_trace_runtime_state(adapter) -> None:
+    for attr in (
+        "_trace_id",
+        "_trace_start_time",
+        "_trace_attempt_count",
+        "_trace_attempt_log",
+        "_trace_fallbacks",
+        "_trace_defer_finish",
+        "_trace_deferred_response_text",
+        "_trace_deferred_usage",
+    ):
+        if hasattr(adapter, attr):
+            delattr(adapter, attr)
+
+
+def _merge_trace_runtime_meta(adapter, existing: dict | None) -> dict | None:
+    merged = dict(existing or {})
+
+    attempt_count = getattr(adapter, "_trace_attempt_count", None)
+    if attempt_count is not None:
+        merged["attempt_count"] = attempt_count
+        merged["retry_count"] = max(int(attempt_count) - 1, 0)
+
+    attempt_log = getattr(adapter, "_trace_attempt_log", None)
+    if attempt_log:
+        merged["attempt_log"] = attempt_log
+
+    fallbacks = getattr(adapter, "_trace_fallbacks", None)
+    if fallbacks:
+        merged["fallbacks"] = fallbacks
+
+    return merged or None
+
+
+def _push_trace_attempt(adapter, mode: str) -> int:
+    attempt_count = int(getattr(adapter, "_trace_attempt_count", 0)) + 1
+    adapter._trace_attempt_count = attempt_count
+
+    attempt_log = getattr(adapter, "_trace_attempt_log", None)
+    if attempt_log is None:
+        attempt_log = []
+        adapter._trace_attempt_log = attempt_log
+    attempt_log.append({"attempt": attempt_count, "mode": mode})
+    return attempt_count
+
+
+def _annotate_last_trace_attempt(adapter, **fields) -> None:
+    attempt_log = getattr(adapter, "_trace_attempt_log", None)
+    if not attempt_log:
+        return
+    attempt_log[-1].update({k: v for k, v in fields.items() if v is not None})
+
+
+def _note_trace_fallback(adapter, fallback_from: str, fallback_to: str, reason: str) -> None:
+    fallbacks = getattr(adapter, "_trace_fallbacks", None)
+    if fallbacks is None:
+        fallbacks = []
+        adapter._trace_fallbacks = fallbacks
+    fallbacks.append({
+        "from": fallback_from,
+        "to": fallback_to,
+        "reason": reason,
+    })
+
+
+def _defer_trace_finish(adapter) -> None:
+    adapter._trace_defer_finish = True
+
+
+async def _flush_deferred_trace(adapter) -> None:
+    if not hasattr(adapter, "_trace_deferred_response_text"):
+        return
+
+    response_text = getattr(adapter, "_trace_deferred_response_text", "") or ""
+    usage = getattr(adapter, "_trace_deferred_usage", None)
+    adapter._trace_defer_finish = False
+    if hasattr(adapter, "_trace_deferred_response_text"):
+        delattr(adapter, "_trace_deferred_response_text")
+    if hasattr(adapter, "_trace_deferred_usage"):
+        delattr(adapter, "_trace_deferred_usage")
+    await _finish_trace(adapter, response_text, usage)
+
+
+async def _start_trace(adapter, call_type: str, system_prompt: str, user_prompt: str, extra_params: dict | None = None):
+    """Create a pending LLM trace row. Returns trace_id (or None on failure).
+
+    Uses the shared session factory from app.database — no per-call engine overhead.
+    """
+    import time
+    import uuid
+
+    _clear_trace_runtime_state(adapter)
+
+    try:
+        from app.database import async_session_factory
+        from app.models.llm_trace import LLMTrace
+
+        trace_id = uuid.uuid4()
+        scene_key = getattr(adapter, "_trace_scene_key", None)
+
+        async with async_session_factory() as session:
+            trace = LLMTrace(
+                id=trace_id,
+                scene_key=scene_key,
+                call_type=call_type,
+                model_name=adapter.model,
+                provider=getattr(adapter, "provider", "unknown"),
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                extra_params=extra_params or {},
+                status="pending",
+            )
+            session.add(trace)
+            await session.commit()
+
+        adapter._trace_id = trace_id
+        adapter._trace_start_time = time.time()
+        adapter._trace_attempt_count = 0
+        adapter._trace_attempt_log = []
+        adapter._trace_fallbacks = []
+        return trace_id
+    except Exception as e:
+        logger.warning("Failed to start LLM trace: %s", e)
+        _clear_trace_runtime_state(adapter)
+        return None
+
+
+async def _finish_trace(adapter, response_text: str, usage=None):
+    """Complete a successful LLM trace with response, metrics and timing."""
+    import time
+
+    trace_id = getattr(adapter, "_trace_id", None)
+    if not trace_id:
+        _clear_trace_runtime_state(adapter)
+        return
+    if getattr(adapter, "_trace_defer_finish", False):
+        adapter._trace_deferred_response_text = response_text
+        adapter._trace_deferred_usage = usage
+        return
+
+    try:
+        from app.database import async_session_factory
+        from app.models.llm_trace import LLMTrace
+
+        start_time = getattr(adapter, "_trace_start_time", None)
+        latency_ms = int((time.time() - start_time) * 1000) if start_time else None
+        thinking_text, _ = _extract_thinking(response_text)
+
+        async with async_session_factory() as session:
+            trace = await session.get(LLMTrace, trace_id)
+            if trace:
+                trace.status = "success"
+                trace.response_text = response_text
+                trace.thinking_text = thinking_text or None
+                trace.latency_ms = latency_ms
+                trace.extra_params = _merge_trace_runtime_meta(adapter, trace.extra_params)
+                if usage:
+                    if isinstance(usage, dict):
+                        prompt_tokens = usage.get("prompt_tokens", usage.get("input_tokens"))
+                        completion_tokens = usage.get("completion_tokens", usage.get("output_tokens"))
+                        total_tokens = usage.get("total_tokens")
+                    else:
+                        prompt_tokens = getattr(usage, "prompt_tokens", None)
+                        completion_tokens = getattr(usage, "completion_tokens", None)
+                        total_tokens = getattr(usage, "total_tokens", None)
+                        if prompt_tokens is None:
+                            prompt_tokens = getattr(usage, "input_tokens", None)
+                        if completion_tokens is None:
+                            completion_tokens = getattr(usage, "output_tokens", None)
+                    if total_tokens is None and prompt_tokens is not None and completion_tokens is not None:
+                        total_tokens = prompt_tokens + completion_tokens
+                    trace.prompt_tokens = prompt_tokens
+                    trace.completion_tokens = completion_tokens
+                    trace.total_tokens = total_tokens
+                from datetime import datetime, timezone
+                trace.finished_at = datetime.now(timezone.utc)
+                await session.commit()
+    except Exception as e:
+        logger.warning("Failed to finish LLM trace: %s", e)
+    finally:
+        _clear_trace_runtime_state(adapter)
+
+
+async def _fail_trace(adapter, error: Exception):
+    """Mark a LLM trace as failed."""
+    import time
+
+    trace_id = getattr(adapter, "_trace_id", None)
+    if not trace_id:
+        _clear_trace_runtime_state(adapter)
+        return
+
+    try:
+        from app.database import async_session_factory
+        from app.models.llm_trace import LLMTrace
+
+        start_time = getattr(adapter, "_trace_start_time", None)
+        latency_ms = int((time.time() - start_time) * 1000) if start_time else None
+
+        async with async_session_factory() as session:
+            trace = await session.get(LLMTrace, trace_id)
+            if trace:
+                trace.status = "error"
+                trace.error_message = str(error)
+                trace.latency_ms = latency_ms
+                trace.extra_params = _merge_trace_runtime_meta(adapter, trace.extra_params)
+                from datetime import datetime, timezone
+                trace.finished_at = datetime.now(timezone.utc)
+                await session.commit()
+    except Exception as e:
+        logger.warning("Failed to mark LLM trace as failed: %s", e)
+    finally:
+        _clear_trace_runtime_state(adapter)
+
+
+async def _discard_trace(adapter):
+    """Delete an unfinished trace when execution intentionally falls back elsewhere."""
+    trace_id = getattr(adapter, "_trace_id", None)
+    if not trace_id:
+        _clear_trace_runtime_state(adapter)
+        return
+
+    try:
+        from app.database import async_session_factory
+        from app.models.llm_trace import LLMTrace
+
+        async with async_session_factory() as session:
+            trace = await session.get(LLMTrace, trace_id)
+            if trace:
+                await session.delete(trace)
+                await session.commit()
+    except Exception as e:
+        logger.warning("Failed to discard LLM trace: %s", e)
+    finally:
+        _clear_trace_runtime_state(adapter)
 
 
 def _looks_like_temperature_unsupported(msg: str) -> bool:
@@ -58,6 +326,114 @@ def _extract_thinking(text: str) -> tuple[str, str]:
     thinking = match.group(1).strip()
     remaining = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
     return thinking, remaining
+
+
+def _get_object_field(obj: Any, field: str, default=None):
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(field, default)
+    return getattr(obj, field, default)
+
+
+def _coerce_text_content(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                parts.append(item)
+                continue
+            item_text = _get_object_field(item, "text")
+            if isinstance(item_text, str):
+                parts.append(item_text)
+                continue
+            nested_text = _coerce_text_content(_get_object_field(item, "content"))
+            if nested_text:
+                parts.append(nested_text)
+        return "".join(parts)
+    text = _get_object_field(value, "text")
+    if isinstance(text, str):
+        return text
+    nested = _get_object_field(value, "content")
+    if nested is not None:
+        return _coerce_text_content(nested)
+    return ""
+
+
+def _coerce_reasoning_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                parts.append(item)
+                continue
+            for field in ("thinking", "text", "content", "summary"):
+                nested = _coerce_reasoning_text(_get_object_field(item, field))
+                if nested:
+                    parts.append(nested)
+                    break
+        return "".join(parts)
+    for field in ("thinking", "text", "content", "summary", "reasoning_content"):
+        nested = _coerce_reasoning_text(_get_object_field(value, field))
+        if nested:
+            return nested
+    return ""
+
+
+def _compose_trace_response_text(content_text: str, reasoning_text: str) -> str:
+    reasoning = (reasoning_text or "").strip()
+    content = content_text or ""
+    if not reasoning:
+        return content
+    think_block = f"<think>{reasoning}</think>"
+    return f"{think_block}{content}" if content else think_block
+
+
+def _extract_openai_message_text_and_trace(message: Any) -> tuple[str, str]:
+    content_text = _coerce_text_content(_get_object_field(message, "content"))
+    reasoning_text = _coerce_reasoning_text(
+        _get_object_field(message, "reasoning_content")
+        or _get_object_field(message, "reasoning")
+    )
+    trace_text = _compose_trace_response_text(content_text, reasoning_text)
+    return content_text, trace_text or content_text
+
+
+def _extract_anthropic_content_text_and_trace(content_blocks: Any) -> tuple[str, str]:
+    if not isinstance(content_blocks, list):
+        return "", ""
+
+    content_parts: list[str] = []
+    thinking_parts: list[str] = []
+    for block in content_blocks:
+        block_type = _get_object_field(block, "type")
+        if block_type == "thinking":
+            thinking = _coerce_reasoning_text(
+                _get_object_field(block, "thinking") or _get_object_field(block, "text")
+            )
+            if thinking:
+                thinking_parts.append(thinking)
+            continue
+        if block_type == "redacted_thinking":
+            continue
+
+        text = _coerce_text_content(
+            _get_object_field(block, "text") or _get_object_field(block, "content")
+        )
+        if text:
+            content_parts.append(text)
+
+    content_text = "".join(content_parts)
+    trace_text = _compose_trace_response_text(content_text, "".join(thinking_parts))
+    return content_text, trace_text or content_text
 
 
 def _scan_complete_objects(buf: str, scan_start: int):
@@ -98,6 +474,15 @@ def _scan_complete_objects(buf: str, scan_start: int):
                 if depth == 0 and obj_start >= 0:
                     yield obj_start, i + 1
                     obj_start = -1
+
+
+async def _get_infer_knowledge_system_prompt(language: str) -> str:
+    is_en = language.startswith("en")
+    preset_key = "kb.infer.en" if is_en else "kb.infer.zh"
+    return await get_effective_prompt(
+        preset_key,
+        lambda: _build_infer_knowledge_system_prompt(language),
+    )
 
 
 def _build_infer_knowledge_system_prompt(language: str) -> str:
@@ -554,46 +939,66 @@ class OpenAICompatibleAdapter(AIAdapter):
 
     async def _chat(self, system_prompt: str, user_prompt: str, temperature: float = 0.8, max_tokens: int = 16384) -> str:
         import asyncio
+
+        if not getattr(self, "_trace_id", None):
+            await _start_trace(self, "chat", system_prompt, user_prompt, {
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            })
+
         last_err = None
         for attempt in range(3):
+            kwargs = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "max_tokens": max_tokens,
+            }
+            if not getattr(self, "_skip_temperature", False):
+                kwargs["temperature"] = temperature
+            _push_trace_attempt(self, "chat")
             try:
-                kwargs = {
-                    "model": self.model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    "max_tokens": max_tokens,
-                }
-                # Some modern reasoning models (o1/o3 + some proxied Claude
-                # variants) deprecate temperature and reject the call with
-                # a 400 if it's present. Remember that per-adapter and skip
-                # it on subsequent calls.
-                if not getattr(self, "_skip_temperature", False):
-                    kwargs["temperature"] = temperature
                 response = await self.client.chat.completions.create(**kwargs)
-                return response.choices[0].message.content or ""
+                message = response.choices[0].message
+                result, trace_text = _extract_openai_message_text_and_trace(message)
+                result = result or trace_text
+                _annotate_last_trace_attempt(
+                    self,
+                    temperature_sent="temperature" in kwargs,
+                    outcome="success",
+                )
+                await _finish_trace(self, trace_text or result, response.usage)
+                return result
             except Exception as e:
                 last_err = e
                 status = getattr(e, "status_code", None) or getattr(e, "status", 0)
                 msg = str(e).lower()
-                # Compatibility fallback: strip temperature on the "deprecated
-                # for this model" 400 and retry immediately (not counted as
-                # a failed attempt).
+                _annotate_last_trace_attempt(
+                    self,
+                    temperature_sent="temperature" in kwargs,
+                    status_code=status or None,
+                    error=str(e),
+                )
                 if status == 400 and _looks_like_temperature_unsupported(msg) and not getattr(self, "_skip_temperature", False):
-                    # debug, not info — this is routine compat fallback (o1/o3 + some
-                    # proxied Claude variants deprecate temperature). Surfacing it at
-                    # INFO pollutes the operational log stream on every request.
                     logger.debug("LLM model %s rejected temperature — retrying without it (memoized on adapter).", self.model)
+                    _note_trace_fallback(self, "temperature", "no_temperature", "model_rejected_temperature")
+                    _annotate_last_trace_attempt(self, outcome="fallback")
                     self._skip_temperature = True
                     continue
-                # Only retry on transient errors (network, 429, 5xx)
                 if status and 400 <= status < 500 and status != 429:
+                    _annotate_last_trace_attempt(self, outcome="failed")
+                    await _fail_trace(self, e)
                     raise
                 if attempt < 2:
-                    wait = (attempt + 1) * 2  # 2s, 4s
+                    wait = (attempt + 1) * 2
+                    _annotate_last_trace_attempt(self, outcome="retrying", retry_in_s=wait)
                     logger.warning("LLM call failed (attempt %d/3), retrying in %ds: %s", attempt + 1, wait, e)
                     await asyncio.sleep(wait)
+
+        _annotate_last_trace_attempt(self, outcome="failed")
+        await _fail_trace(self, last_err)
         raise last_err  # type: ignore[misc]
 
     async def _chat_json(self, system_prompt: str, user_prompt: str, temperature: float = 0.7) -> Any:
@@ -602,60 +1007,99 @@ class OpenAICompatibleAdapter(AIAdapter):
         Tries response_format=json_object first (supported by most modern models).
         Falls back to plain _chat() + _parse_json_response() if the model rejects it.
         """
+        await _start_trace(self, "chat_json", system_prompt, user_prompt, {
+            "temperature": temperature,
+            "response_format": "json_object",
+        })
+
+        kwargs = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "response_format": {"type": "json_object"},
+        }
+        if not getattr(self, "_skip_temperature", False):
+            kwargs["temperature"] = temperature
+        _push_trace_attempt(self, "chat_json_response_format")
+
+        try:
+            response = await self.client.chat.completions.create(**kwargs)
+            message = response.choices[0].message
+            raw, trace_text = _extract_openai_message_text_and_trace(message)
+            raw = raw or trace_text
+            result = self._parse_json_response(raw)
+            _annotate_last_trace_attempt(
+                self,
+                temperature_sent="temperature" in kwargs,
+                outcome="success",
+            )
+            await _finish_trace(self, trace_text or raw, response.usage)
+            return result
+        except Exception as e:
+            status = getattr(e, "status_code", None) or getattr(e, "status", 0)
+            msg = str(e).lower()
+            _annotate_last_trace_attempt(
+                self,
+                temperature_sent="temperature" in kwargs,
+                status_code=status or None,
+                error=str(e),
+            )
+
+            fallback_reason = None
+            if status == 400 and _looks_like_temperature_unsupported(msg) and not getattr(self, "_skip_temperature", False):
+                logger.debug("_chat_json: model %s rejected temperature — memoizing skip and falling back to plain _chat", self.model)
+                self._skip_temperature = True
+                fallback_reason = "model_rejected_temperature"
+            elif status and 400 <= status < 500 and status != 429:
+                logger.info("_chat_json: response_format not supported (%s), falling back to prompt mode", e)
+                fallback_reason = "response_format_unsupported"
+            else:
+                _annotate_last_trace_attempt(self, outcome="failed")
+                await _fail_trace(self, e)
+                raise
+
+            _note_trace_fallback(self, "json_object", "prompt_only_json", fallback_reason)
+            _annotate_last_trace_attempt(self, outcome="fallback")
+
+        fallback_system = system_prompt + "\n\nREMINDER: Output ONLY valid JSON — no markdown, no explanation, no text before or after the JSON object."
+        _defer_trace_finish(self)
+        try:
+            raw = await self._chat(fallback_system, user_prompt, temperature=temperature)
+            result = self._parse_json_response(raw)
+        except Exception as e:
+            await _fail_trace(self, e)
+            raise
+        await _flush_deferred_trace(self)
+        return result
+
+    async def _chat_stream(self, system_prompt: str, user_prompt: str, temperature: float = 0.8,
+                           timeout: float = 480, max_tokens: int = 16384):
+        """Async generator that yields token strings as they arrive."""
         import asyncio
 
-        # First attempt: use response_format for strict JSON
-        try:
+        await _start_trace(self, "chat_stream", system_prompt, user_prompt, {
+            "temperature": temperature, "max_tokens": max_tokens,
+        })
+
+        accumulated: list[str] = []
+        last_err = None
+        for attempt in range(3):
             kwargs = {
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                "response_format": {"type": "json_object"},
+                "max_tokens": max_tokens,
+                "stream": True,
             }
             if not getattr(self, "_skip_temperature", False):
                 kwargs["temperature"] = temperature
-            response = await self.client.chat.completions.create(**kwargs)
-            raw = response.choices[0].message.content or ""
-            return self._parse_json_response(raw)
-        except Exception as e:
-            status = getattr(e, "status_code", None) or getattr(e, "status", 0)
-            msg = str(e).lower()
-            if status == 400 and "temperature" in msg and not getattr(self, "_skip_temperature", False):
-                logger.debug("_chat_json: model %s rejected temperature — memoizing skip and falling back to plain _chat", self.model)
-                self._skip_temperature = True
-                # Fall through to prompt-constrained mode (via _chat) which will now omit temperature too
-            # If the model doesn't support response_format, fall through to prompt-constrained mode
-            elif status and 400 <= status < 500 and status != 429:
-                logger.info("_chat_json: response_format not supported (%s), falling back to prompt mode", e)
-            else:
-                raise
-
-        # Fallback: prompt-constrained mode (append reminder to output only JSON)
-        fallback_system = system_prompt + "\n\nREMINDER: Output ONLY valid JSON — no markdown, no explanation, no text before or after the JSON object."
-        raw = await self._chat(fallback_system, user_prompt, temperature=temperature)
-        return self._parse_json_response(raw)
-
-    async def _chat_stream(self, system_prompt: str, user_prompt: str, temperature: float = 0.8,
-                           timeout: float = 480, max_tokens: int = 16384):
-        """Async generator that yields token strings as they arrive."""
-        import asyncio
-        last_err = None
-        for attempt in range(3):
+            _push_trace_attempt(self, "chat_stream")
             try:
                 deadline = asyncio.get_running_loop().time() + timeout
-                kwargs = {
-                    "model": self.model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    "max_tokens": max_tokens,
-                    "stream": True,
-                }
-                if not getattr(self, "_skip_temperature", False):
-                    kwargs["temperature"] = temperature
                 stream = await self.client.chat.completions.create(**kwargs)
                 thinking_open = False
                 async for chunk in stream:
@@ -670,31 +1114,57 @@ class OpenAICompatibleAdapter(AIAdapter):
                     rc = getattr(delta, "reasoning_content", None)
                     if rc:
                         if not thinking_open:
+                            accumulated.append("<think>")
                             yield "<think>"
                             thinking_open = True
+                        accumulated.append(rc)
                         yield rc
                     if delta.content:
                         if thinking_open:
+                            accumulated.append("</think>")
                             yield "</think>"
                             thinking_open = False
+                        accumulated.append(delta.content)
                         yield delta.content
                 if thinking_open:
+                    accumulated.append("</think>")
                     yield "</think>"
+                _annotate_last_trace_attempt(
+                    self,
+                    temperature_sent="temperature" in kwargs,
+                    outcome="success",
+                )
+                await _finish_trace(self, "".join(accumulated))
                 return  # stream completed successfully
             except Exception as e:
                 last_err = e
                 status = getattr(e, "status_code", None) or getattr(e, "status", 0)
                 msg = str(e).lower()
+                _annotate_last_trace_attempt(
+                    self,
+                    temperature_sent="temperature" in kwargs,
+                    status_code=status or None,
+                    error=str(e),
+                )
                 if status == 400 and _looks_like_temperature_unsupported(msg) and not getattr(self, "_skip_temperature", False):
                     logger.debug("LLM stream model %s rejected temperature — retrying without it.", self.model)
+                    _note_trace_fallback(self, "temperature", "no_temperature", "model_rejected_temperature")
+                    _annotate_last_trace_attempt(self, outcome="fallback")
                     self._skip_temperature = True
+                    accumulated.clear()
                     continue
                 if status and 400 <= status < 500 and status != 429:
+                    _annotate_last_trace_attempt(self, outcome="failed")
+                    await _fail_trace(self, e)
                     raise
                 if attempt < 2:
                     wait = (attempt + 1) * 2
+                    _annotate_last_trace_attempt(self, outcome="retrying", retry_in_s=wait)
                     logger.warning("LLM stream failed (attempt %d/3), retrying in %ds: %s", attempt + 1, wait, e)
+                    accumulated.clear()
                     await asyncio.sleep(wait)
+        _annotate_last_trace_attempt(self, outcome="failed")
+        await _fail_trace(self, last_err)
         raise last_err  # type: ignore[misc]
 
     def _parse_json_response(self, text: str) -> Any:
@@ -826,25 +1296,7 @@ class OpenAICompatibleAdapter(AIAdapter):
         lang_instruction = "All output text (title, hook, key_points, etc.) MUST be in English." if is_en else "所有输出文本（title、hook、key_points 等）必须使用中文。"
 
         trend_mode = bool((external_context_text or "").strip())
-
-        if is_en:
-            viral_signals_block = """
-
-## Viral Signals (Always Apply)
-- Titles should NOT read like instructional copy ("How to X", "Tips for X") — write like a viral creator post
-- Hooks must grab attention in the first 3 seconds — never neutral statements
-- Prefer: contrast, suspense, emotion, numbers, comparison, first-person mistakes
-- Avoid: standard marketing speak, official tone, adjective stacking
-- Each title should contain a concrete visual or emotional cue"""
-        else:
-            viral_signals_block = """
-
-## 网感要求（默认开启）
-- title 不要写「教你 X」「分享 X」这种说明文风——要写成像朋友圈/小红书爆款标题
-- hook 必须是前 3 秒能勾住的话，不能是中性陈述
-- 优先使用：反差、悬念、情绪、数字、对比、第一人称踩坑
-- 避免：标准营销话术、官腔、形容词堆砌
-- 每个标题至少含 1 个具象画面或情绪词"""
+        viral_signals_block = await _get_topic_viral_signals_block(language)
 
         # Trend-bridge mode adds (a) a hotspot extraction step, (b) four-tier
         # relevance rules, and (c) the "solution naturally appears" stance
@@ -1159,25 +1611,7 @@ Generate {count} topic plans that honor the Creative Brief above. The brief shou
 
         lang_instruction = "All output text (title, hook, key_points, etc.) MUST be in English." if is_en else "所有输出文本（title、hook、key_points 等）必须使用中文。"
         trend_mode = bool((external_context_text or "").strip())
-
-        if is_en:
-            viral_signals_block = """
-
-## Viral Signals (Always Apply)
-- Titles should NOT read like instructional copy ("How to X", "Tips for X") — write like a viral creator post
-- Hooks must grab attention in the first 3 seconds — never neutral statements
-- Prefer: contrast, suspense, emotion, numbers, comparison, first-person mistakes
-- Avoid: standard marketing speak, official tone, adjective stacking
-- Each title should contain a concrete visual or emotional cue"""
-        else:
-            viral_signals_block = """
-
-## 网感要求（默认开启）
-- title 不要写「教你 X」「分享 X」这种说明文风——要写成像朋友圈/小红书爆款标题
-- hook 必须是前 3 秒能勾住的话，不能是中性陈述
-- 优先使用：反差、悬念、情绪、数字、对比、第一人称踩坑
-- 避免：标准营销话术、官腔、形容词堆砌
-- 每个标题至少含 1 个具象画面或情绪词"""
+        viral_signals_block = await _get_topic_viral_signals_block(language)
 
         if trend_mode and is_en:
             trend_bridge_block = """
@@ -1755,23 +2189,39 @@ Return JSON only:
         import base64
         import mimetypes
 
+        await _start_trace(self, "chat_vision", system_prompt, user_text, {
+            "temperature": temperature,
+            "image_path": image_path,
+        })
+
         mime, _ = mimetypes.guess_type(image_path)
         mime = mime or "image/jpeg"
         with open(image_path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode()
 
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": [
-                    {"type": "text", "text": user_text + "\n\nAnalyze tags based on the image content:"},
-                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
-                ]},
-            ],
-            temperature=temperature,
-        )
-        return response.choices[0].message.content or ""
+        _push_trace_attempt(self, "chat_vision")
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": user_text + "\n\nAnalyze tags based on the image content:"},
+                        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                    ]},
+                ],
+                temperature=temperature,
+            )
+            message = response.choices[0].message
+            result, trace_text = _extract_openai_message_text_and_trace(message)
+            result = result or trace_text
+            _annotate_last_trace_attempt(self, temperature_sent=True, outcome="success")
+            await _finish_trace(self, trace_text or result, response.usage)
+            return result
+        except Exception as e:
+            _annotate_last_trace_attempt(self, temperature_sent=True, error=str(e), outcome="failed")
+            await _fail_trace(self, e)
+            raise
 
     async def extract_knowledge_from_text(self, text: str, language: str = "zh-CN") -> dict[str, Any]:
         is_en = language.startswith("en")
@@ -1794,7 +2244,7 @@ Return JSON: {"title": "...", "content_structured": {"key": "value"}, "confidenc
         knowledge_items = offer_data.get("knowledge_items", [])
 
         existing_text = format_existing_knowledge(knowledge_items, language=language)
-        system = _build_infer_knowledge_system_prompt(language)
+        system = await _get_infer_knowledge_system_prompt(language)
         user = format_offer_summary(offer_data, language=language) + existing_text
 
         if user_hint:
@@ -1835,7 +2285,7 @@ Return JSON: {"title": "...", "content_structured": {"key": "value"}, "confidenc
         offer_name = offer.get("name", "Product")
         knowledge_items = offer_data.get("knowledge_items", [])
         existing_text = format_existing_knowledge(knowledge_items, language=language)
-        system = _build_infer_knowledge_system_prompt(language)
+        system = await _get_infer_knowledge_system_prompt(language)
         user = format_offer_summary(offer_data, language=language) + existing_text
         logger.info(
             "Streaming infer-knowledge for '%s' via %s/%s (system=%d chars, user=%d chars, existing=%d items)",
@@ -1888,8 +2338,9 @@ Return JSON: {"title": "...", "content_structured": {"key": "value"}, "confidenc
         text = text[:8000]
         is_en = language.startswith("en")
 
+        preset_key = "brandkit.voice_suggest.en" if is_en else "brandkit.voice_suggest.zh"
         if is_en:
-            system = (
+            default_system = (
                 "You are a senior brand strategist. From the brand document below, "
                 "write a 3-5 paragraph Brand Voice specification that a copywriter "
                 "or AI content tool can apply directly. Cover, in order:\n"
@@ -1907,7 +2358,7 @@ Return JSON: {"title": "...", "content_structured": {"key": "value"}, "confidenc
             )
             user = f"Brand document:\n\n{text}\n\nWrite the Brand Voice specification:"
         else:
-            system = (
+            default_system = (
                 "你是资深品牌策略师。基于下方品牌资料，写一份 3-5 段的"
                 "「品牌语气说明」(Brand Voice)，让文案或 AI 内容工具能直接套用。按顺序覆盖：\n"
                 "1. 调性与语域（温暖 / 冷静 / 自嘲 / 权威——锁定 1 种主导调性）。\n"
@@ -1923,6 +2374,8 @@ Return JSON: {"title": "...", "content_structured": {"key": "value"}, "confidenc
                 "- 用中文撰写。"
             )
             user = f"品牌资料：\n\n{text}\n\n请写品牌语气说明："
+
+        system = await get_effective_prompt(preset_key, default_system)
 
         logger.info("Suggesting brand voice via %s (text_len=%d)", self.provider, len(text))
         # 0.5 — balanced between creative voice description and consistency
@@ -1980,34 +2433,58 @@ class AnthropicMessagesAdapter(OpenAICompatibleAdapter):
     async def _chat(self, system_prompt: str, user_prompt: str, temperature: float = 0.8, max_tokens: int = 16384) -> str:
         import asyncio
         import httpx
+
+        if not getattr(self, "_trace_id", None):
+            await _start_trace(self, "chat", system_prompt, user_prompt, {
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            })
+
         last_err = None
         for attempt in range(3):
+            payload = {
+                "model": self.model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "system": system_prompt,
+                "messages": [{"role": "user", "content": user_prompt}],
+            }
+            _push_trace_attempt(self, "anthropic_chat")
             try:
                 async with httpx.AsyncClient() as client:
                     resp = await client.post(
                         f"{self.base_url}/v1/messages",
                         headers=self._headers,
-                        json={
-                            "model": self.model,
-                            "max_tokens": max_tokens,
-                            "temperature": temperature,
-                            "system": system_prompt,
-                            "messages": [{"role": "user", "content": user_prompt}],
-                        },
+                        json=payload,
                         timeout=60,
                     )
                 resp.raise_for_status()
                 data = resp.json()
-                return data["content"][0]["text"]
+                result, trace_text = _extract_anthropic_content_text_and_trace(data.get("content"))
+                result = result or trace_text
+                _annotate_last_trace_attempt(self, temperature_sent=True, outcome="success")
+                await _finish_trace(self, trace_text or result, data.get("usage"))
+                return result
             except Exception as e:
                 last_err = e
                 status = getattr(getattr(e, "response", None), "status_code", None) or 0
+                _annotate_last_trace_attempt(
+                    self,
+                    temperature_sent=True,
+                    status_code=status or None,
+                    error=str(e),
+                )
                 if status and 400 <= status < 500 and status != 429:
+                    _annotate_last_trace_attempt(self, outcome="failed")
+                    await _fail_trace(self, e)
                     raise
                 if attempt < 2:
                     wait = (attempt + 1) * 2
+                    _annotate_last_trace_attempt(self, outcome="retrying", retry_in_s=wait)
                     logger.warning("Anthropic call failed (attempt %d/3), retrying in %ds: %s", attempt + 1, wait, e)
                     await asyncio.sleep(wait)
+        _annotate_last_trace_attempt(self, outcome="failed")
+        await _fail_trace(self, last_err)
         raise last_err  # type: ignore[misc]
 
     async def _chat_json(self, system_prompt: str, user_prompt: str, temperature: float = 0.7) -> Any:
@@ -2019,12 +2496,25 @@ class AnthropicMessagesAdapter(OpenAICompatibleAdapter):
         access `self.client` and raised AttributeError — causing every Script
         Writer JSON generation to silently fall through to plain text.
         """
+        await _start_trace(self, "chat_json", system_prompt, user_prompt, {
+            "temperature": temperature,
+            "response_format": "prompt_only_json",
+        })
+        _note_trace_fallback(self, "anthropic_messages_api", "prompt_only_json", "response_format_unavailable")
+
         fallback_system = system_prompt + (
             "\n\nREMINDER: Output ONLY valid JSON — no markdown, no explanation, "
             "no text before or after the JSON object."
         )
-        raw = await self._chat(fallback_system, user_prompt, temperature=temperature)
-        return self._parse_json_response(raw)
+        _defer_trace_finish(self)
+        try:
+            raw = await self._chat(fallback_system, user_prompt, temperature=temperature)
+            result = self._parse_json_response(raw)
+        except Exception as e:
+            await _fail_trace(self, e)
+            raise
+        await _flush_deferred_trace(self)
+        return result
 
     async def _chat_vision(self, system_prompt: str, user_text: str, image_path: str, temperature: float = 0.8) -> str:
         """Anthropic vision via Messages API — image is a content block with
@@ -2034,45 +2524,77 @@ class AnthropicMessagesAdapter(OpenAICompatibleAdapter):
         import mimetypes
         import httpx
 
+        await _start_trace(self, "chat_vision", system_prompt, user_text, {
+            "temperature": temperature,
+            "image_path": image_path,
+        })
+
         mime, _ = mimetypes.guess_type(image_path)
         mime = mime or "image/jpeg"
         with open(image_path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode()
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{self.base_url}/v1/messages",
-                headers=self._headers,
-                json={
-                    "model": self.model,
-                    "max_tokens": 4096,
-                    "temperature": temperature,
-                    "system": system_prompt,
-                    "messages": [{
-                        "role": "user",
-                        "content": [
-                            {"type": "image", "source": {
-                                "type": "base64", "media_type": mime, "data": b64,
-                            }},
-                            {"type": "text", "text": user_text},
-                        ],
-                    }],
-                },
-                timeout=120,
+        _push_trace_attempt(self, "anthropic_chat_vision")
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{self.base_url}/v1/messages",
+                    headers=self._headers,
+                    json={
+                        "model": self.model,
+                        "max_tokens": 4096,
+                        "temperature": temperature,
+                        "system": system_prompt,
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {"type": "image", "source": {
+                                    "type": "base64", "media_type": mime, "data": b64,
+                                }},
+                                {"type": "text", "text": user_text},
+                            ],
+                        }],
+                    },
+                    timeout=120,
+                )
+            resp.raise_for_status()
+            data = resp.json()
+            result, trace_text = _extract_anthropic_content_text_and_trace(data.get("content"))
+            result = result or trace_text
+            _annotate_last_trace_attempt(self, temperature_sent=True, outcome="success")
+            await _finish_trace(self, trace_text or result, data.get("usage"))
+            return result
+        except Exception as e:
+            status = getattr(getattr(e, "response", None), "status_code", None) or 0
+            _annotate_last_trace_attempt(
+                self,
+                temperature_sent=True,
+                status_code=status or None,
+                error=str(e),
+                outcome="failed",
             )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["content"][0]["text"]
+            await _fail_trace(self, e)
+            raise
 
     async def _chat_stream(self, system_prompt: str, user_prompt: str, temperature: float = 0.8, timeout: float = 480):
         """Stream tokens via Anthropic Messages SSE."""
         import asyncio
         import httpx
         import json as _json
+
+        await _start_trace(self, "chat_stream", system_prompt, user_prompt, {
+            "temperature": temperature,
+            "max_tokens": 16384,
+        })
+
+        accumulated: list[str] = []
+        usage: dict[str, int] = {}
         last_err = None
         for attempt in range(3):
+            _push_trace_attempt(self, "anthropic_chat_stream")
             try:
                 deadline = asyncio.get_running_loop().time() + timeout
+                thinking_open = False
                 async with httpx.AsyncClient() as client:
                     async with client.stream(
                         "POST",
@@ -2101,20 +2623,68 @@ class AnthropicMessagesAdapter(OpenAICompatibleAdapter):
                                 event = _json.loads(data_str)
                             except _json.JSONDecodeError:
                                 continue
-                            if event.get("type") == "content_block_delta":
-                                delta = event.get("delta", {})
-                                if delta.get("type") == "text_delta":
-                                    yield delta.get("text", "")
+
+                            if event.get("type") == "message_start":
+                                usage.update(event.get("message", {}).get("usage", {}) or {})
+                                continue
+                            if event.get("type") == "message_delta":
+                                usage.update(event.get("usage", {}) or {})
+                                continue
+                            if event.get("type") != "content_block_delta":
+                                continue
+
+                            delta = event.get("delta", {})
+                            delta_type = delta.get("type")
+                            if delta_type == "thinking_delta":
+                                thinking = delta.get("thinking", "")
+                                if thinking:
+                                    if not thinking_open:
+                                        accumulated.append("<think>")
+                                        yield "<think>"
+                                        thinking_open = True
+                                    accumulated.append(thinking)
+                                    yield thinking
+                                continue
+                            if delta_type != "text_delta":
+                                continue
+
+                            text = delta.get("text", "")
+                            if not text:
+                                continue
+                            if thinking_open:
+                                accumulated.append("</think>")
+                                yield "</think>"
+                                thinking_open = False
+                            accumulated.append(text)
+                            yield text
+                if thinking_open:
+                    accumulated.append("</think>")
+                    yield "</think>"
+                _annotate_last_trace_attempt(self, temperature_sent=True, outcome="success")
+                await _finish_trace(self, "".join(accumulated), usage or None)
                 return
             except Exception as e:
                 last_err = e
                 status = getattr(getattr(e, "response", None), "status_code", None) or 0
+                _annotate_last_trace_attempt(
+                    self,
+                    temperature_sent=True,
+                    status_code=status or None,
+                    error=str(e),
+                )
                 if status and 400 <= status < 500 and status != 429:
+                    _annotate_last_trace_attempt(self, outcome="failed")
+                    await _fail_trace(self, e)
                     raise
                 if attempt < 2:
                     wait = (attempt + 1) * 2
+                    _annotate_last_trace_attempt(self, outcome="retrying", retry_in_s=wait)
                     logger.warning("Anthropic stream failed (attempt %d/3), retrying in %ds: %s", attempt + 1, wait, e)
+                    accumulated.clear()
+                    usage.clear()
                     await asyncio.sleep(wait)
+        _annotate_last_trace_attempt(self, outcome="failed")
+        await _fail_trace(self, last_err)
         raise last_err  # type: ignore[misc]
 
 
@@ -2165,18 +2735,22 @@ async def get_ai_adapter(db=None, scene_key: str | None = None, model_type: str 
                 fixed_url = _fix_docker_url(config.base_url)
                 provider = getattr(config, "provider", None) or getattr(config, "label", "LLM")
                 if provider == "anthropic":
-                    return AnthropicMessagesAdapter(
+                    adapter = AnthropicMessagesAdapter(
                         api_key=config.api_key,
                         base_url=fixed_url,
                         model=config.model_name,
                         provider=provider,
                     )
-                return OpenAICompatibleAdapter(
-                    api_key=config.api_key,
-                    base_url=fixed_url,
-                    model=config.model_name,
-                    provider=provider,
-                )
+                else:
+                    adapter = OpenAICompatibleAdapter(
+                        api_key=config.api_key,
+                        base_url=fixed_url,
+                        model=config.model_name,
+                        provider=provider,
+                    )
+                # Inject scene_key for tracing
+                adapter._trace_scene_key = scene_key
+                return adapter
         except Exception:
             pass
 

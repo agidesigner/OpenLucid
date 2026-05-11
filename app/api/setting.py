@@ -3,11 +3,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require_owner
 from app.application.setting_service import (
     activate_llm_config,
     create_llm_config,
@@ -31,12 +31,18 @@ from app.schemas.setting import (
     LLMFetchModelsResponse,
     LLMSceneConfigsResponse,
     LLMSceneConfigsUpdate,
+    LLMTraceClearResponse,
+    LLMTraceDetailResponse,
+    LLMTraceListResponse,
     LLMValidateRequest,
     McpTokenCreate,
     McpTokenCreatedResponse,
     McpTokenResponse,
     MediaCapabilitiesResponse,
     MediaCapabilitiesUpdateRequest,
+    PromptPresetItem,
+    PromptPresetsResponse,
+    PromptPresetUpdate,
 )
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -290,3 +296,131 @@ async def export_logs():
         content,
         headers={"Content-Disposition": f'attachment; filename="openlucid-logs-{ts}.txt"'},
     )
+
+
+# ── Prompt Presets ──────────────────────────────────────────────
+
+@router.get("/prompt-presets", response_model=PromptPresetsResponse)
+async def list_prompt_presets_endpoint(
+    category: str | None = Query(None, description="Filter by category"),
+    modified_only: bool = Query(False, description="Only show modified presets"),
+    user_id: str = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all available prompt presets with user overrides merged.
+    
+    Owner-only endpoint: each user has their own override layer.
+    """
+    from app.application.prompt_preset_service import list_prompt_presets
+    
+    presets = await list_prompt_presets(db, user_id, category, modified_only)
+    return PromptPresetsResponse(presets=presets)
+
+
+@router.get("/prompt-presets/{preset_key}", response_model=PromptPresetItem)
+async def get_prompt_preset_endpoint(
+    preset_key: str,
+    user_id: str = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a single prompt preset with user override merged."""
+    from app.application.prompt_preset_service import get_prompt_preset
+    
+    preset = await get_prompt_preset(db, user_id, preset_key)
+    if not preset:
+        raise HTTPException(status_code=404, detail=f"Preset not found: {preset_key}")
+    return preset
+
+
+@router.put("/prompt-presets/{preset_key}", response_model=PromptPresetItem)
+async def save_prompt_preset_endpoint(
+    preset_key: str,
+    data: PromptPresetUpdate,
+    user_id: str = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save or update a user override for a prompt preset."""
+    from app.application.prompt_preset_service import save_prompt_preset
+    
+    try:
+        return await save_prompt_preset(db, user_id, preset_key, data.content)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/prompt-presets/{preset_key}", response_model=PromptPresetItem)
+async def reset_prompt_preset_endpoint(
+    preset_key: str,
+    user_id: str = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete user override for a preset, restoring system default."""
+    from app.application.prompt_preset_service import reset_prompt_preset
+    
+    try:
+        return await reset_prompt_preset(db, user_id, preset_key)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/prompt-presets/reset-all")
+async def reset_all_prompt_presets_endpoint(
+    user_id: str = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete all user overrides, restoring all system defaults."""
+    from app.application.prompt_preset_service import reset_all_prompt_presets
+    
+    count = await reset_all_prompt_presets(db, user_id)
+    return {"reset_count": count}
+
+
+# ── LLM Traces ──────────────────────────────────────────────────
+
+@router.get("/llm-traces", response_model=LLMTraceListResponse)
+async def list_llm_traces_endpoint(
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    scene_key: str | None = Query(None),
+    status: str | None = Query(None),
+    since: datetime | None = Query(None),
+    query: str | None = Query(None),
+    _user_id: str = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.application.llm_trace_service import list_llm_traces
+
+    return await list_llm_traces(
+        db,
+        page=page,
+        size=size,
+        scene_key=scene_key,
+        status=status,
+        since=since,
+        query=query,
+    )
+
+
+@router.get("/llm-traces/{trace_id}", response_model=LLMTraceDetailResponse)
+async def get_llm_trace_detail_endpoint(
+    trace_id: uuid.UUID,
+    _user_id: str = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.application.llm_trace_service import get_llm_trace_detail
+
+    trace = await get_llm_trace_detail(db, trace_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail="Trace not found")
+    return trace
+
+
+@router.delete("/llm-traces", response_model=LLMTraceClearResponse)
+async def clear_llm_traces_endpoint(
+    before: datetime | None = Query(None),
+    _user_id: str = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.application.llm_trace_service import clear_llm_traces
+
+    return await clear_llm_traces(db, before=before)

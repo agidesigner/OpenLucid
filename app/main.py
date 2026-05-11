@@ -220,6 +220,19 @@ async def _startup_recovery() -> None:
             await _sync_google_media_mirror(session)
             await session.commit()
 
+        # 5. Prune old LLM traces on startup so the developer-tools log
+        # stays bounded even if the UI is never opened manually.
+        if settings.LLM_TRACE_RETENTION_DAYS > 0 or settings.LLM_TRACE_RETENTION_MAX_COUNT > 0:
+            async with async_session_factory() as session:
+                from app.application.llm_trace_service import prune_llm_traces
+                deleted = await prune_llm_traces(
+                    session,
+                    retention_days=settings.LLM_TRACE_RETENTION_DAYS,
+                    max_count=settings.LLM_TRACE_RETENTION_MAX_COUNT,
+                )
+                if deleted:
+                    logger.info("Startup: pruned %d LLM traces", deleted)
+
     except Exception as e:
         logger.warning("Startup recovery encountered an error: %s", e, exc_info=True)
 
@@ -394,6 +407,15 @@ ADMIN_GET_WHITELIST: frozenset[str] = frozenset({
     "/api/v1/settings/media-capabilities",
 })
 
+# Settings paths that are safe to expose in open-access mode (no API keys,
+# no secrets). These are blocked for guests but allowed for unauthenticated
+# owners on a fresh deployment. Uses prefix matching so sub-paths (e.g.
+# /llm-traces/{id}) are covered automatically.
+OPEN_ACCESS_SETTINGS_PREFIXES: tuple[str, ...] = (
+    "/api/v1/settings/llm-traces",
+    "/api/v1/settings/prompt-presets",
+)
+
 
 def _path_matches_prefix(path: str, prefix: str) -> bool:
     """True if ``path`` is governed by ``prefix`` —— either the
@@ -455,6 +477,7 @@ def _set_guest_cookie(response, raw_token: str) -> None:
 
 @_fastapi_app.middleware("http")
 async def auth_middleware(request: Request, call_next):
+    from app.context import current_user_id as _ctx_uid
     path = request.url.path
 
     # Only protect /api/* routes
@@ -495,6 +518,7 @@ async def auth_middleware(request: Request, call_next):
         try:
             payload = decode_token(token)
             request.state.user_id = payload["user_id"]
+            _ctx_uid.set(payload["user_id"])
             request.state.is_guest = False
             return await call_next(request)
         except Exception:
@@ -524,6 +548,7 @@ async def auth_middleware(request: Request, call_next):
             if match:
                 from app.api.auth import SENTINEL_API_TOKEN
                 request.state.user_id = SENTINEL_API_TOKEN
+                _ctx_uid.set(SENTINEL_API_TOKEN)
                 request.state.is_guest = False
                 return await call_next(request)
         except Exception:
@@ -558,6 +583,7 @@ async def auth_middleware(request: Request, call_next):
                 )
             from app.api.auth import SENTINEL_GUEST
             request.state.user_id = SENTINEL_GUEST
+            _ctx_uid.set(SENTINEL_GUEST)
             request.state.is_guest = True
             response = await call_next(request)
             # Sliding session: every authenticated request pushes the
@@ -610,11 +636,19 @@ async def auth_middleware(request: Request, call_next):
         # /settings/* or rewrite the KB / brandkit. Once the
         # operator signs in (cookie JWT) or mints an MCP token,
         # those sessions reach the path above and bypass this gate.
+        #
+        # Exception: non-sensitive settings paths (llm-traces,
+        # prompt-presets) are allowed through — they contain no
+        # API keys or secrets, and the open-access user is
+        # effectively the owner. require_owner() accepts
+        # SENTINEL_NO_AUTH so the endpoint still runs correctly.
         if _is_admin_path(request.method, path):
-            return JSONResponse({"detail": "Sign in required"}, status_code=401)
+            if not any(_path_matches_prefix(path, p) for p in OPEN_ACCESS_SETTINGS_PREFIXES):
+                return JSONResponse({"detail": "Sign in required"}, status_code=401)
 
         from app.api.auth import SENTINEL_NO_AUTH
         request.state.user_id = SENTINEL_NO_AUTH
+        _ctx_uid.set(SENTINEL_NO_AUTH)
         request.state.is_guest = False
         return await call_next(request)
 

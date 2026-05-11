@@ -21,6 +21,7 @@ from app.application.script_platforms import ScriptPlatform, get_platform, DEFAU
 from app.application.script_personas import ScriptPersona, get_persona, DEFAULT_PERSONA_ID
 from app.application.script_goals import ScriptGoal, get_goal, DEFAULT_GOAL_ID
 from app.application.script_structures import ScriptStructure, get_structure, DEFAULT_STRUCTURE_ID
+from app.context import get_effective_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -60,14 +61,19 @@ _BASE_EN = (
 )
 
 
-def _build_output_instruction(platform: ScriptPlatform, structure: ScriptStructure, language: str) -> str:
+def _build_output_instruction(
+    platform: ScriptPlatform,
+    structure: ScriptStructure,
+    language: str,
+    shot_spec: str,
+) -> str:
     """Dispatch to the right output format instruction based on content type.
 
     - video: JSON schema (needed for B-roll planning, duration, visual_direction)
     - text_post / article / thread: plain markdown (no JSON overhead)
     """
     if platform.is_video:
-        return _build_json_schema(platform, structure)
+        return _build_json_schema(platform, structure, shot_spec)
     return _build_markdown_instruction(platform, structure, language)
 
 
@@ -275,7 +281,7 @@ def _shot_description_spec(is_zh: bool) -> str:
     )
 
 
-def _build_json_schema(platform: ScriptPlatform, structure: ScriptStructure) -> str:
+def _build_json_schema(platform: ScriptPlatform, structure: ScriptStructure, shot_spec: str) -> str:
     """Build the JSON output schema instruction (video only)."""
     section_ids = structure.section_ids
     is_video = platform.is_video
@@ -401,8 +407,6 @@ def _build_json_schema(platform: ScriptPlatform, structure: ScriptStructure) -> 
         "broll_plan": broll_plan_example,
     }
 
-    shot_spec = _shot_description_spec(is_zh)
-
     if is_zh:
         instruction = (
             "输出格式要求：必须输出合法的JSON，结构如下（不要输出任何JSON以外的内容）：\n"
@@ -423,7 +427,7 @@ def _build_json_schema(platform: ScriptPlatform, structure: ScriptStructure) -> 
     return instruction
 
 
-def compose_system_prompt(
+async def compose_system_prompt(
     platform_id: str | None = None,
     persona_id: str | None = None,
     goal_id: str | None = None,
@@ -438,6 +442,9 @@ def compose_system_prompt(
         to know the JSON output schema and section_ids.
     """
     is_zh = language.startswith("zh") or language.startswith("ZH")
+    base_preset_key = "script.base.zh" if is_zh else "script.base.en"
+    persuasion_preset_key = "script.persuasion.zh" if is_zh else "script.persuasion.en"
+    shot_preset_key = "script.shot_description.zh" if is_zh else "script.shot_description.en"
 
     platform = get_platform(platform_id or DEFAULT_PLATFORM_ID) or get_platform(DEFAULT_PLATFORM_ID)
     persona = get_persona(persona_id or DEFAULT_PERSONA_ID) or get_persona(DEFAULT_PERSONA_ID)
@@ -448,10 +455,25 @@ def compose_system_prompt(
     if not platform or not persona or not goal or not structure:
         raise RuntimeError("Failed to load script composer components")
 
+    base_prompt = await get_effective_prompt(
+        base_preset_key,
+        lambda: _BASE_ZH if is_zh else _BASE_EN,
+    )
+    persuasion_prompt = await get_effective_prompt(
+        persuasion_preset_key,
+        lambda: _persuasion_technique_spec(is_zh),
+    )
+    shot_spec = ""
+    if platform.is_video:
+        shot_spec = await get_effective_prompt(
+            shot_preset_key,
+            lambda: _shot_description_spec(is_zh),
+        )
+
     layers: list[str] = []
 
     # Layer 1: BASE
-    layers.append(_BASE_ZH if is_zh else _BASE_EN)
+    layers.append(base_prompt)
 
     # Layer 2: PLATFORM
     if is_zh:
@@ -479,7 +501,12 @@ def compose_system_prompt(
         structure_header = f"## 叙事结构：{structure.emoji} {structure.name_zh}（{structure.description_zh}）\n"
     else:
         structure_header = f"## Narrative Structure: {structure.emoji} {structure.name_en} — {structure.description_en}\n"
-    structure_layer = structure_header + structure.body + "\n\n" + _build_output_instruction(platform, structure, language)
+    structure_layer = structure_header + structure.body + "\n\n" + _build_output_instruction(
+        platform,
+        structure,
+        language,
+        shot_spec,
+    )
     layers.append(structure_layer)
 
     # Layer 5b: PERSUASION (spine + anti-KB-dump constraint)
@@ -488,7 +515,7 @@ def compose_system_prompt(
     # (USP / pain / category-vs / scenario / cause-effect / detail / authority).
     # Without this layer the LLM tends to flatly enumerate KB entries — the exact
     # "monotonous, KB-piled, >>20% product description" symptom reported in the wild.
-    layers.append(_persuasion_technique_spec(is_zh))
+    layers.append(persuasion_prompt)
 
     # Layer 6: BRAND OVERLAY (optional)
     if brand_tone and brand_tone.strip():

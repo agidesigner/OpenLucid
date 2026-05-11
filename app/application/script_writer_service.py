@@ -688,7 +688,7 @@ class ScriptWriterService:
 
         if use_composer:
             brand_voice = await ctx_service.resolve_brand_voice(request.offer_id)
-            system_prompt, platform, structure = compose_system_prompt(
+            system_prompt, platform, structure = await compose_system_prompt(
                 platform_id=request.platform_id,
                 persona_id=request.persona_id,
                 goal_id=request.goal_id or request.goal,
