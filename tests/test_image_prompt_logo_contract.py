@@ -1,7 +1,16 @@
 """Pin image-generation prompt rules that prevent duplicate logos."""
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
+
+
+def _run(coro):
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 def _fake_offer():
@@ -15,7 +24,7 @@ def _fake_offer():
 def test_brief_prompt_uses_provided_logo_once_and_forbids_invented_marks():
     from app.application.image_service import _build_brief_prompt
 
-    prompt = _build_brief_prompt(
+    prompt = _run(_build_brief_prompt(
         brief="做一张教育培训行业海报",
         offer=_fake_offer(),
         brandkit=None,
@@ -23,7 +32,7 @@ def test_brief_prompt_uses_provided_logo_once_and_forbids_invented_marks():
         has_logo=True,
         has_qr=False,
         extra_count=0,
-    )
+    ))
 
     assert "Use only the provided logo as the brand mark" in prompt
     assert "exactly once" in prompt
@@ -41,7 +50,7 @@ def test_brief_prompt_uses_provided_logo_once_and_forbids_invented_marks():
 def test_single_style_reference_is_a_strong_style_anchor():
     from app.application.image_service import _build_brief_prompt
 
-    prompt = _build_brief_prompt(
+    prompt = _run(_build_brief_prompt(
         brief="做一张教育培训行业海报",
         offer=_fake_offer(),
         brandkit=None,
@@ -50,7 +59,7 @@ def test_single_style_reference_is_a_strong_style_anchor():
         has_qr=False,
         extra_count=0,
         reference_count=1,
-    )
+    ))
 
     assert "One style reference is provided" in prompt
     assert "highly similar in layout structure" in prompt
@@ -61,7 +70,7 @@ def test_single_style_reference_is_a_strong_style_anchor():
 def test_style_prompt_allows_dark_palette_when_user_asks_for_it():
     from app.application.image_service import _build_brief_prompt
 
-    prompt = _build_brief_prompt(
+    prompt = _run(_build_brief_prompt(
         brief="做一张黑金暗色高端风宣发海报",
         offer=_fake_offer(),
         brandkit=None,
@@ -69,7 +78,7 @@ def test_style_prompt_allows_dark_palette_when_user_asks_for_it():
         has_logo=True,
         has_qr=False,
         extra_count=0,
-    )
+    ))
 
     assert "Style references define how the poster should look" in prompt
     assert "do not default to a monochrome" not in prompt
@@ -78,7 +87,7 @@ def test_style_prompt_allows_dark_palette_when_user_asks_for_it():
 def test_content_references_define_subject_not_style():
     from app.application.image_service import _build_brief_prompt
 
-    prompt = _build_brief_prompt(
+    prompt = _run(_build_brief_prompt(
         brief="新功能上线，做一张小红书宣发海报",
         offer=_fake_offer(),
         brandkit=None,
@@ -87,7 +96,7 @@ def test_content_references_define_subject_not_style():
         has_qr=False,
         extra_count=1,
         reference_count=1,
-    )
+    ))
 
     assert "Content reference image(s) (1)" in prompt
     assert "factual subject evidence" in prompt
@@ -98,7 +107,7 @@ def test_content_references_define_subject_not_style():
 def test_brief_prompt_without_logo_forbids_model_inventing_a_logo():
     from app.application.image_service import _build_brief_prompt
 
-    prompt = _build_brief_prompt(
+    prompt = _run(_build_brief_prompt(
         brief="做一张教育培训行业海报",
         offer=_fake_offer(),
         brandkit=None,
@@ -106,7 +115,7 @@ def test_brief_prompt_without_logo_forbids_model_inventing_a_logo():
         has_logo=False,
         has_qr=False,
         extra_count=0,
-    )
+    ))
 
     assert "No logo reference was provided" in prompt
     assert "Do not invent any logo" in prompt
@@ -116,7 +125,7 @@ def test_brief_prompt_without_logo_forbids_model_inventing_a_logo():
 def test_source_poster_prompt_preserves_content_but_prevents_logo_stacking():
     from app.application.image_service import _build_brief_prompt
 
-    prompt = _build_brief_prompt(
+    prompt = _run(_build_brief_prompt(
         brief="参考图改成横版尺寸",
         offer=_fake_offer(),
         brandkit=None,
@@ -125,7 +134,7 @@ def test_source_poster_prompt_preserves_content_but_prevents_logo_stacking():
         has_qr=False,
         extra_count=1,
         reference_mode="source_poster",
-    )
+    ))
 
     assert "Reference mode: source-poster layout transform" in prompt
     assert "Preserve its core message" in prompt

@@ -24,6 +24,8 @@ from app.models.image_generation_job import ImageGenerationJob
 from app.models.media_capability_default import MediaCapabilityDefault
 from app.models.memory_entry import MemoryEntry
 from app.models.task_run import TaskRun
+from app.models.user_prompt_preset import UserPromptPreset
+from app.models.llm_trace import LLMTrace
 
 __all__ = [
     "Base",
@@ -55,4 +57,6 @@ __all__ = [
     "MediaCapabilityDefault",
     "MemoryEntry",
     "TaskRun",
+    "UserPromptPreset",
+    "LLMTrace",
 ]
