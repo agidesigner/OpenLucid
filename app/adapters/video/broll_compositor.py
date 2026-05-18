@@ -356,6 +356,60 @@ def _drawtext_filter(
     )
 
 
+def _draw_highlight_filter(
+    text: str,
+    *,
+    emphasis_type: str = "benefit_badge",
+    font_size: int = 60,
+    enable: str | None = None,
+    aspect_ratio: str = "portrait",
+) -> str:
+    """Draw a short on-screen emphasis label ("花字").
+
+    These are intentionally rendered in the upper third, separate from the
+    subtitle safe area. They should read like creator-editing emphasis, not
+    a second subtitle track.
+    """
+    if not text:
+        return "null"
+    global _CJK_FONT_FILE
+    if _CJK_FONT_FILE is None:
+        _CJK_FONT_FILE = _resolve_cjk_font_file() or ""
+
+    palette = {
+        "hook_pop": ("#FFE033", "#111111", 0.16),
+        "pain_label": ("#FFFFFF", "#D92525", 0.20),
+        "benefit_badge": ("#27E0A3", "#102018", 0.18),
+        "proof_pop": ("#FFFFFF", "#1769FF", 0.18),
+        "cta_badge": ("#FFE033", "#111111", 0.24),
+        "hold_zoom": ("#FFFFFF", "#111111", 0.18),
+    }
+    fill, stroke, y_ratio = palette.get(emphasis_type, palette["benefit_badge"])
+    if aspect_ratio == "landscape":
+        y_ratio = max(0.10, y_ratio - 0.04)
+    elif aspect_ratio == "square":
+        y_ratio = max(0.12, y_ratio - 0.02)
+
+    escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:").replace("%", "%%")
+    font_opt = (
+        f":fontfile={_CJK_FONT_FILE}"
+        if _CJK_FONT_FILE else ":font=Noto Sans CJK SC"
+    )
+    enable_opt = f":enable='{enable}'" if enable else ""
+    return (
+        f"drawtext=text='{escaped}'"
+        + enable_opt
+        + f":fontsize={font_size}"
+        + f":fontcolor={_ffmpeg_color(fill)}"
+        + ":borderw=7"
+        + f":bordercolor={_ffmpeg_color(stroke)}"
+        + ":box=1:boxcolor=black@0.28:boxborderw=18"
+        + ":x=(w-text_w)/2"
+        + f":y=h*{y_ratio}"
+        + font_opt
+    )
+
+
 async def composite_broll(
     avatar_video_url: str,
     broll_clips: list[dict],
@@ -368,6 +422,7 @@ async def composite_broll(
     subtitle_style: str = "classic",
     subtitle_color: str | None = None,
     subtitle_stroke: str | None = None,
+    highlight_cues: list[dict] | None = None,
 ) -> str:
     """Insert B-roll cutaways into avatar video at AI-directed timestamps.
 
@@ -387,10 +442,13 @@ async def composite_broll(
     Returns:
         Local file path of the composited video.
     """
-    from app.adapters.video.subtitle_styles import compute_font_size, resolve_style
+    from app.adapters.video.subtitle_styles import compute_font_size, compute_y_ratio, resolve_style
 
     style_params = resolve_style(subtitle_style, subtitle_color, subtitle_stroke)
+    style_params["y_ratio"] = compute_y_ratio(aspect_ratio, subtitle_style)
     font_size = compute_font_size(aspect_ratio, subtitle_style)
+    highlight_font_size = font_size + (16 if aspect_ratio == "portrait" else 12)
+    highlight_cues = highlight_cues or []
 
     # Target output resolution — must match the avatar's aspect so ffmpeg
     # concat doesn't reject mismatched dims. Previously hardcoded to
@@ -421,6 +479,74 @@ async def composite_broll(
         logger.info("Narration: %d chars, video: %.1fs (≈%.1f chars/s)",
                      total_chars, avatar_duration,
                      total_chars / avatar_duration if avatar_duration else 0)
+
+        def _highlight_filters_for_window(window_start: float, window_end: float) -> list[str]:
+            if not highlight_cues or total_chars <= 0 or avatar_duration <= 0:
+                return []
+            filters: list[str] = []
+            window_dur = max(0.0, window_end - window_start)
+            if window_dur <= 0:
+                return filters
+            for cue in highlight_cues:
+                if not isinstance(cue, dict):
+                    continue
+                text = str(cue.get("text") or "").strip()
+                if not text:
+                    continue
+                try:
+                    pos = int(cue.get("insert_after_char", 0))
+                except (TypeError, ValueError):
+                    continue
+                try:
+                    dur = float(cue.get("duration_seconds", 1.8))
+                except (TypeError, ValueError):
+                    dur = 1.8
+                dur = max(1.0, min(dur, 3.0))
+                cue_start = _char_to_timestamp(pos, total_chars, avatar_duration)
+                cue_end = cue_start + dur
+                if cue_end <= window_start or cue_start >= window_end:
+                    continue
+                local_start = max(0.0, cue_start - window_start)
+                local_end = min(window_dur, cue_end - window_start)
+                if local_end - local_start < 0.3:
+                    continue
+                filters.append(_draw_highlight_filter(
+                    text,
+                    emphasis_type=str(cue.get("emphasis_type") or "benefit_badge"),
+                    font_size=highlight_font_size,
+                    enable=f"between(t,{local_start:.2f},{local_end:.2f})",
+                    aspect_ratio=aspect_ratio,
+                ))
+            return filters
+
+        def _window_has_hold_zoom(window_start: float, window_end: float) -> bool:
+            """True if a ``hold_zoom`` cue overlaps this avatar segment.
+
+            Such segments get a tighter crop so the key beat reads as a real
+            camera punch-in. The 花字 label alone only covers the on-screen
+            text half of the "no zoom on high-attention moments" feedback —
+            this gives the held / zoomed shot the other half asks for.
+            """
+            if not highlight_cues or total_chars <= 0 or avatar_duration <= 0:
+                return False
+            for cue in highlight_cues:
+                if not isinstance(cue, dict):
+                    continue
+                if str(cue.get("emphasis_type") or "") != "hold_zoom":
+                    continue
+                try:
+                    pos = int(cue.get("insert_after_char", 0))
+                except (TypeError, ValueError):
+                    continue
+                try:
+                    dur = float(cue.get("duration_seconds", 1.8))
+                except (TypeError, ValueError):
+                    dur = 1.8
+                dur = max(1.0, min(dur, 3.0))
+                cue_start = _char_to_timestamp(pos, total_chars, avatar_duration)
+                if cue_start < window_end and cue_start + dur > window_start:
+                    return True
+            return False
 
         # 3. Download B-roll clips and calculate insert timestamps
         # 4th tuple field: asset_audio flag. When True, the per-clip mux
@@ -484,6 +610,9 @@ async def composite_broll(
         # preserved into the output.
         MAX_UNCUT = 12.0  # seconds — max time on one static avatar shot
         ZOOM_LEVELS = [1.0, 1.15, 1.0, 1.2, 1.0, 1.12]  # cycle through
+        # Punch-in applied to whichever avatar segment hosts a ``hold_zoom``
+        # cue — overrides the cycled level so the key beat is visibly tighter.
+        HOLD_ZOOM_LEVEL = 1.25
 
         # Pinned encoding params — every segment must match exactly or
         # ``concat -c copy`` silently falls back to broken output.
@@ -508,14 +637,21 @@ async def composite_broll(
                 # Short enough — single segment with current zoom
                 zoom = ZOOM_LEVELS[zoom_idx % len(ZOOM_LEVELS)]
                 zoom_idx += 1
+                # A hold_zoom cue marks a key beat — punch in for the whole
+                # shot hosting it (long shots split first, so this stays
+                # localized to the chunk that actually carries the cue).
+                if _window_has_hold_zoom(start, end):
+                    zoom = max(zoom, HOLD_ZOOM_LEVEL)
                 seg = tmp_path / f"seg_av_{len(segments)}.mp4"
                 if zoom == 1.0:
-                    vf = "null"  # no filter needed
+                    base_filter = "null"  # no filter needed
                 else:
                     # Crop center at zoom level, then scale back to original resolution
                     cw = f"iw/{zoom:.2f}"
                     ch = f"ih/{zoom:.2f}"
-                    vf = f"crop={cw}:{ch}:(iw-{cw})/2:(ih-{ch})/2,scale={out_w}:{out_h}:flags=lanczos,setsar=1"
+                    base_filter = f"crop={cw}:{ch}:(iw-{cw})/2:(ih-{ch})/2,scale={out_w}:{out_h}:flags=lanczos,setsar=1"
+                cue_filters = _highlight_filters_for_window(start, end)
+                vf = ",".join([base_filter, *cue_filters])
                 await _ffmpeg(
                     "-i", str(avatar_path),
                     "-ss", f"{start:.3f}", "-t", f"{dur:.3f}",
@@ -579,6 +715,7 @@ async def composite_broll(
                 if caption else []
             )
             scale_filter = f"scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:-1:-1:color=black,setsar=1"
+            highlight_filters = _highlight_filters_for_window(insert_time, insert_time + use_dur)
             # Chain one ``drawtext`` per phrase chunk; ``enable=between(t,a,b)``
             # makes each appear only during its window. Multiple drawtext
             # filters layered this way behave like the avatar's per-clause
@@ -596,7 +733,7 @@ async def composite_broll(
                 )
                 for (chunk_text, s, e) in subtitle_chunks
             ]
-            vf = ",".join([scale_filter, *chunk_filters]) if chunk_filters else scale_filter
+            vf = ",".join([scale_filter, *highlight_filters, *chunk_filters])
             # Two-input: broll is input 0 (visual), avatar is input 1 with
             # input-level ``-ss`` so the audio slice begins at insert_time.
             # Audio source depends on the per-clip asset_audio flag:

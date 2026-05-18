@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 
 from fastapi import HTTPException
@@ -28,6 +29,33 @@ from app.schemas.setting import (
     SceneSection,
     SYSTEM_SCENES,
 )
+
+
+# A model name ending in "_<float>" (e.g. "claude-opus-4-7_0.2") is almost
+# always a temperature value pasted into the model field by mistake — real
+# model identifiers never end this way. Reject it at save time so the bad
+# config is caught here, not as an opaque "model_not_found" 503 at the next
+# generation call.
+_TEMPERATURE_SUFFIX_RE = re.compile(r"_\d+\.\d+\s*$")
+
+
+def _clean_model_name(raw: str | None) -> str | None:
+    """Trim and sanity-check a user-supplied model name. Returns None
+    unchanged (callers treat None as 'field not provided')."""
+    if raw is None:
+        return None
+    cleaned = raw.strip()
+    if _TEMPERATURE_SUFFIX_RE.search(cleaned):
+        suggestion = _TEMPERATURE_SUFFIX_RE.sub("", cleaned)
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Model name '{cleaned}' looks like it has a temperature value "
+                f"appended (the trailing '_x.y'). Enter only the model id — "
+                f"e.g. '{suggestion}'."
+            ),
+        )
+    return cleaned
 
 
 def _to_response(config: LLMConfig) -> LLMConfigResponse:
@@ -203,7 +231,7 @@ async def create_llm_config(db: AsyncSession, data: LLMConfigCreate) -> LLMConfi
         provider=data.provider,
         api_key=data.api_key,
         base_url=data.base_url,
-        model_name=data.model_name,
+        model_name=_clean_model_name(data.model_name),
         is_active=True,
     )
     db.add(config)
@@ -240,7 +268,7 @@ async def update_llm_config(
     if data.base_url is not None:
         config.base_url = data.base_url
     if data.model_name is not None:
-        config.model_name = data.model_name
+        config.model_name = _clean_model_name(data.model_name)
 
     if was_gemini or config.provider == "gemini":
         await db.flush()

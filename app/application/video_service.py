@@ -331,6 +331,8 @@ async def create_video_job(
         "name": data.name,
         "provider_extras": data.provider_extras or {},
     }
+    if creation.structured_content and creation.structured_content.get("highlight_cues"):
+        params["highlight_cues"] = creation.structured_content.get("highlight_cues") or []
 
     # 4. Insert the job row in pending state
     job_repo = VideoJobRepository(db)
@@ -1301,6 +1303,7 @@ async def _maybe_sync_status(
                         subtitle_style=_p.get("subtitle_style", "classic"),
                         subtitle_color=_p.get("subtitle_color"),
                         subtitle_stroke=_p.get("subtitle_stroke"),
+                        highlight_cues=_p.get("highlight_cues") or [],
                     )
                     video_url = f"/uploads/composited/{output_path.split('/')[-1]}"
                     logger.info("B-roll composite done: %s", video_url)

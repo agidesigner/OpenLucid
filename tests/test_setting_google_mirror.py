@@ -103,6 +103,28 @@ class _CannedScalarsAll:
 # ── Tests ─────────────────────────────────────────────────────
 
 
+def test_clean_model_name_trims_plain_model_id():
+    from app.application.setting_service import _clean_model_name
+
+    assert _clean_model_name("  deepseek-v4-pro  ") == "deepseek-v4-pro"
+    assert _clean_model_name(None) is None
+
+
+def test_clean_model_name_rejects_temperature_suffix():
+    from fastapi import HTTPException
+
+    from app.application.setting_service import _clean_model_name
+
+    try:
+        _clean_model_name("claude-opus-4-7_0.2")
+    except HTTPException as e:
+        assert e.status_code == 422
+        assert "temperature value" in str(e.detail)
+        assert "claude-opus-4-7" in str(e.detail)
+    else:
+        raise AssertionError("expected HTTPException for model id with _0.2 suffix")
+
+
 _MIRROR_DEFAULTS = {"_managed_by": "gemini_llm_mirror", "aspect_ratio": "portrait"}
 
 

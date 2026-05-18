@@ -156,14 +156,69 @@ def _asset_to_match_dict(a: Asset) -> dict:
 
 def _flatten_tags(tags_json: dict | None) -> list[str]:
     """Tags are stored as {category: [tag1, tag2]}. Flatten for prompt
-    consumption. Cap at 20 to keep the rerank prompt tight."""
+    consumption with category labels intact.
+
+    Category labels matter for B-roll matching: ``scenario:office`` and
+    ``selling_point:office`` are not the same signal. Keeping both the
+    raw tag and category-qualified tag gives the reranker more semantic
+    surface without requiring schema-specific prompt logic.
+    """
     if not isinstance(tags_json, dict):
         return []
     out: list[str] = []
-    for v in tags_json.values():
+    for category, v in tags_json.items():
         if isinstance(v, list):
-            out.extend(str(t) for t in v if isinstance(t, str))
-    return out[:20]
+            for t in v:
+                if not isinstance(t, str):
+                    continue
+                tag = t.strip()
+                if not tag:
+                    continue
+                out.append(tag)
+                out.append(f"{category}:{tag}")
+    # Preserve order but dedupe; cap to keep the rerank prompt tight.
+    deduped = list(dict.fromkeys(out))
+    return deduped[:28]
+
+
+def _asset_to_rerank_summary(a: Asset) -> dict:
+    """Compact asset summary for the LLM reranker.
+
+    Tags alone under-describe real素材: filenames often carry scenario
+    hints, content_text can contain extracted copy, and parsed slices hold
+    the strongest scene/proof signals. Including these makes the match
+    decision semantic instead of a brittle keyword overlap.
+    """
+    slices = []
+    for s in list(getattr(a, "slices", []) or [])[:3]:
+        scene_tags = []
+        for tag_group in (
+            getattr(s, "usage_tags_json", None),
+            getattr(s, "scene_tags_json", None),
+            getattr(s, "audience_tags_json", None),
+        ):
+            if isinstance(tag_group, dict):
+                scene_tags.extend(_flatten_tags(tag_group)[:8])
+        slices.append({
+            "type": getattr(s, "slice_type", None),
+            "summary": (getattr(s, "summary", None) or "")[:180],
+            "transcript": (getattr(s, "transcript", None) or "")[:120],
+            "tags": list(dict.fromkeys(scene_tags))[:16],
+            "hook_score": getattr(s, "hook_score", None),
+            "proof_score": getattr(s, "proof_score", None),
+            "reuse_score": getattr(s, "reuse_score", None),
+        })
+    return {
+        "id": str(a.id),
+        "file": a.file_name,
+        "title": a.title,
+        "type": a.asset_type,
+        "tags": _flatten_tags(a.tags_json),
+        "content_excerpt": (a.content_text or "")[:220],
+        "hook_score": a.hook_score,
+        "reuse_score": a.reuse_score,
+        "slices": slices,
+    }
 
 
 async def _llm_rerank(
@@ -188,15 +243,7 @@ async def _llm_rerank(
         logger.warning("broll_matching: LLM not configured — skipping rerank")
         return {i: None for i in range(len(broll_shots))}
 
-    cand_summary = [
-        {
-            "id": str(a.id),
-            "file": a.file_name,
-            "type": a.asset_type,
-            "tags": _flatten_tags(a.tags_json),
-        }
-        for a in candidates
-    ]
+    cand_summary = [_asset_to_rerank_summary(a) for a in candidates]
     shots_summary = [
         {"index": i, "prompt": (s.get("prompt") or "")[:300]}
         for i, s in enumerate(broll_shots)
@@ -208,9 +255,11 @@ async def _llm_rerank(
         "should show; for each candidate asset, you have its filename and "
         "tags from the user's library.\n\n"
         "For each shot, pick the asset whose semantic content would "
-        "visualize the shot's intent. **Match confidently when there is "
-        "clear semantic overlap** (matching subject / setting / props / "
-        "atmosphere) — the user's library was curated to be reused. Only "
+        "visualize the shot's intent. Consider title, filename, tags, "
+        "content_excerpt, and parsed slices (scene / usage / proof signals). "
+        "**Match confidently when there is clear semantic overlap** "
+        "(matching subject / setting / props / atmosphere / proof role) — "
+        "the user's library was curated to be reused. Only "
         "return null if NO candidate would help at all, e.g. the shot "
         "describes a software UI but every candidate is real-world "
         "footage. Reusing a real user-shot asset is consistently better "

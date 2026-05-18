@@ -304,6 +304,7 @@ async def export_logs():
 async def list_prompt_presets_endpoint(
     category: str | None = Query(None, description="Filter by category"),
     modified_only: bool = Query(False, description="Only show modified presets"),
+    lang: str = Query("zh-CN", description="UI language: zh-CN | en-US"),
     user_id: str = Depends(require_owner),
     db: AsyncSession = Depends(get_db),
 ):
@@ -313,20 +314,21 @@ async def list_prompt_presets_endpoint(
     """
     from app.application.prompt_preset_service import list_prompt_presets
     
-    presets = await list_prompt_presets(db, user_id, category, modified_only)
+    presets = await list_prompt_presets(db, user_id, category, modified_only, language=lang)
     return PromptPresetsResponse(presets=presets)
 
 
 @router.get("/prompt-presets/{preset_key}", response_model=PromptPresetItem)
 async def get_prompt_preset_endpoint(
     preset_key: str,
+    lang: str = Query("zh-CN", description="UI language: zh-CN | en-US"),
     user_id: str = Depends(require_owner),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a single prompt preset with user override merged."""
     from app.application.prompt_preset_service import get_prompt_preset
     
-    preset = await get_prompt_preset(db, user_id, preset_key)
+    preset = await get_prompt_preset(db, user_id, preset_key, language=lang)
     if not preset:
         raise HTTPException(status_code=404, detail=f"Preset not found: {preset_key}")
     return preset
@@ -336,6 +338,7 @@ async def get_prompt_preset_endpoint(
 async def save_prompt_preset_endpoint(
     preset_key: str,
     data: PromptPresetUpdate,
+    lang: str = Query("zh-CN", description="UI language: zh-CN | en-US"),
     user_id: str = Depends(require_owner),
     db: AsyncSession = Depends(get_db),
 ):
@@ -343,7 +346,7 @@ async def save_prompt_preset_endpoint(
     from app.application.prompt_preset_service import save_prompt_preset
     
     try:
-        return await save_prompt_preset(db, user_id, preset_key, data.content)
+        return await save_prompt_preset(db, user_id, preset_key, data.content, language=lang)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -351,6 +354,7 @@ async def save_prompt_preset_endpoint(
 @router.delete("/prompt-presets/{preset_key}", response_model=PromptPresetItem)
 async def reset_prompt_preset_endpoint(
     preset_key: str,
+    lang: str = Query("zh-CN", description="UI language: zh-CN | en-US"),
     user_id: str = Depends(require_owner),
     db: AsyncSession = Depends(get_db),
 ):
@@ -358,7 +362,7 @@ async def reset_prompt_preset_endpoint(
     from app.application.prompt_preset_service import reset_prompt_preset
     
     try:
-        return await reset_prompt_preset(db, user_id, preset_key)
+        return await reset_prompt_preset(db, user_id, preset_key, language=lang)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

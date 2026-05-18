@@ -220,6 +220,51 @@ async def test_save_and_reset_prompt_preset_persists_then_restores_default():
     assert after_clear.is_modified is False
 
 
+@pytest.mark.asyncio
+async def test_prompt_preset_metadata_is_localized_by_backend():
+    from app.application.prompt_preset_service import (
+        get_prompt_preset,
+        list_prompt_presets,
+        save_prompt_preset,
+    )
+
+    db = _FakePresetSession()
+
+    zh = await get_prompt_preset(db, "user-a", "script.base.zh", language="zh-CN")
+    en = await get_prompt_preset(db, "user-a", "script.base.zh", language="en-US")
+
+    assert zh is not None
+    assert en is not None
+    assert zh.title == "文案生成基础规范（中文）"
+    assert en.title == "Script Base Rules (Chinese)"
+    assert zh.description == "社交媒体内容创作的通用规范与核心原则。"
+    assert en.description == "Universal rules and principles for Chinese social content generation."
+    assert zh.default_content == en.default_content
+
+    all_en = await list_prompt_presets(db, "user-a", language="en-US")
+    image_brief = next(p for p in all_en if p.preset_key == "image.brief_template")
+    assert image_brief.title == "Image Brief Template"
+    assert image_brief.description.startswith("Builds image-generation prompts")
+
+    saved = await save_prompt_preset(
+        db, "user-a", "topic.viral_signals.zh", "我的覆盖", language="en-US"
+    )
+    assert saved.title == "Topic Viral Signals (Chinese)"
+    assert db.rows[("user-a", "topic.viral_signals.zh")].title == "选题网感要求（中文）"
+
+
+def test_prompt_preset_api_accepts_lang_query():
+    from app.api import setting
+
+    for fn_name in (
+        "list_prompt_presets_endpoint",
+        "get_prompt_preset_endpoint",
+        "save_prompt_preset_endpoint",
+        "reset_prompt_preset_endpoint",
+    ):
+        assert "lang" in inspect.signature(getattr(setting, fn_name)).parameters
+
+
 def test_runtime_wiring_uses_expected_preset_keys():
     import app.application.script_composer as script_composer
     import app.application.image_service as image_service

@@ -1633,23 +1633,37 @@
               <strong class="font-semibold" x-text="t('prompt_presets_info_title')"></strong>
               <span x-text="t('prompt_presets_info_body')"></span>
             </div>
+            <div class="bg-amber-50 border border-amber-100 rounded-xl p-4 text-xs text-amber-800 leading-relaxed mb-5">
+              <strong class="font-semibold" x-text="t('prompt_presets_lang_note_title')"></strong>
+              <span x-text="t('prompt_presets_lang_note_body')"></span>
+            </div>
 
             <!-- Filters -->
-            <div class="flex flex-col gap-3 mb-4 md:flex-row md:items-center md:justify-between">
-              <div class="flex items-center gap-3">
+            <div class="flex flex-col gap-3 mb-4">
+              <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <input type="text" x-model="searchQuery" @input="filterPresets()"
                        :placeholder="t('prompt_presets_search')"
-                       class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                       class="w-full md:max-w-md border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent">
+                <button @click="resetAllPresets()"
+                        :disabled="savingAll || !allPresets.some(p => p.is_modified)"
+                        class="px-3 py-2 rounded-lg text-sm font-medium border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                        x-text="savingAll ? t('saving') : t('restore_all_defaults')"></button>
+              </div>
+              <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div class="inline-flex flex-wrap gap-1 rounded-lg bg-gray-100 p-1">
+                  <template x-for="opt in langFilterOptions" :key="opt.value">
+                    <button @click="langFilter = opt.value; filterPresets()"
+                            class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+                            :class="langFilter === opt.value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'"
+                            x-text="opt.label"></button>
+                  </template>
+                </div>
                 <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none whitespace-nowrap">
                   <input type="checkbox" x-model="modifiedOnly" @change="filterPresets()"
                          class="rounded border-gray-300 text-accent focus:ring-accent/30">
                   <span x-text="t('prompt_presets_modified_only')"></span>
                 </label>
               </div>
-              <button @click="resetAllPresets()"
-                      :disabled="savingAll || !allPresets.some(p => p.is_modified)"
-                      class="px-3 py-2 rounded-lg text-sm font-medium border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
-                      x-text="savingAll ? t('saving') : t('restore_all_defaults')"></button>
             </div>
 
             <!-- Loading state -->
@@ -1680,7 +1694,7 @@
                       <div class="flex items-center gap-3 mt-1.5 text-[11px] text-gray-400">
                         <span x-text="t('category_' + preset.category)"></span>
                         <span>•</span>
-                        <span x-text="preset.lang.toUpperCase()"></span>
+                        <span x-text="displayPresetLang(preset.lang)"></span>
                       </div>
                     </div>
                     <svg class="w-5 h-5 text-gray-400 shrink-0 transition-transform"
@@ -1707,6 +1721,7 @@
 
                       <!-- Current value (editable) -->
                       <div x-show="presetTabs[preset.preset_key] === 'current'">
+                        <p class="text-[11px] text-gray-500 mb-2" x-text="promptContentHint(preset)"></p>
                         <textarea x-model="editingContent[preset.preset_key]"
                                   rows="12"
                                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent resize-y"
@@ -1728,6 +1743,7 @@
 
                       <!-- System default (read-only) -->
                       <div x-show="presetTabs[preset.preset_key] === 'default'">
+                        <p class="text-[11px] text-gray-500 mb-2" x-text="promptContentHint(preset)"></p>
                         <textarea :value="preset.default_content"
                                   readonly
                                   rows="12"
@@ -2290,7 +2306,7 @@
   <script>
     const _STATIC_MODELS = {
       minimax: ['MiniMax-M2.7','MiniMax-M2.7-highspeed','MiniMax-M2.5','MiniMax-M2.5-highspeed','MiniMax-M2.1','MiniMax-M2.1-highspeed','MiniMax-M2'],
-      anthropic: ['claude-opus-4-6','claude-sonnet-4-6','claude-opus-4-5-20251101','claude-opus-4-1-20250805','claude-sonnet-4-5-20250929','claude-sonnet-4-20250514','claude-haiku-4-5-20251001'],
+      anthropic: ['claude-opus-4-7','claude-sonnet-4-6','claude-haiku-4-5-20251001','claude-opus-4-6','claude-opus-4-5-20251101','claude-opus-4-1-20250805','claude-sonnet-4-5-20250929','claude-sonnet-4-20250514'],
     };
 
     const PROVIDER_PRESETS = {
@@ -3028,12 +3044,23 @@
         filteredPresets: [],
         searchQuery: '',
         modifiedOnly: false,
+        langFilter: 'ui',
         expandedPresets: {},
         presetTabs: {},
         editingContent: {},
         savingAll: false,
         savingPresets: {},
         presetErrors: {},
+
+        get langFilterOptions() {
+          return [
+            { value: 'ui', label: window.t('prompt_lang_filter_ui') },
+            { value: 'zh', label: window.t('prompt_lang_filter_zh') },
+            { value: 'en', label: window.t('prompt_lang_filter_en') },
+            { value: 'multi', label: window.t('prompt_lang_filter_multi') },
+            { value: 'all', label: window.t('prompt_lang_filter_all') },
+          ];
+        },
 
         async ensureLoaded() {
           if (this.initialized) return;
@@ -3044,7 +3071,7 @@
         async loadPromptPresets() {
           this.loading = true;
           try {
-            const r = await fetch('/api/v1/settings/prompt-presets');
+            const r = await fetch(`/api/v1/settings/prompt-presets?lang=${encodeURIComponent(this.apiLang())}`);
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const data = await r.json();
             this.allPresets = data.presets || [];
@@ -3069,6 +3096,12 @@
           if (this.modifiedOnly) {
             filtered = filtered.filter(p => p.is_modified);
           }
+          if (this.langFilter === 'ui') {
+            const ui = this.uiLang();
+            filtered = filtered.filter(p => p.lang === ui || p.lang === 'multi');
+          } else if (this.langFilter !== 'all') {
+            filtered = filtered.filter(p => p.lang === this.langFilter);
+          }
           if (this.searchQuery.trim()) {
             const q = this.searchQuery.toLowerCase();
             filtered = filtered.filter(p =>
@@ -3084,6 +3117,27 @@
           this.expandedPresets[key] = !this.expandedPresets[key];
         },
 
+        uiLang() {
+          return (window._odLang || 'en').startsWith('zh') ? 'zh' : 'en';
+        },
+
+        apiLang() {
+          return this.uiLang() === 'en' ? 'en-US' : 'zh-CN';
+        },
+
+        displayPresetLang(lang) {
+          if (lang === 'zh') return window.t('prompt_lang_zh');
+          if (lang === 'en') return window.t('prompt_lang_en');
+          if (lang === 'multi') return window.t('prompt_lang_multi');
+          return String(lang || '').toUpperCase();
+        },
+
+        promptContentHint(preset) {
+          if (preset.lang === 'zh') return window.t('prompt_content_hint_zh');
+          if (preset.lang === 'en') return window.t('prompt_content_hint_en');
+          return window.t('prompt_content_hint_multi');
+        },
+
         async savePreset(key) {
           const content = this.editingContent[key];
           if (!content || !content.trim()) {
@@ -3094,7 +3148,7 @@
           this.savingPresets[key] = true;
           this.presetErrors[key] = '';
           try {
-            const r = await fetch(`/api/v1/settings/prompt-presets/${key}`, {
+            const r = await fetch(`/api/v1/settings/prompt-presets/${key}?lang=${encodeURIComponent(this.apiLang())}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ content }),
@@ -3123,7 +3177,7 @@
           this.savingPresets[key] = true;
           this.presetErrors[key] = '';
           try {
-            const r = await fetch(`/api/v1/settings/prompt-presets/${key}`, {
+            const r = await fetch(`/api/v1/settings/prompt-presets/${key}?lang=${encodeURIComponent(this.apiLang())}`, {
               method: 'DELETE',
             });
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -3753,9 +3807,20 @@
         },
 
         async saveForm() {
+          // Normalize: a stray trailing space or pasted text is a common
+          // source of "model_not_found" at generation time.
+          this.form.model_name = (this.form.model_name || '').trim();
           if (!this.form.label || !this.form.base_url || !this.form.model_name) {
             this.llmError = t('fill_required');
             return;
+          }
+          // Guard against typos / temperature pasted into the model field:
+          // if we have a known model list and the entered name isn't in it,
+          // make the user confirm before saving an unrecognized id.
+          if (this.modelList.length && !this.modelList.includes(this.form.model_name)) {
+            if (!confirm(t('model_not_in_list_confirm').replace('{m}', this.form.model_name))) {
+              return;
+            }
           }
           this.formSaving = true;
           this.llmError = '';

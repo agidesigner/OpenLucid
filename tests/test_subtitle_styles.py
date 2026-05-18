@@ -91,3 +91,20 @@ def test_minimal_preset_uses_high_contrast_pair():
     # Character should still be "small + thin" — thinner stroke, smaller font.
     assert preset["stroke_width"] < SUBTITLE_STYLES["classic"]["stroke_width"]
     assert preset["size_boost"] < SUBTITLE_STYLES["classic"]["size_boost"]
+
+
+def test_subtitle_y_ratio_is_clamped_to_safe_area():
+    """Subtitle positioning must stay stable inside the bottom safe area.
+
+    Minimal intentionally sits lower than classic, but its bottom edge should
+    not drift into mobile/player controls.
+    """
+    from app.adapters.video.subtitle_styles import compute_y_ratio
+
+    # minimal's raw preset is 0.86; portrait safe clamp brings it to 0.82
+    # because the rendered subtitle box consumes ~12% height plus 6% bottom
+    # margin.
+    assert round(compute_y_ratio("portrait", "minimal"), 2) == 0.82
+    assert round(compute_y_ratio("portrait", "classic"), 2) == 0.82
+    # Landscape keeps a larger bottom margin.
+    assert round(compute_y_ratio("landscape", "minimal"), 2) == 0.80

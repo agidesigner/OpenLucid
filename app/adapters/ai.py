@@ -315,6 +315,36 @@ def _looks_like_temperature_unsupported(msg: str) -> bool:
     ))
 
 
+def _looks_like_model_not_found(msg: str) -> bool:
+    """Detect model-missing errors even when a proxy mislabels them as 5xx.
+
+    Some OpenAI-compatible gateways return HTTP 503 for a permanent config
+    error like ``{"code":"model_not_found"}``. Treating that as transient
+    wastes 10-20 seconds on retries and produces noisy stack traces. Keep the
+    matcher narrow so normal 503 / timeout / gateway errors still retry.
+    """
+    s = msg or ""
+    s_lower = s.lower()
+    if "model_not_found" in s_lower:
+        return True
+    if "model" in s_lower and ("does not exist" in s_lower or "not found" in s_lower):
+        return True
+    if "模型" in s and "不存在" in s:
+        return True
+    return False
+
+
+def _is_non_retryable_llm_error(status: int | None, msg: str) -> bool:
+    """Return True for permanent request/config errors.
+
+    Normal rule: 4xx except 429 is caller/config error. Extra rule: model-not-
+    found is permanent even when a proxy reports it as 503.
+    """
+    if _looks_like_model_not_found(msg):
+        return True
+    return bool(status and 400 <= status < 500 and status != 429)
+
+
 def _extract_thinking(text: str) -> tuple[str, str]:
     """Extract <think>...</think> content from LLM output.
     Returns (thinking_text, remaining_text). thinking_text is empty if no think block found.
@@ -987,7 +1017,7 @@ class OpenAICompatibleAdapter(AIAdapter):
                     _annotate_last_trace_attempt(self, outcome="fallback")
                     self._skip_temperature = True
                     continue
-                if status and 400 <= status < 500 and status != 429:
+                if _is_non_retryable_llm_error(status, msg):
                     _annotate_last_trace_attempt(self, outcome="failed")
                     await _fail_trace(self, e)
                     raise
@@ -1052,6 +1082,10 @@ class OpenAICompatibleAdapter(AIAdapter):
                 logger.debug("_chat_json: model %s rejected temperature — memoizing skip and falling back to plain _chat", self.model)
                 self._skip_temperature = True
                 fallback_reason = "model_rejected_temperature"
+            elif _looks_like_model_not_found(msg):
+                _annotate_last_trace_attempt(self, outcome="failed")
+                await _fail_trace(self, e)
+                raise
             elif status and 400 <= status < 500 and status != 429:
                 logger.info("_chat_json: response_format not supported (%s), falling back to prompt mode", e)
                 fallback_reason = "response_format_unsupported"
@@ -1153,7 +1187,7 @@ class OpenAICompatibleAdapter(AIAdapter):
                     self._skip_temperature = True
                     accumulated.clear()
                     continue
-                if status and 400 <= status < 500 and status != 429:
+                if _is_non_retryable_llm_error(status, msg):
                     _annotate_last_trace_attempt(self, outcome="failed")
                     await _fail_trace(self, e)
                     raise
@@ -2468,13 +2502,14 @@ class AnthropicMessagesAdapter(OpenAICompatibleAdapter):
             except Exception as e:
                 last_err = e
                 status = getattr(getattr(e, "response", None), "status_code", None) or 0
+                msg = str(e).lower()
                 _annotate_last_trace_attempt(
                     self,
                     temperature_sent=True,
                     status_code=status or None,
                     error=str(e),
                 )
-                if status and 400 <= status < 500 and status != 429:
+                if _is_non_retryable_llm_error(status, msg):
                     _annotate_last_trace_attempt(self, outcome="failed")
                     await _fail_trace(self, e)
                     raise
@@ -2666,13 +2701,14 @@ class AnthropicMessagesAdapter(OpenAICompatibleAdapter):
             except Exception as e:
                 last_err = e
                 status = getattr(getattr(e, "response", None), "status_code", None) or 0
+                msg = str(e).lower()
                 _annotate_last_trace_attempt(
                     self,
                     temperature_sent=True,
                     status_code=status or None,
                     error=str(e),
                 )
-                if status and 400 <= status < 500 and status != 429:
+                if _is_non_retryable_llm_error(status, msg):
                     _annotate_last_trace_attempt(self, outcome="failed")
                     await _fail_trace(self, e)
                     raise

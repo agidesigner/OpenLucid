@@ -212,6 +212,54 @@ def _persuasion_technique_spec(is_zh: bool) -> str:
     )
 
 
+def _viral_topic_rewrite_spec(is_zh: bool) -> str:
+    """Rules for turning imported hot topics / reference scripts into a
+    reusable creative structure instead of a flat paraphrase.
+
+    Users often import a viral topic and expect the writer to preserve the
+    attention mechanism while replacing the payload with their offer. Without
+    this layer, models tend to summarize the imported topic literally, which is
+    exactly the "plain and not ready to publish" failure mode reported by
+    creators.
+    """
+    if is_zh:
+        return (
+            "## 爆款选题拆解与重写（默认开启）\n"
+            "如果用户提供了 reference（参考文案）、topic_plan、热点文本或爆款选题，"
+            "不要平铺复述，也不要照搬原句。必须先在脑中拆解其流量机制，再重组为本商品的内容：\n"
+            "\n"
+            "1. **拆 hook 机制**：它靠什么留人，反常识、身份共鸣、痛点、悬念、结果承诺，还是争议判断。\n"
+            "2. **拆情绪按钮**：观众为什么想继续看，怕踩坑、想省钱、想变好、被说中、想评论反驳，还是想收藏。\n"
+            "3. **拆转化路径**：这一条内容最后应该引导评论、私信、直播间、关注、收藏，还是下单。\n"
+            "4. **换成商品语境**：只保留结构和情绪，不保留原内容。每个爆点都要落回人群痛点、场景和卖点证据。\n"
+            "\n"
+            "### 网感硬约束\n"
+            "- 开头第一句必须像真实创作者说话，不能像品牌宣传语或说明书。\n"
+            "- 每 2-3 句必须有一个具体画面、具体数字、具体场景或具体动作，不能连续抽象表达。\n"
+            "- 引流点必须自然嵌入：例如「评论区打 X」「想要清单我发你」「直播间看实测」，不要只写「欢迎关注」。\n"
+            "- 允许有轻微口语情绪词，例如「真的」「别急」「很多人忽略」「说实话」，但不能堆砌。\n"
+            "- 不得输出拆解过程，只输出最终内容。\n"
+        )
+    return (
+        "## Viral Topic Deconstruction and Rewrite (always on)\n"
+        "If the user provides a reference script, topic_plan, trend context, or viral topic, "
+        "do NOT paraphrase it literally. First deconstruct the attention mechanism, then rebuild "
+        "it around this offer:\n"
+        "\n"
+        "1. **Hook mechanism**: why it stops the scroll — contrarian point, identity match, pain, suspense, promised result, or debate.\n"
+        "2. **Emotional trigger**: why viewers keep watching — fear of mistakes, saving money, self-improvement, feeling seen, wanting to argue, or wanting to save.\n"
+        "3. **Conversion path**: what the piece should naturally drive — comment, DM, live room, follow, save, or purchase.\n"
+        "4. **Offer rebuild**: keep only the structure and emotion. Replace the payload with this audience's pain, scenario, and proof.\n"
+        "\n"
+        "### Creator-native constraints\n"
+        "- The first line must sound like a real creator, not brand copy or documentation.\n"
+        "- Every 2-3 sentences needs a concrete image, number, scene, or action. No long abstract stretches.\n"
+        "- The CTA must be embedded naturally, not a generic 'follow for more'.\n"
+        "- Light conversational emphasis is allowed, but do not stack hype words.\n"
+        "- Do not output your deconstruction; output only the final content.\n"
+    )
+
+
 def _shot_description_spec(is_zh: bool) -> str:
     """Spec for writing a detailed, production-grade shot description. Used
     both for per-section ``visual_direction`` and ``broll_plan[].prompt`` so
@@ -321,6 +369,12 @@ def _build_json_schema(platform: ScriptPlatform, structure: ScriptStructure, sho
                 "泡沫从少到多如云朵堆起；光线柔侧光，水珠挂在指尖，背景柔焦白雾。商业级画质，质感清晰。"
              )},
         ]
+        highlight_cues_example = [
+            {"insert_after_char": 0, "duration_seconds": 1.6, "emphasis_type": "hook_pop", "text": "别划走"},
+            {"insert_after_char": 48, "duration_seconds": 1.8, "emphasis_type": "pain_label", "text": "问题在这"},
+            {"insert_after_char": 138, "duration_seconds": 2.0, "emphasis_type": "proof_pop", "text": "实测有效"},
+            {"insert_after_char": 240, "duration_seconds": 2.0, "emphasis_type": "cta_badge", "text": "评论领清单"},
+        ]
         broll_instruction = (
             "\n\nbroll_plan 编排规则（你是 AI 编导，根据文案内容智能编排视觉节奏）：\n"
             "\n核心原则：短视频每 8-12 秒**必须**有一次视觉变化，否则画面"
@@ -350,6 +404,16 @@ def _build_json_schema(platform: ScriptPlatform, structure: ScriptStructure, sho
             "slow motion, visually striking），illustrative 服务口播内容（产品界面、数据图表、场景氛围、"
             "动作特写、物品展示等），避免含人脸\n"
         )
+        highlight_instruction = (
+            "\n\nhighlight_cues 花字 / 重点停留规则（用于成片节奏，不是字幕）：\n"
+            "- 输出 3-6 个重点 cue，覆盖：开头钩子、核心痛点、关键卖点/证据、结尾引流。少于 30 秒可 3 个，90 秒以上最多 6 个。\n"
+            "- insert_after_char 必须是纯整数，含义同 broll_plan，表示花字出现的口播位置。\n"
+            "- text 是屏幕花字，4-10 个中文字符最佳，不要写整句，不要重复字幕原文。\n"
+            "- emphasis_type 只能从 hook_pop / pain_label / benefit_badge / proof_pop / cta_badge / hold_zoom 中选择。\n"
+            "- duration_seconds 控制在 1.2-2.8 秒；一闪而过看不清，太久会遮挡画面。\n"
+            "- cue 应该落在高吸引力节点：反常识、痛点爆发、结果承诺、价格/活动、实测证据、评论/私信引导。\n"
+            "- 不要连续堆花字；两个 cue 对应的口播位置至少间隔约 8 秒。\n"
+        )
     else:
         broll_plan_example = [
             {"type": "retention", "insert_after_char": 0, "duration_seconds": 5,
@@ -364,6 +428,12 @@ def _build_json_schema(platform: ScriptPlatform, structure: ScriptStructure, sho
                 "Camera arcs 180° around the hands as they lather; foam builds from sparse to cloud-like. "
                 "Soft side-key, water droplets clinging to fingertips, background a soft white mist. Commercial grade, texture readable."
              )},
+        ]
+        highlight_cues_example = [
+            {"insert_after_char": 0, "duration_seconds": 1.6, "emphasis_type": "hook_pop", "text": "Stop scrolling"},
+            {"insert_after_char": 48, "duration_seconds": 1.8, "emphasis_type": "pain_label", "text": "This is the gap"},
+            {"insert_after_char": 138, "duration_seconds": 2.0, "emphasis_type": "proof_pop", "text": "Tested proof"},
+            {"insert_after_char": 240, "duration_seconds": 2.0, "emphasis_type": "cta_badge", "text": "Comment checklist"},
         ]
         broll_instruction = (
             "\n\nbroll_plan rules (you are the AI director — plan visual rhythm for the script):\n"
@@ -397,6 +467,16 @@ def _build_json_schema(platform: ScriptPlatform, structure: ScriptStructure, sho
             "illustrative → serves the narration (product UI, data chart, scene, action close-up, "
             "object reveal). Avoid human faces.\n"
         )
+        highlight_instruction = (
+            "\n\nhighlight_cues rules (on-screen emphasis / hold cues, NOT subtitles):\n"
+            "- Output 3-6 cues covering: opening hook, core pain, key benefit/proof, and final conversion cue. Under 30s may use 3; 90s+ max 6.\n"
+            "- insert_after_char MUST be a plain integer, same meaning as broll_plan.\n"
+            "- text is a punchy on-screen label, ideally 1-4 words. Do not repeat the subtitle line.\n"
+            "- emphasis_type must be one of hook_pop / pain_label / benefit_badge / proof_pop / cta_badge / hold_zoom.\n"
+            "- duration_seconds must be 1.2-2.8 seconds; shorter is unreadable, longer blocks the shot.\n"
+            "- Place cues on retention nodes: contrarian claim, pain spike, promised result, price/promo, proof, comment/DM CTA.\n"
+            "- Do not stack cues; keep roughly 8 seconds between adjacent cue positions.\n"
+        )
 
     schema_obj = {
         "platform_id": platform.id,
@@ -405,6 +485,7 @@ def _build_json_schema(platform: ScriptPlatform, structure: ScriptStructure, sho
         "estimated_total_seconds": "（视频总秒数）" if is_zh else "(total video seconds)",
         "sections": sections_example,
         "broll_plan": broll_plan_example,
+        "highlight_cues": highlight_cues_example,
     }
 
     if is_zh:
@@ -413,6 +494,7 @@ def _build_json_schema(platform: ScriptPlatform, structure: ScriptStructure, sho
             f"```json\n{json.dumps(schema_obj, ensure_ascii=False, indent=2)}\n```\n\n"
             f"sections中必须包含以下key：{section_ids}，每个key对应上面的字段结构。\n"
             f"{broll_instruction}"
+            f"{highlight_instruction}"
             f"{shot_spec}"
         )
     else:
@@ -421,6 +503,7 @@ def _build_json_schema(platform: ScriptPlatform, structure: ScriptStructure, sho
             f"```json\n{json.dumps(schema_obj, ensure_ascii=False, indent=2)}\n```\n\n"
             f"sections MUST contain these keys: {section_ids}, each matching the field structure above.\n"
             f"{broll_instruction}"
+            f"{highlight_instruction}"
             f"{shot_spec}"
         )
 
@@ -444,6 +527,7 @@ async def compose_system_prompt(
     is_zh = language.startswith("zh") or language.startswith("ZH")
     base_preset_key = "script.base.zh" if is_zh else "script.base.en"
     persuasion_preset_key = "script.persuasion.zh" if is_zh else "script.persuasion.en"
+    viral_rewrite_preset_key = "script.viral_rewrite.zh" if is_zh else "script.viral_rewrite.en"
     shot_preset_key = "script.shot_description.zh" if is_zh else "script.shot_description.en"
 
     platform = get_platform(platform_id or DEFAULT_PLATFORM_ID) or get_platform(DEFAULT_PLATFORM_ID)
@@ -462,6 +546,10 @@ async def compose_system_prompt(
     persuasion_prompt = await get_effective_prompt(
         persuasion_preset_key,
         lambda: _persuasion_technique_spec(is_zh),
+    )
+    viral_rewrite_prompt = await get_effective_prompt(
+        viral_rewrite_preset_key,
+        lambda: _viral_topic_rewrite_spec(is_zh),
     )
     shot_spec = ""
     if platform.is_video:
@@ -495,6 +583,12 @@ async def compose_system_prompt(
     else:
         goal_header = f"## Content Goal: {goal.emoji} {goal.name_en}\n"
     layers.append(goal_header + goal.prompt_fragment(language))
+
+    # Layer 4b: VIRAL TOPIC REWRITE
+    # Applies when the user imports a hot topic / reference script, but is
+    # harmless for normal runs. It tells the model to reuse the attention
+    # mechanism, not the literal words.
+    layers.append(viral_rewrite_prompt)
 
     # Layer 5: STRUCTURE + JSON schema (placed last for LLM recency bias)
     if is_zh:

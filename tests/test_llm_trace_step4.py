@@ -66,6 +66,28 @@ class _FakeClient:
         self.chat = type("Chat", (), {"completions": _FakeCompletions()})()
 
 
+class _ModelNotFound503(Exception):
+    status_code = 503
+
+    def __str__(self):
+        return "Error code: 503 - {'error': {'code': 'model_not_found', 'message': '模型 claude-opus-4-7_0.2 不存在'}}"
+
+
+class _FailingCompletions:
+    def __init__(self, error):
+        self.error = error
+        self.calls = []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        raise self.error
+
+
+class _FailingClient:
+    def __init__(self, error):
+        self.chat = type("Chat", (), {"completions": _FailingCompletions(error)})()
+
+
 class _StaticCompletions:
     def __init__(self, response):
         self.response = response
@@ -233,6 +255,83 @@ def test_chat_trace_captures_openai_reasoning_content(monkeypatch):
 
     assert result == "final answer"
     assert snapshots == [("<think>plan first</think>final answer", {"prompt_tokens": 3, "completion_tokens": 5, "total_tokens": 8})]
+
+
+def test_openai_model_not_found_503_is_not_retried_for_chat(monkeypatch):
+    """one-api may wrap permanent model config errors in HTTP 503.
+
+    These must fail immediately instead of spending two more retry rounds on
+    a model that will never exist.
+    """
+    import app.adapters.ai as ai_mod
+
+    failed = []
+
+    async def _fake_start(adapter, *_args, **_kwargs):
+        adapter._trace_id = "trace-model-missing"
+        adapter._trace_attempt_count = 0
+        adapter._trace_attempt_log = []
+        adapter._trace_fallbacks = []
+        return adapter._trace_id
+
+    async def _fake_fail(_adapter, error):
+        failed.append(str(error))
+
+    monkeypatch.setattr(ai_mod, "_start_trace", _fake_start)
+    monkeypatch.setattr(ai_mod, "_fail_trace", _fake_fail)
+
+    adapter = OpenAICompatibleAdapter.__new__(OpenAICompatibleAdapter)
+    adapter.model = "claude-opus-4-7_0.2"
+    adapter.provider = "openai"
+    adapter.client = _FailingClient(_ModelNotFound503())
+
+    try:
+        asyncio.run(adapter._chat("system", "user"))
+    except _ModelNotFound503:
+        pass
+    else:
+        raise AssertionError("expected model_not_found error")
+
+    assert len(adapter.client.chat.completions.calls) == 1
+    assert failed and "model_not_found" in failed[0]
+
+
+def test_openai_model_not_found_503_is_not_retried_for_stream(monkeypatch):
+    import app.adapters.ai as ai_mod
+
+    failed = []
+
+    async def _fake_start(adapter, *_args, **_kwargs):
+        adapter._trace_id = "trace-model-missing-stream"
+        adapter._trace_attempt_count = 0
+        adapter._trace_attempt_log = []
+        adapter._trace_fallbacks = []
+        return adapter._trace_id
+
+    async def _fake_fail(_adapter, error):
+        failed.append(str(error))
+
+    monkeypatch.setattr(ai_mod, "_start_trace", _fake_start)
+    monkeypatch.setattr(ai_mod, "_fail_trace", _fake_fail)
+
+    adapter = OpenAICompatibleAdapter.__new__(OpenAICompatibleAdapter)
+    adapter.model = "claude-opus-4-7_0.2"
+    adapter.provider = "openai"
+    adapter.client = _FailingClient(_ModelNotFound503())
+
+    async def _collect():
+        async for _chunk in adapter._chat_stream("system", "user"):
+            pass
+
+    try:
+        asyncio.run(_collect())
+    except _ModelNotFound503:
+        pass
+    else:
+        raise AssertionError("expected model_not_found error")
+
+    assert len(adapter.client.chat.completions.calls) == 1
+    assert failed and "model_not_found" in failed[0]
 
 
 def test_anthropic_chat_trace_captures_thinking_blocks(monkeypatch):

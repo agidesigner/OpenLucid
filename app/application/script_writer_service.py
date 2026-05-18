@@ -251,6 +251,111 @@ def _sanitize_broll_plan(
     return sanitized
 
 
+_ALLOWED_HIGHLIGHT_TYPES = {
+    "hook_pop",
+    "pain_label",
+    "benefit_badge",
+    "proof_pop",
+    "cta_badge",
+    "hold_zoom",
+}
+
+
+def _sanitize_highlight_cues(
+    raw_cues,
+    sections: dict,
+    section_ids: list[str],
+) -> list[dict]:
+    """Normalize AI-planned on-screen emphasis cues.
+
+    ``highlight_cues`` are the lightweight "flower words" / hold cues that
+    tell the renderer where to briefly emphasize the script. They are not
+    subtitles, so text must be short and positions must be stable integer
+    offsets into the narration. This mirrors B-roll sanitization because the
+    same LLM failure modes show up here: sentence-valued positions, overlong
+    labels, unsupported cue types, and too many stacked cues.
+    """
+    if not isinstance(raw_cues, list):
+        return []
+
+    narration = "".join((sections.get(sid) or {}).get("text", "") for sid in section_ids)
+    narration_len = len(narration)
+    out: list[dict] = []
+
+    def _is_cjk(text: str) -> bool:
+        cjk = sum(1 for c in text if "一" <= c <= "鿿")
+        nonspace = sum(1 for c in text if not c.isspace())
+        return nonspace > 0 and (cjk / nonspace) >= 0.3
+
+    for entry in raw_cues:
+        if not isinstance(entry, dict):
+            continue
+
+        pos = entry.get("insert_after_char", 0)
+        if isinstance(pos, bool):
+            resolved = 0
+        elif isinstance(pos, int):
+            resolved = pos
+        elif isinstance(pos, float):
+            resolved = int(pos)
+        elif isinstance(pos, str):
+            needle = pos.strip()
+            if needle.isdigit():
+                resolved = int(needle)
+            elif needle and narration:
+                idx = narration.find(needle)
+                if idx < 0:
+                    continue
+                resolved = idx + len(needle)
+            else:
+                continue
+        else:
+            continue
+        if narration_len > 0:
+            resolved = max(0, min(resolved, narration_len))
+        else:
+            resolved = max(0, resolved)
+
+        text = " ".join(str(entry.get("text") or "").strip().split())
+        if not text:
+            continue
+        if _is_cjk(text):
+            text = text[:10]
+        else:
+            words = text.split()
+            text = " ".join(words[:4]) if len(words) > 4 else text[:32]
+        if not text:
+            continue
+
+        cue_type = str(entry.get("emphasis_type") or "benefit_badge").strip()
+        if cue_type not in _ALLOWED_HIGHLIGHT_TYPES:
+            cue_type = "benefit_badge"
+
+        try:
+            dur = float(entry.get("duration_seconds", 1.8))
+        except (TypeError, ValueError):
+            dur = 1.8
+        dur = max(1.2, min(dur, 2.8))
+
+        # Avoid a burst of labels on the same spoken beat. Char distance is
+        # used instead of seconds here because this function does not know the
+        # final provider video duration. Scale the minimum gap down for very
+        # short scripts so hook / proof / CTA can all survive.
+        min_gap = min(25, max(10, narration_len // 12 if narration_len else 10))
+        if out and abs(resolved - out[-1]["insert_after_char"]) < min_gap:
+            continue
+
+        out.append({
+            "insert_after_char": resolved,
+            "duration_seconds": round(dur, 1),
+            "emphasis_type": cue_type,
+            "text": text,
+        })
+
+    out.sort(key=lambda e: e["insert_after_char"])
+    return out[:6]
+
+
 def _normalize_structured_content(raw: dict, platform, structure) -> dict:
     """Ensure structured JSON from LLM conforms to our schema. Best-effort."""
     sections_raw = raw.get("sections") or {}
@@ -289,6 +394,10 @@ def _normalize_structured_content(raw: dict, platform, structure) -> dict:
         result["broll_plan"] = _sanitize_broll_plan(
             raw["broll_plan"], sections, structure.section_ids,
             est_seconds=est_for_cap,
+        )
+    if platform.is_video and raw.get("highlight_cues"):
+        result["highlight_cues"] = _sanitize_highlight_cues(
+            raw["highlight_cues"], sections, structure.section_ids,
         )
     if not platform.is_video and raw.get("metadata"):
         result["metadata"] = raw["metadata"]

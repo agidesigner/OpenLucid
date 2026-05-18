@@ -4222,12 +4222,17 @@
               subtitle_color: m.form.subtitle_color || undefined,
               subtitle_stroke: m.form.subtitle_stroke || undefined,
               broll: m.form.broll || false,
-              // Send the edited plan when broll is enabled; service falls
-              // back to creation.structured_content.broll_plan otherwise.
+              // When B-roll is enabled, ALWAYS send the editor's plan —
+              // even when it is empty. Omitting the key makes the service
+              // fall back to creation.structured_content.broll_plan (the AI
+              // director's stored plan), so a user who cleared every shot
+              // would still get B-roll silently re-inserted. Sending an
+              // explicit [] makes the editor WYSIWYG. The service fallback
+              // stays for API/MCP callers that genuinely send no plan.
               // Also strips client-only fields (matched_asset metadata,
               // _asset_dismissed flag) and only forwards the asset_id /
               // asset_mode pair the backend understands.
-              ...(m.form.broll && Array.isArray(m.form.broll_plan) && m.form.broll_plan.length
+              ...(m.form.broll && Array.isArray(m.form.broll_plan)
                 ? {
                     broll_plan: m.form.broll_plan.map(shot => {
                       const out = {

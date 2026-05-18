@@ -237,6 +237,7 @@ def _aspect_to_canvas(aspect_ratio: AspectRatio) -> tuple[int, int, int, int, in
 # and this provider-side burn-in share the exact same style configuration.
 from app.adapters.video.subtitle_styles import (
     compute_font_size,
+    compute_y_ratio,
     resolve_style,
 )
 
@@ -261,7 +262,7 @@ def _subtitle_config(
     canvas_w, canvas_h, *_ = _aspect_to_canvas(aspect_ratio)
     text_w = int(canvas_w * 0.9)
     text_x = (canvas_w - text_w) // 2
-    text_y = int(canvas_h * style_params["y_ratio"])
+    text_y = int(canvas_h * compute_y_ratio(aspect_ratio, style))
     text_h = int(canvas_h * 0.12)
     font_size = compute_font_size(aspect_ratio, style)
 

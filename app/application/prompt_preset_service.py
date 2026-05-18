@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
-from typing import Any
+from typing import Callable
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,8 +14,28 @@ logger = logging.getLogger(__name__)
 
 
 # ── System default prompt registry ──────────────────────────────
-# Each entry: (preset_key, title, category, lang, description, default_content)
 # This is the single source of truth for what presets exist and their defaults.
+
+@dataclass(frozen=True)
+class SystemPromptPreset:
+    preset_key: str
+    title_zh: str
+    title_en: str
+    category: str
+    lang: str
+    description_zh: str
+    description_en: str
+    content_getter: Callable[[], str]
+
+    def localized_title(self, language: str = "zh-CN") -> str:
+        return self.title_en if _is_en_ui(language) else self.title_zh
+
+    def localized_description(self, language: str = "zh-CN") -> str:
+        return self.description_en if _is_en_ui(language) else self.description_zh
+
+
+def _is_en_ui(language: str | None) -> bool:
+    return (language or "").lower().startswith("en")
 
 def _get_kb_infer_zh() -> str:
     """Knowledge inference system prompt (Chinese)."""
@@ -50,6 +71,18 @@ def _get_persuasion_technique_en() -> str:
     """Persuasion technique spec (English)."""
     from app.application.script_composer import _persuasion_technique_spec
     return _persuasion_technique_spec(is_zh=False)
+
+
+def _get_viral_topic_rewrite_zh() -> str:
+    """Viral topic rewrite spec (Chinese)."""
+    from app.application.script_composer import _viral_topic_rewrite_spec
+    return _viral_topic_rewrite_spec(is_zh=True)
+
+
+def _get_viral_topic_rewrite_en() -> str:
+    """Viral topic rewrite spec (English)."""
+    from app.application.script_composer import _viral_topic_rewrite_spec
+    return _viral_topic_rewrite_spec(is_zh=False)
 
 
 def _get_shot_description_zh() -> str:
@@ -205,164 +238,228 @@ def _get_topic_viral_signals_en() -> str:
 
 
 # Registry of all system default prompts
-# Format: (preset_key, title, category, lang, description, content_getter)
-_SYSTEM_DEFAULTS: list[tuple[str, str, str, str, str, callable]] = [
+# UI metadata stays here with the prompt definitions so new presets do not
+# need a second frontend mapping table.
+_SYSTEM_DEFAULTS: list[SystemPromptPreset] = [
     # ── Script Writer ──────────────────────────────────────────
-    (
-        "script.base.zh",
-        "文案生成基础规范（中文）",
-        "script_writer",
-        "zh",
-        "社交媒体内容创作的通用规范与核心原则（中文）",
-        _get_script_base_zh,
+    SystemPromptPreset(
+        preset_key="script.base.zh",
+        title_zh="文案生成基础规范（中文）",
+        title_en="Script Base Rules (Chinese)",
+        category="script_writer",
+        lang="zh",
+        description_zh="社交媒体内容创作的通用规范与核心原则。",
+        description_en="Universal rules and principles for Chinese social content generation.",
+        content_getter=_get_script_base_zh,
     ),
-    (
-        "script.base.en",
-        "Script Base Rules (English)",
-        "script_writer",
-        "en",
-        "Universal rules and core principles for social media content creation (English)",
-        _get_script_base_en,
+    SystemPromptPreset(
+        preset_key="script.base.en",
+        title_zh="文案生成基础规范（英文）",
+        title_en="Script Base Rules (English)",
+        category="script_writer",
+        lang="en",
+        description_zh="英文社交媒体内容创作的通用规范与核心原则。",
+        description_en="Universal rules and principles for English social content generation.",
+        content_getter=_get_script_base_en,
     ),
-    (
-        "script.persuasion.zh",
-        "说服手法规范（中文）",
-        "script_writer",
-        "zh",
-        "7 种说服手法的选择与应用约束，防止知识库平铺复述",
-        _get_persuasion_technique_zh,
+    SystemPromptPreset(
+        preset_key="script.persuasion.zh",
+        title_zh="说服手法规范（中文）",
+        title_en="Persuasion Technique Spec (Chinese)",
+        category="script_writer",
+        lang="zh",
+        description_zh="7 种说服手法的选择与应用约束，防止知识库平铺复述。",
+        description_en="Seven persuasion techniques for Chinese scripts; prevents flat knowledge-base enumeration.",
+        content_getter=_get_persuasion_technique_zh,
     ),
-    (
-        "script.persuasion.en",
-        "Persuasion Technique Spec (English)",
-        "script_writer",
-        "en",
-        "7 persuasion techniques selection and constraints to prevent KB enumeration",
-        _get_persuasion_technique_en,
+    SystemPromptPreset(
+        preset_key="script.persuasion.en",
+        title_zh="说服手法规范（英文）",
+        title_en="Persuasion Technique Spec (English)",
+        category="script_writer",
+        lang="en",
+        description_zh="英文脚本的 7 种说服手法选择与应用约束。",
+        description_en="Seven persuasion techniques for English scripts; prevents flat knowledge-base enumeration.",
+        content_getter=_get_persuasion_technique_en,
     ),
-    (
-        "script.shot_description.zh",
-        "镜头描述规范（中文）",
-        "script_writer",
-        "zh",
-        "6 维度镜头描述标准（景别/运镜/场景/光线/动作/情绪），用于 visual_direction 与 B-roll prompt",
-        _get_shot_description_zh,
+    SystemPromptPreset(
+        preset_key="script.viral_rewrite.zh",
+        title_zh="爆款选题拆解与重写（中文）",
+        title_en="Viral Topic Rewrite (Chinese)",
+        category="script_writer",
+        lang="zh",
+        description_zh="导入爆款选题或参考文案时，复用流量机制而不是平铺复述。",
+        description_en="Reuses the attention mechanism from viral Chinese topics without copying the payload.",
+        content_getter=_get_viral_topic_rewrite_zh,
     ),
-    (
-        "script.shot_description.en",
-        "Shot Description Spec (English)",
-        "script_writer",
-        "en",
-        "6-dimension shot description standard (framing/movement/setting/lighting/action/emotion) for visual_direction and B-roll prompts",
-        _get_shot_description_en,
+    SystemPromptPreset(
+        preset_key="script.viral_rewrite.en",
+        title_zh="爆款选题拆解与重写（英文）",
+        title_en="Viral Topic Rewrite (English)",
+        category="script_writer",
+        lang="en",
+        description_zh="英文爆款选题或参考文案的流量机制拆解与重写规则。",
+        description_en="Reuses the attention mechanism from viral English topics without copying the payload.",
+        content_getter=_get_viral_topic_rewrite_en,
+    ),
+    SystemPromptPreset(
+        preset_key="script.shot_description.zh",
+        title_zh="镜头描述规范（中文）",
+        title_en="Shot Description Spec (Chinese)",
+        category="script_writer",
+        lang="zh",
+        description_zh="6 维度镜头描述标准，用于 visual_direction 与 B-roll prompt。",
+        description_en="Six-dimension shot standard for Chinese visual_direction and B-roll prompts.",
+        content_getter=_get_shot_description_zh,
+    ),
+    SystemPromptPreset(
+        preset_key="script.shot_description.en",
+        title_zh="镜头描述规范（英文）",
+        title_en="Shot Description Spec (English)",
+        category="script_writer",
+        lang="en",
+        description_zh="英文 visual_direction 与 B-roll prompt 的 6 维度镜头描述标准。",
+        description_en="Six-dimension shot standard for English visual_direction and B-roll prompts.",
+        content_getter=_get_shot_description_en,
     ),
     
     # ── Topic Studio ───────────────────────────────────────────
-    (
-        "topic.viral_signals.zh",
-        "选题网感要求（中文）",
-        "topic_studio",
-        "zh",
-        "标题与 hook 的网感约束，避免说明文风与官腔",
-        _get_topic_viral_signals_zh,
+    SystemPromptPreset(
+        preset_key="topic.viral_signals.zh",
+        title_zh="选题网感要求（中文）",
+        title_en="Topic Viral Signals (Chinese)",
+        category="topic_studio",
+        lang="zh",
+        description_zh="中文标题与 hook 的网感约束，避免说明文风与官腔。",
+        description_en="Chinese title and hook constraints that avoid instructional or official tone.",
+        content_getter=_get_topic_viral_signals_zh,
     ),
-    (
-        "topic.viral_signals.en",
-        "Topic Viral Signals (English)",
-        "topic_studio",
-        "en",
-        "Title and hook viral constraints to avoid instructional tone and corporate speak",
-        _get_topic_viral_signals_en,
+    SystemPromptPreset(
+        preset_key="topic.viral_signals.en",
+        title_zh="选题网感要求（英文）",
+        title_en="Topic Viral Signals (English)",
+        category="topic_studio",
+        lang="en",
+        description_zh="英文标题与 hook 的网感约束，避免说明文风与企业腔。",
+        description_en="English title and hook constraints that avoid instructional or corporate tone.",
+        content_getter=_get_topic_viral_signals_en,
     ),
     
     # ── Image Generation ───────────────────────────────────────
-    (
-        "image.brief_template",
-        "图片生成 Brief 模板",
-        "image",
-        "multi",
-        "从用户 brief 构建完整图片生成提示词的模板（包含品牌上下文、logo 纪律、排版要求）",
-        _get_image_brief_template,
+    SystemPromptPreset(
+        preset_key="image.brief_template",
+        title_zh="图片生成 Brief 模板",
+        title_en="Image Brief Template",
+        category="image",
+        lang="multi",
+        description_zh="从用户 brief 构建完整图片生成提示词，包含品牌上下文、logo 纪律与排版要求。",
+        description_en="Builds image-generation prompts from a user brief, including brand context, logo discipline, and layout rules.",
+        content_getter=_get_image_brief_template,
     ),
-    (
-        "image.refine_template",
-        "图片优化 Refine 模板",
-        "image",
-        "multi",
-        "基于原图与用户修改请求构建优化提示词的模板",
-        _get_image_refine_template,
+    SystemPromptPreset(
+        preset_key="image.refine_template",
+        title_zh="图片优化 Refine 模板",
+        title_en="Image Refinement Template",
+        category="image",
+        lang="multi",
+        description_zh="基于原图与用户修改请求构建图片优化提示词。",
+        description_en="Builds refinement prompts from the original image and user change request.",
+        content_getter=_get_image_refine_template,
     ),
-    (
-        "image.cover_derive",
-        "文章封面建议提示词",
-        "image",
-        "multi",
-        "从文章标题与正文推导封面 brief 与视觉标签的 LLM 提示词",
-        _get_cover_derive_prompt,
+    SystemPromptPreset(
+        preset_key="image.cover_derive",
+        title_zh="文章封面建议提示词",
+        title_en="Article Cover Suggestion Prompt",
+        category="image",
+        lang="multi",
+        description_zh="从文章标题与正文推导封面 brief 与视觉标签。",
+        description_en="Derives a cover-image brief and visual tags from an article title and body.",
+        content_getter=_get_cover_derive_prompt,
     ),
     
     # ── Knowledge Base ─────────────────────────────────────────
-    (
-        "kb.infer.zh",
-        "知识库推理（中文）",
-        "knowledge",
-        "zh",
-        "从商品/服务信息中推理生成结构化知识库的系统提示词（中文）",
-        _get_kb_infer_zh,
+    SystemPromptPreset(
+        preset_key="kb.infer.zh",
+        title_zh="知识库推理（中文）",
+        title_en="Knowledge Inference (Chinese)",
+        category="knowledge",
+        lang="zh",
+        description_zh="从商品或服务信息中推理生成中文结构化知识库。",
+        description_en="Infers a structured Chinese knowledge base from product or service information.",
+        content_getter=_get_kb_infer_zh,
     ),
-    (
-        "kb.infer.en",
-        "Knowledge Inference (English)",
-        "knowledge",
-        "en",
-        "System prompt for inferring structured knowledge base from product/service information (English)",
-        _get_kb_infer_en,
+    SystemPromptPreset(
+        preset_key="kb.infer.en",
+        title_zh="知识库推理（英文）",
+        title_en="Knowledge Inference (English)",
+        category="knowledge",
+        lang="en",
+        description_zh="从商品或服务信息中推理生成英文结构化知识库。",
+        description_en="Infers a structured English knowledge base from product or service information.",
+        content_getter=_get_kb_infer_en,
     ),
     
     # ── Brand Kit ──────────────────────────────────────────────
-    (
-        "brandkit.voice_suggest.zh",
-        "品牌语气抽取（中文）",
-        "brandkit",
-        "zh",
-        "从品牌文档中抽取品牌语气说明的系统提示词（中文）",
-        _get_brand_voice_suggest_zh,
+    SystemPromptPreset(
+        preset_key="brandkit.voice_suggest.zh",
+        title_zh="品牌语气抽取（中文）",
+        title_en="Brand Voice Suggestion (Chinese)",
+        category="brandkit",
+        lang="zh",
+        description_zh="从品牌文档中抽取中文品牌语气说明。",
+        description_en="Extracts a Chinese brand voice specification from brand documents.",
+        content_getter=_get_brand_voice_suggest_zh,
     ),
-    (
-        "brandkit.voice_suggest.en",
-        "Brand Voice Suggestion (English)",
-        "brandkit",
-        "en",
-        "System prompt for extracting brand voice specification from brand documents (English)",
-        _get_brand_voice_suggest_en,
+    SystemPromptPreset(
+        preset_key="brandkit.voice_suggest.en",
+        title_zh="品牌语气抽取（英文）",
+        title_en="Brand Voice Suggestion (English)",
+        category="brandkit",
+        lang="en",
+        description_zh="从品牌文档中抽取英文品牌语气说明。",
+        description_en="Extracts an English brand voice specification from brand documents.",
+        content_getter=_get_brand_voice_suggest_en,
     ),
     
     # ── KB QA Styles ───────────────────────────────────────────
-    (
-        "kb_qa.style.professional",
-        "KB 问答风格：专业顾问",
-        "kb_qa",
-        "multi",
-        "条理清晰、用语专业的知识库问答风格",
-        _get_kb_qa_style_professional,
+    SystemPromptPreset(
+        preset_key="kb_qa.style.professional",
+        title_zh="知识库问答风格：专业顾问",
+        title_en="KB Q&A Style: Professional Advisor",
+        category="kb_qa",
+        lang="multi",
+        description_zh="条理清晰、用语专业的知识库问答风格。",
+        description_en="A structured, professional style for knowledge-base answers.",
+        content_getter=_get_kb_qa_style_professional,
     ),
-    (
-        "kb_qa.style.friendly",
-        "KB 问答风格：亲切客服",
-        "kb_qa",
-        "multi",
-        "语气友善、通俗易懂的知识库问答风格",
-        _get_kb_qa_style_friendly,
+    SystemPromptPreset(
+        preset_key="kb_qa.style.friendly",
+        title_zh="知识库问答风格：亲切客服",
+        title_en="KB Q&A Style: Friendly Support",
+        category="kb_qa",
+        lang="multi",
+        description_zh="语气友善、通俗易懂的知识库问答风格。",
+        description_en="A friendly, plain-language style for knowledge-base answers.",
+        content_getter=_get_kb_qa_style_friendly,
     ),
-    (
-        "kb_qa.style.expert",
-        "KB 问答风格：产品专家",
-        "kb_qa",
-        "multi",
-        "有深度、善于类比的知识库问答风格",
-        _get_kb_qa_style_expert,
+    SystemPromptPreset(
+        preset_key="kb_qa.style.expert",
+        title_zh="知识库问答风格：产品专家",
+        title_en="KB Q&A Style: Product Expert",
+        category="kb_qa",
+        lang="multi",
+        description_zh="有深度、善于类比的知识库问答风格。",
+        description_en="A deeper product-expert style that explains with useful analogies.",
+        content_getter=_get_kb_qa_style_expert,
     ),
 ]
+
+
+def _find_system_preset(preset_key: str) -> SystemPromptPreset | None:
+    for preset in _SYSTEM_DEFAULTS:
+        if preset.preset_key == preset_key:
+            return preset
+    return None
 
 
 async def list_prompt_presets(
@@ -370,6 +467,7 @@ async def list_prompt_presets(
     user_id: str,
     category: str | None = None,
     modified_only: bool = False,
+    language: str = "zh-CN",
 ) -> list[PromptPresetItem]:
     """List all available prompt presets with user overrides merged.
     
@@ -378,6 +476,7 @@ async def list_prompt_presets(
         user_id: Current user ID
         category: Optional filter by category
         modified_only: If True, only return presets with user overrides
+        language: UI language for localized title/description
     
     Returns:
         List of PromptPresetItem with system defaults + user overrides
@@ -390,20 +489,20 @@ async def list_prompt_presets(
     
     # Build response by merging system defaults with user overrides
     presets = []
-    for preset_key, title, cat, lang, desc, content_getter in _SYSTEM_DEFAULTS:
+    for preset in _SYSTEM_DEFAULTS:
         # Apply category filter
-        if category and cat != category:
+        if category and preset.category != category:
             continue
         
         # Get system default content
         try:
-            default_content = content_getter()
+            default_content = preset.content_getter()
         except Exception as e:
-            logger.error(f"Failed to load default content for {preset_key}: {e}")
+            logger.error(f"Failed to load default content for {preset.preset_key}: {e}")
             default_content = f"[Error loading default: {e}]"
         
         # Check for user override
-        override = user_overrides.get(preset_key)
+        override = user_overrides.get(preset.preset_key)
         is_modified = override is not None
         
         # Apply modified_only filter
@@ -411,11 +510,11 @@ async def list_prompt_presets(
             continue
         
         presets.append(PromptPresetItem(
-            preset_key=preset_key,
-            title=title,
-            category=cat,
-            lang=lang,
-            description=desc,
+            preset_key=preset.preset_key,
+            title=preset.localized_title(language),
+            category=preset.category,
+            lang=preset.lang,
+            description=preset.localized_description(language),
             default_content=default_content,
             user_content=override.content if override else None,
             is_modified=is_modified,
@@ -429,26 +528,20 @@ async def get_prompt_preset(
     db: AsyncSession,
     user_id: str,
     preset_key: str,
+    language: str = "zh-CN",
 ) -> PromptPresetItem | None:
     """Get a single prompt preset with user override merged.
     
     Returns None if preset_key doesn't exist in system defaults.
     """
     # Find in system defaults
-    default_entry = None
-    for key, title, cat, lang, desc, content_getter in _SYSTEM_DEFAULTS:
-        if key == preset_key:
-            default_entry = (title, cat, lang, desc, content_getter)
-            break
-    
-    if not default_entry:
+    preset = _find_system_preset(preset_key)
+    if not preset:
         return None
-    
-    title, cat, lang, desc, content_getter = default_entry
     
     # Get system default content
     try:
-        default_content = content_getter()
+        default_content = preset.content_getter()
     except Exception as e:
         logger.error(f"Failed to load default content for {preset_key}: {e}")
         default_content = f"[Error loading default: {e}]"
@@ -464,10 +557,10 @@ async def get_prompt_preset(
     
     return PromptPresetItem(
         preset_key=preset_key,
-        title=title,
-        category=cat,
-        lang=lang,
-        description=desc,
+        title=preset.localized_title(language),
+        category=preset.category,
+        lang=preset.lang,
+        description=preset.localized_description(language),
         default_content=default_content,
         user_content=override.content if override else None,
         is_modified=override is not None,
@@ -480,6 +573,7 @@ async def save_prompt_preset(
     user_id: str,
     preset_key: str,
     content: str,
+    language: str = "zh-CN",
 ) -> PromptPresetItem:
     """Save or update a user override for a prompt preset.
     
@@ -487,7 +581,8 @@ async def save_prompt_preset(
         ValueError: If preset_key doesn't exist in system defaults
     """
     # Verify preset_key exists
-    preset = await get_prompt_preset(db, user_id, preset_key)
+    system_preset = _find_system_preset(preset_key)
+    preset = await get_prompt_preset(db, user_id, preset_key, language=language)
     if not preset:
         raise ValueError(f"Unknown preset_key: {preset_key}")
     
@@ -510,9 +605,9 @@ async def save_prompt_preset(
         override = UserPromptPreset(
             user_id=user_id,
             preset_key=preset_key,
-            title=preset.title,
-            category=preset.category,
-            lang=preset.lang,
+            title=system_preset.title_zh if system_preset else preset.title,
+            category=system_preset.category if system_preset else preset.category,
+            lang=system_preset.lang if system_preset else preset.lang,
             content=content,
         )
         db.add(override)
@@ -521,13 +616,14 @@ async def save_prompt_preset(
     await db.refresh(override)
     
     # Return updated preset
-    return await get_prompt_preset(db, user_id, preset_key)
+    return await get_prompt_preset(db, user_id, preset_key, language=language)
 
 
 async def reset_prompt_preset(
     db: AsyncSession,
     user_id: str,
     preset_key: str,
+    language: str = "zh-CN",
 ) -> PromptPresetItem:
     """Delete user override for a preset, restoring system default.
     
@@ -535,7 +631,7 @@ async def reset_prompt_preset(
         ValueError: If preset_key doesn't exist in system defaults
     """
     # Verify preset_key exists
-    preset = await get_prompt_preset(db, user_id, preset_key)
+    preset = await get_prompt_preset(db, user_id, preset_key, language=language)
     if not preset:
         raise ValueError(f"Unknown preset_key: {preset_key}")
     
@@ -549,7 +645,7 @@ async def reset_prompt_preset(
     await db.commit()
     
     # Return preset with system default
-    return await get_prompt_preset(db, user_id, preset_key)
+    return await get_prompt_preset(db, user_id, preset_key, language=language)
 
 
 async def reset_all_prompt_presets(

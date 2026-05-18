@@ -71,6 +71,26 @@ def compute_font_size(aspect_ratio: AspectRatio, style: str) -> int:
     return base_font + preset["size_boost"]
 
 
+def compute_y_ratio(aspect_ratio: AspectRatio, style: str) -> float:
+    """Return a clamped subtitle baseline ratio for a stable safe area.
+
+    Provider defaults can place subtitles at the top of the canvas when no
+    position is sent, and preset ratios can drift too close to mobile UI
+    overlays if changed casually. This clamp keeps every style inside a
+    bottom-safe band while preserving each preset's relative character.
+    """
+    preset = SUBTITLE_STYLES.get(style) or SUBTITLE_STYLES["classic"]
+    raw = float(preset["y_ratio"])
+    # The rendered text box is ~12% of canvas height in chanjing.py. Keep
+    # the bottom edge above phone/player controls; landscape needs a little
+    # more margin because the subtitle band is physically shorter.
+    text_h_ratio = 0.12
+    bottom_safe = 0.06 if aspect_ratio == "portrait" else 0.08
+    min_y = 0.08
+    max_y = 1.0 - bottom_safe - text_h_ratio
+    return max(min_y, min(raw, max_y))
+
+
 def resolve_style(
     style: str,
     color_override: str | None = None,
