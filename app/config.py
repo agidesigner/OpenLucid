@@ -2,7 +2,7 @@ import secrets
 
 from pydantic_settings import BaseSettings
 
-VERSION = "1.7.0"
+VERSION = "1.7.1"
 
 # Browser cache-bust token. VERSION alone isn't enough — we don't bump it
 # for every frontend tweak, but we still need users to see the change on

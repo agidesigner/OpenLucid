@@ -696,8 +696,30 @@ async def update_media_capability_configs(
 ) -> MediaCapabilitiesResponse:
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+    normalized_updates = []
     for upd in data.updates:
-        provider_id = uuid.UUID(upd.provider_config_id) if upd.provider_config_id else None
+        provider_id = None
+        if upd.provider_config_id:
+            try:
+                provider_id = uuid.UUID(str(upd.provider_config_id))
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid provider_config_id: {upd.provider_config_id}",
+                ) from e
+
+            provider = await db.get(MediaProviderConfig, provider_id)
+            if provider is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Selected media provider no longer exists. "
+                        "Refresh the settings page and choose an available provider."
+                    ),
+                )
+        normalized_updates.append((upd, provider_id))
+
+    for upd, provider_id in normalized_updates:
         stmt = (
             pg_insert(MediaCapabilityDefault)
             .values(

@@ -125,6 +125,71 @@ def test_clean_model_name_rejects_temperature_suffix():
         raise AssertionError("expected HTTPException for model id with _0.2 suffix")
 
 
+def test_update_media_capability_rejects_invalid_provider_uuid():
+    from fastapi import HTTPException
+
+    from app.application.setting_service import update_media_capability_configs
+    from app.schemas.setting import MediaCapabilitiesUpdateRequest, MediaCapabilityUpdate
+
+    class _Db:
+        async def get(self, *_a, **_kw):
+            raise AssertionError("invalid UUID must be rejected before DB lookup")
+
+        async def execute(self, *_a, **_kw):
+            raise AssertionError("invalid UUID must be rejected before upsert")
+
+    data = MediaCapabilitiesUpdateRequest(updates=[
+        MediaCapabilityUpdate(
+            capability="image_gen",
+            provider_config_id="not-a-uuid",
+            model_code="seedream-4",
+        )
+    ])
+
+    try:
+        _run(update_media_capability_configs(_Db(), data))
+    except HTTPException as e:
+        assert e.status_code == 422
+        assert "Invalid provider_config_id" in str(e.detail)
+    else:
+        raise AssertionError("expected HTTPException for invalid provider_config_id")
+
+
+def test_update_media_capability_rejects_missing_provider_before_fk():
+    from fastapi import HTTPException
+
+    from app.application.setting_service import update_media_capability_configs
+    from app.schemas.setting import MediaCapabilitiesUpdateRequest, MediaCapabilityUpdate
+
+    class _Db:
+        get_calls = 0
+
+        async def get(self, *_a, **_kw):
+            self.get_calls += 1
+            return None
+
+        async def execute(self, *_a, **_kw):
+            raise AssertionError("missing provider must be rejected before FK upsert")
+
+    db = _Db()
+    data = MediaCapabilitiesUpdateRequest(updates=[
+        MediaCapabilityUpdate(
+            capability="image_gen",
+            provider_config_id="00000000-0000-0000-0000-000000000123",
+            model_code="seedream-4",
+        )
+    ])
+
+    try:
+        _run(update_media_capability_configs(db, data))
+    except HTTPException as e:
+        assert e.status_code == 409
+        assert "no longer exists" in str(e.detail)
+        assert db.get_calls == 1
+    else:
+        raise AssertionError("expected HTTPException for missing provider_config_id")
+
+
 _MIRROR_DEFAULTS = {"_managed_by": "gemini_llm_mirror", "aspect_ratio": "portrait"}
 
 

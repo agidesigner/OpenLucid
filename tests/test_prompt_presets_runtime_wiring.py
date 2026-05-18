@@ -127,7 +127,7 @@ class _FakeLookupSession:
             criterion.left.name: criterion.right.value
             for criterion in getattr(stmt, "_where_criteria", [])
         }
-        return self.rows.get((where["user_id"], where["preset_key"]))
+        return self.rows.get((str(where["user_id"]), where["preset_key"]))
 
 
 class _FakeSessionFactory:
@@ -143,22 +143,24 @@ class _FakeSessionFactory:
 async def test_get_effective_prompt_is_user_isolated_and_falls_back(monkeypatch):
     from app import context as ctx
 
+    user_a = "00000000-0000-0000-0000-0000000000a1"
+    user_b = "00000000-0000-0000-0000-0000000000b2"
     factory = _FakeSessionFactory({
-        ("user-a", "script.base.zh"): "override-a",
-        ("user-b", "script.base.zh"): "override-b",
+        (user_a, "script.base.zh"): "override-a",
+        (user_b, "script.base.zh"): "override-b",
     })
 
     import app.database as db_mod
     monkeypatch.setattr(db_mod, "async_session_factory", factory)
 
-    token = ctx.current_user_id.set("user-a")
+    token = ctx.current_user_id.set(user_a)
     try:
         assert await ctx.get_effective_prompt("script.base.zh", lambda: "default") == "override-a"
         assert await ctx.get_effective_prompt("script.base.en", lambda: "default-en") == "default-en"
     finally:
         ctx.current_user_id.reset(token)
 
-    token = ctx.current_user_id.set("user-b")
+    token = ctx.current_user_id.set(user_b)
     try:
         assert await ctx.get_effective_prompt("script.base.zh", lambda: "default") == "override-b"
     finally:
@@ -179,6 +181,32 @@ async def test_get_effective_prompt_returns_default_when_lookup_fails(monkeypatc
         assert await ctx.get_effective_prompt("topic.viral_signals.zh", lambda: "fallback") == "fallback"
     finally:
         ctx.current_user_id.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_get_effective_prompt_skips_non_uuid_user_sentinels(monkeypatch):
+    from app import context as ctx
+
+    class _CountingFactory:
+        calls = 0
+
+        def __call__(self):
+            self.calls += 1
+            return _FakeLookupSession({})
+
+    factory = _CountingFactory()
+
+    import app.database as db_mod
+    monkeypatch.setattr(db_mod, "async_session_factory", factory)
+
+    for uid in ("guest", "api-token", "no-auth", "some-future-sentinel"):
+        token = ctx.current_user_id.set(uid)
+        try:
+            assert await ctx.get_effective_prompt("script.base.zh", lambda: "default") == "default"
+        finally:
+            ctx.current_user_id.reset(token)
+
+    assert factory.calls == 0
 
 
 @pytest.mark.asyncio
